@@ -21,6 +21,18 @@
     "drag_throw_factor": 0.65,
     "edge_snap_distance": 10
   },
+  "stamina": {
+    "max_stamina": 100,
+    "initial_stamina": 100,
+    "recover_per_second": 10,
+    "rest_recover_per_second": 18,
+    "exhausted_threshold": 15,
+    "resume_threshold": 45,
+    "walk_cost_per_px": 0.012,
+    "climb_cost_per_px": 0.09,
+    "full_jump_cost": 18,
+    "min_capability_factor": 0.28
+  },
   "behavior": {
     "idle_min_seconds": 1.0,
     "idle_max_seconds": 2.5,

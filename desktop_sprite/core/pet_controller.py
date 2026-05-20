@@ -6,6 +6,7 @@ import time
 from desktop_sprite.core.animation_player import AnimationPlayer
 from desktop_sprite.core.behavior_state_machine import BehaviorStateMachine
 from desktop_sprite.core.physics_engine import PhysicsEngine
+from desktop_sprite.core.stamina_system import StaminaSystem
 from desktop_sprite.environment.desktop_environment import DesktopEnvironment
 from desktop_sprite.environment.environment_snapshot import EnvironmentSnapshot
 from desktop_sprite.models.geometry import Vec2
@@ -22,9 +23,12 @@ class PetController:
             velocity=Vec2(),
             width=config.pet.width,
             height=config.pet.height,
+            stamina=config.stamina.initial_stamina,
         )
         self.environment = DesktopEnvironment(config.pet.width, config.pet.height)
-        self.physics = PhysicsEngine(config.physics)
+        self.stamina = StaminaSystem(config.stamina, config.physics)
+        self.stamina.clamp(self.pet)
+        self.physics = PhysicsEngine(config.physics, self.stamina)
         self.state_machine = BehaviorStateMachine(self.pet.state)
         self.animation = AnimationPlayer()
         self.snapshot = self.environment.snapshot()
@@ -39,7 +43,12 @@ class PetController:
     def tick(self, dt: float) -> None:
         self._refresh_environment_if_needed()
         self._update_behavior(dt)
+        old_position = self.pet.position.copy()
+        old_state = self.pet.state
         self.physics.update(self.pet, self.snapshot, dt)
+        self.stamina.apply_motion_cost(self.pet, old_position, old_state)
+        self._update_stamina_recovery(dt)
+        self._handle_exhaustion_after_motion()
         self.pet.state_time += dt
         self.animation.set_state(self.pet.state)
         self.animation.update(dt)
@@ -90,6 +99,10 @@ class PetController:
         if self.pet.state == PetState.DRAGGED:
             return
 
+        if not self.stamina.can_act(self.pet) and self.pet.state not in {PetState.FALL, PetState.JUMP, PetState.CLIMB}:
+            self._rest_from_exhaustion()
+            return
+
         support = self.snapshot.platform_by_id(self.pet.support_platform_id)
         if support is None and self.pet.state not in {PetState.FALL, PetState.JUMP, PetState.CLIMB}:
             self._transition(PetState.FALL)
@@ -103,6 +116,10 @@ class PetController:
             return
 
         if self.pet.state == PetState.CLIMB:
+            if not self.stamina.can_act(self.pet):
+                self.pet.target_platform_id = None
+                self._transition(PetState.FALL)
+                return
             self._snap_to_climb_side()
             return
 
@@ -116,6 +133,8 @@ class PetController:
 
     def _maybe_target_foreground_window(self) -> None:
         if not self.config.behavior.prefer_foreground_window:
+            return
+        if not self.stamina.can_resume(self.pet):
             return
         if self.pet.target_platform_id and self.snapshot.platform_by_id(self.pet.target_platform_id):
             return
@@ -145,11 +164,7 @@ class PetController:
     def _walk_toward_climb_side(self, side: Platform) -> None:
         reachability = self._climb_reachability(side)
         if reachability == "unreachable":
-            self.pet.target_platform_id = None
-            self.pet.target_window_id = None
-            self.pet.velocity.x = 0.0
-            self._transition(PetState.IDLE)
-            self._pick_new_idle_goal()
+            self._rest_from_exhaustion()
             return
 
         target_x = side.rect.center_x - self.pet.width / 2
@@ -168,7 +183,7 @@ class PetController:
             return
 
         direction = 1 if distance > 0 else -1
-        self.pet.velocity.x = direction * self.config.physics.walk_speed
+        self.pet.velocity.x = direction * self.stamina.effective_walk_speed(self.pet)
         self.pet.facing = Facing.RIGHT if direction > 0 else Facing.LEFT
         self._transition(PetState.MOVE_TO_TARGET)
 
@@ -180,8 +195,9 @@ class PetController:
         self.pet.target_platform_id = side.id
         self.pet.target_window_id = side.source_id
         self.pet.support_platform_id = None
-        self.pet.velocity.x = direction * self.config.physics.jump_speed_x
-        self.pet.velocity.y = self.config.physics.jump_speed_y
+        self.pet.velocity.x = direction * self.stamina.effective_jump_speed_x(self.pet)
+        self.pet.velocity.y = self.stamina.effective_jump_speed_y(self.pet)
+        self.stamina.consume_jump(self.pet)
         if direction:
             self.pet.facing = Facing.RIGHT if direction > 0 else Facing.LEFT
         self._transition(PetState.JUMP)
@@ -192,15 +208,10 @@ class PetController:
             self.pet.target_platform_id = None
             return
 
-        top = self._top_platform_for_side(side)
-        if top is None:
-            self.pet.target_platform_id = None
-            return
-
         target_x = side.rect.center_x - self.pet.width / 2
         horizontal_close = abs(target_x - self.pet.position.x) <= self.config.physics.edge_snap_distance * 2
-        current_reach_height = self.pet.bottom - top.rect.top
-        can_touch_now = -self.pet.height * 0.15 <= current_reach_height <= self.pet.height + 12
+        bottom_gap = self.pet.bottom - side.rect.bottom
+        can_touch_now = abs(bottom_gap) <= self.config.physics.edge_snap_distance * 3
         if not horizontal_close or not can_touch_now:
             return
 
@@ -223,10 +234,13 @@ class PetController:
         if top is None:
             return "unreachable"
 
-        required_height = max(0.0, self.pet.bottom - top.rect.top)
-        if required_height <= self.pet.height + 4:
+        if not self._has_stamina_for_climb_to_top(side, top):
+            return "unreachable"
+
+        bottom_gap = self.pet.bottom - side.rect.bottom
+        if bottom_gap <= self.config.physics.edge_snap_distance:
             return "stand"
-        if required_height <= self.pet.height + self._max_jump_height():
+        if bottom_gap <= self._max_jump_height():
             return "jump"
         return "unreachable"
 
@@ -234,8 +248,10 @@ class PetController:
         top = self._top_platform_for_side(side)
         if top is None:
             return False
-        required_height = max(0.0, self.pet.bottom - top.rect.top)
-        return required_height <= self.pet.height + self._max_jump_height()
+        if not self._has_stamina_for_climb_to_top(side, top):
+            return False
+        bottom_gap = self.pet.bottom - side.rect.bottom
+        return bottom_gap <= self._max_jump_height()
 
     def _top_platform_for_side(self, side: Platform) -> Platform | None:
         if side.source_id is None:
@@ -243,15 +259,19 @@ class PetController:
         return self.snapshot.platform_by_id(f"window:{side.source_id}:top")
 
     def _max_jump_height(self) -> float:
-        jump_speed_y = abs(self.config.physics.jump_speed_y)
-        gravity = max(self.config.physics.gravity, 1.0)
-        return jump_speed_y * jump_speed_y / (2.0 * gravity)
+        return self.stamina.max_jump_height(self.pet)
 
     def _max_jump_distance(self) -> float:
-        jump_speed_y = abs(self.config.physics.jump_speed_y)
-        gravity = max(self.config.physics.gravity, 1.0)
-        air_time = 2.0 * jump_speed_y / gravity
-        return self.config.physics.jump_speed_x * air_time
+        return self.stamina.max_jump_distance(self.pet)
+
+    def _max_climb_distance(self) -> float:
+        available = max(0.0, self.pet.stamina - self.config.stamina.exhausted_threshold)
+        cost_per_px = max(self.config.stamina.climb_cost_per_px, 0.001)
+        return available / cost_per_px
+
+    def _has_stamina_for_climb_to_top(self, side: Platform, top: Platform) -> bool:
+        climb_distance = max(0.0, side.rect.bottom - top.rect.top)
+        return climb_distance <= self._max_climb_distance()
 
     def _keep_walking_on_platform(self, support: Platform | None, dt: float) -> None:
         now = time.monotonic()
@@ -261,7 +281,7 @@ class PetController:
         if self.pet.state == PetState.IDLE and now >= self._state_goal_until:
             self._transition(PetState.WALK)
             direction = random.choice([-1, 1])
-            self.pet.velocity.x = direction * self.config.physics.walk_speed
+            self.pet.velocity.x = direction * self.stamina.effective_walk_speed(self.pet)
             self.pet.facing = Facing.RIGHT if direction > 0 else Facing.LEFT
             self._state_goal_until = now + random.uniform(
                 self.config.behavior.walk_min_seconds,
@@ -270,10 +290,10 @@ class PetController:
 
         if self.pet.state in {PetState.WALK, PetState.MOVE_TO_TARGET}:
             if self.pet.center_x < support.rect.left + self.pet.width * 0.65:
-                self.pet.velocity.x = abs(self.config.physics.walk_speed)
+                self.pet.velocity.x = abs(self.stamina.effective_walk_speed(self.pet))
                 self.pet.facing = Facing.RIGHT
             elif self.pet.center_x > support.rect.right - self.pet.width * 0.65:
-                self.pet.velocity.x = -abs(self.config.physics.walk_speed)
+                self.pet.velocity.x = -abs(self.stamina.effective_walk_speed(self.pet))
                 self.pet.facing = Facing.LEFT
 
             if now >= self._state_goal_until:
@@ -294,6 +314,28 @@ class PetController:
         if self.state_machine.transition(state):
             self.pet.state = state
             self.pet.state_time = 0.0
+
+    def _rest_from_exhaustion(self) -> None:
+        self.pet.target_platform_id = None
+        self.pet.target_window_id = None
+        self.pet.velocity.x = 0.0
+        if self.pet.state not in {PetState.FALL, PetState.JUMP, PetState.CLIMB}:
+            self._transition(PetState.IDLE)
+        self._pick_new_idle_goal()
+
+    def _update_stamina_recovery(self, dt: float) -> None:
+        resting = self.pet.state in {PetState.IDLE, PetState.SLEEP} or not self.stamina.can_act(self.pet)
+        if self.pet.state in {PetState.IDLE, PetState.SLEEP}:
+            self.stamina.recover(self.pet, dt, resting=resting)
+
+    def _handle_exhaustion_after_motion(self) -> None:
+        if self.stamina.can_act(self.pet):
+            return
+        if self.pet.state == PetState.CLIMB:
+            self.pet.target_platform_id = None
+            self._transition(PetState.FALL)
+        elif self.pet.state in {PetState.WALK, PetState.MOVE_TO_TARGET}:
+            self._rest_from_exhaustion()
 
     def _record_drag(self, mouse_x: float, mouse_y: float) -> None:
         now = time.monotonic()

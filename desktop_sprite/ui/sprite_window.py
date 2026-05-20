@@ -124,6 +124,7 @@ class SpriteWindow(QWidget):
             #f"floor={floor_y:.0f} over={overflow:.0f}",
             #f"scale={scale:.2f}",
             f"v=({pet.velocity.x:.0f},{pet.velocity.y:.0f})",
+            f"stamina={pet.stamina:.0f}/{self.config.stamina.max_stamina:.0f}",
             f"p={pet.support_platform_id or '-'}",
         ]
         painter.drawText(QRectF(4, 4, self.width() - 8, 104), "\n".join(lines))

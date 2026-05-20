@@ -35,6 +35,20 @@ class PhysicsConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class StaminaConfig:
+    max_stamina: float
+    initial_stamina: float
+    recover_per_second: float
+    rest_recover_per_second: float
+    exhausted_threshold: float
+    resume_threshold: float
+    walk_cost_per_px: float
+    climb_cost_per_px: float
+    full_jump_cost: float
+    min_capability_factor: float
+
+
+@dataclass(frozen=True, slots=True)
 class BehaviorConfig:
     idle_min_seconds: float
     idle_max_seconds: float
@@ -58,6 +72,7 @@ class AppConfig:
     app: RuntimeConfig
     pet: PetConfig
     physics: PhysicsConfig
+    stamina: StaminaConfig
     behavior: BehaviorConfig
     interaction: InteractionConfig
 
@@ -77,6 +92,7 @@ def load_config(path: str | Path | None = None) -> AppConfig:
         ),
         pet=PetConfig(**data["pet"]),
         physics=PhysicsConfig(**data["physics"]),
+        stamina=StaminaConfig(**data["stamina"]),
         behavior=BehaviorConfig(**data["behavior"]),
         interaction=InteractionConfig(**data["interaction"]),
     )

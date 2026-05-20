@@ -33,6 +33,7 @@ class Pet:
     support_platform_id: str | None = None
     target_platform_id: str | None = None
     target_window_id: int | None = None
+    stamina: float = 100.0
     state_time: float = 0.0
     idle_timer: float = 0.0
     drag_positions: list[tuple[float, float, float]] = field(default_factory=list)

@@ -41,6 +41,7 @@ python app.py
 - `physics.gravity`: 重力
 - `physics.walk_speed`: 行走速度
 - `physics.climb_speed`: 攀爬速度
+- `stamina.*`: 体力上限、恢复速度、疲劳阈值和行动消耗
 
 ## 测试
 

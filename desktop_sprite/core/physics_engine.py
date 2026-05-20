@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 from desktop_sprite.environment.environment_snapshot import EnvironmentSnapshot
+from desktop_sprite.core.stamina_system import StaminaSystem
 from desktop_sprite.models.platform import Platform
 from desktop_sprite.models.state import Facing, Pet, PetState
 from desktop_sprite.utils.config import PhysicsConfig
 
 
 class PhysicsEngine:
-    def __init__(self, config: PhysicsConfig) -> None:
+    def __init__(self, config: PhysicsConfig, stamina: StaminaSystem | None = None) -> None:
         self.config = config
+        self.stamina = stamina
 
     def reconcile_platform_motion(
         self,
@@ -78,7 +80,8 @@ class PhysicsEngine:
             return
 
         pet.velocity.x = 0.0
-        pet.velocity.y = -self.config.climb_speed
+        climb_speed = self.stamina.effective_climb_speed(pet) if self.stamina else self.config.climb_speed
+        pet.velocity.y = -climb_speed
         pet.position.y += pet.velocity.y * dt
 
         if pet.bottom <= top.rect.top + 3:
@@ -86,7 +89,8 @@ class PhysicsEngine:
             pet.support_platform_id = top.id
             pet.target_platform_id = None
             pet.velocity.y = 0.0
-            pet.velocity.x = self.config.walk_speed if pet.facing == Facing.RIGHT else -self.config.walk_speed
+            walk_speed = self.stamina.effective_walk_speed(pet) if self.stamina else self.config.walk_speed
+            pet.velocity.x = walk_speed if pet.facing == Facing.RIGHT else -walk_speed
             pet.state = PetState.WALK
 
     def _resolve_platform_landing(self, pet: Pet, snapshot: EnvironmentSnapshot, old_bottom: float) -> None:

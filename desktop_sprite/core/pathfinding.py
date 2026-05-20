@@ -69,7 +69,7 @@ class PathFinder:
         if start_id not in walkable or target_id not in walkable:
             return None
 
-        graph = self._build_graph(pet, snapshot, walkable, stamina)
+        graph = self.build_navigation_graph(pet, snapshot, stamina)
         distances: dict[str, float] = {start_id: 0.0}
         previous: dict[str, tuple[str, PathEdge]] = {}
         queue: list[tuple[float, str]] = [(0.0, start_id)]
@@ -90,6 +90,15 @@ class PathFinder:
                 heapq.heappush(queue, (next_cost, edge.to_platform_id))
 
         return None
+
+    def build_navigation_graph(
+        self,
+        pet: Pet,
+        snapshot: EnvironmentSnapshot,
+        stamina: StaminaSystem,
+    ) -> dict[str, list[PathEdge]]:
+        walkable = {platform.id: platform for platform in snapshot.platforms if platform.walkable}
+        return self._build_graph(pet, snapshot, walkable, stamina)
 
     def _build_graph(
         self,

@@ -10,6 +10,7 @@ class PetState(StrEnum):
     IDLE = "idle"
     WALK = "walk"
     MOVE_TO_TARGET = "move_to_target"
+    JUMP = "jump"
     CLIMB = "climb"
     FALL = "fall"
     DRAGGED = "dragged"

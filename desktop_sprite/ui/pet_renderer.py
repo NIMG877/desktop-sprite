@@ -17,7 +17,6 @@ class PetRenderer:
             painter.translate(-width / 2, -height / 2)
 
             self._draw_shadow(painter, pose)
-            self._draw_edge_line(painter, pose)
             self._draw_limbs(painter, pose)
             self._draw_body(painter, pose)
             self._draw_scarf(painter, pose)
@@ -31,19 +30,6 @@ class PetRenderer:
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QColor(24, 29, 36, pose.shadow.opacity))
             self._draw_ellipse(painter, pose.shadow.ellipse)
-        finally:
-            painter.restore()
-
-    def _draw_edge_line(self, painter: QPainter, pose: RenderPose) -> None:
-        if pose.edge_line is None:
-            return
-        start, end = pose.edge_line
-        painter.save()
-        try:
-            pen = QPen(QColor(67, 82, 98, 155), 4)
-            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-            painter.setPen(pen)
-            painter.drawLine(QPoint(round(start.x), round(start.y)), QPoint(round(end.x), round(end.y)))
         finally:
             painter.restore()
 

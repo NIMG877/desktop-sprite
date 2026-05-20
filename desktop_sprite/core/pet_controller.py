@@ -91,11 +91,15 @@ class PetController:
             return
 
         support = self.snapshot.platform_by_id(self.pet.support_platform_id)
-        if support is None and self.pet.state not in {PetState.FALL, PetState.CLIMB}:
+        if support is None and self.pet.state not in {PetState.FALL, PetState.JUMP, PetState.CLIMB}:
             self._transition(PetState.FALL)
             return
 
         if self.pet.state == PetState.FALL:
+            return
+
+        if self.pet.state == PetState.JUMP:
+            self._maybe_grab_climb_side_while_jumping()
             return
 
         if self.pet.state == PetState.CLIMB:
@@ -121,26 +125,39 @@ class PetController:
         if self.pet.support_platform_id and self.pet.support_platform_id.startswith(f"window:{foreground.hwnd}:top"):
             return
 
-        side = self._nearest_side_for_window(foreground.hwnd)
+        side = self._nearest_reachable_side_for_window(foreground.hwnd)
         if side is None:
             return
         self.pet.target_platform_id = side.id
         self.pet.target_window_id = foreground.hwnd
         self._transition(PetState.MOVE_TO_TARGET)
 
-    def _nearest_side_for_window(self, hwnd: int) -> Platform | None:
+    def _nearest_reachable_side_for_window(self, hwnd: int) -> Platform | None:
         sides = [
             platform
             for platform in self.snapshot.platforms
-            if platform.source_id == hwnd and platform.climbable
+            if platform.source_id == hwnd and platform.climbable and self._can_ever_reach_climb_side(platform)
         ]
         if not sides:
             return None
         return min(sides, key=lambda platform: abs(platform.rect.center_x - self.pet.center_x))
 
     def _walk_toward_climb_side(self, side: Platform) -> None:
+        reachability = self._climb_reachability(side)
+        if reachability == "unreachable":
+            self.pet.target_platform_id = None
+            self.pet.target_window_id = None
+            self.pet.velocity.x = 0.0
+            self._transition(PetState.IDLE)
+            self._pick_new_idle_goal()
+            return
+
         target_x = side.rect.center_x - self.pet.width / 2
         distance = target_x - self.pet.position.x
+        if reachability == "jump" and abs(distance) <= self._max_jump_distance():
+            self._start_jump_toward_climb_side(side, distance)
+            return
+
         if abs(distance) <= self.config.physics.edge_snap_distance:
             self.pet.position.x = target_x
             self.pet.velocity.x = 0.0
@@ -155,11 +172,86 @@ class PetController:
         self.pet.facing = Facing.RIGHT if direction > 0 else Facing.LEFT
         self._transition(PetState.MOVE_TO_TARGET)
 
+    def _start_jump_toward_climb_side(self, side: Platform, distance: float) -> None:
+        direction = 0
+        if abs(distance) > self.config.physics.edge_snap_distance:
+            direction = 1 if distance > 0 else -1
+
+        self.pet.target_platform_id = side.id
+        self.pet.target_window_id = side.source_id
+        self.pet.support_platform_id = None
+        self.pet.velocity.x = direction * self.config.physics.jump_speed_x
+        self.pet.velocity.y = self.config.physics.jump_speed_y
+        if direction:
+            self.pet.facing = Facing.RIGHT if direction > 0 else Facing.LEFT
+        self._transition(PetState.JUMP)
+
+    def _maybe_grab_climb_side_while_jumping(self) -> None:
+        side = self.snapshot.platform_by_id(self.pet.target_platform_id)
+        if side is None or not side.climbable:
+            self.pet.target_platform_id = None
+            return
+
+        top = self._top_platform_for_side(side)
+        if top is None:
+            self.pet.target_platform_id = None
+            return
+
+        target_x = side.rect.center_x - self.pet.width / 2
+        horizontal_close = abs(target_x - self.pet.position.x) <= self.config.physics.edge_snap_distance * 2
+        current_reach_height = self.pet.bottom - top.rect.top
+        can_touch_now = -self.pet.height * 0.15 <= current_reach_height <= self.pet.height + 12
+        if not horizontal_close or not can_touch_now:
+            return
+
+        self.pet.position.x = target_x
+        self.pet.velocity.x = 0.0
+        self.pet.velocity.y = 0.0
+        self.pet.support_platform_id = None
+        self.pet.target_platform_id = side.id
+        self.pet.facing = Facing.RIGHT if side.type == PlatformType.WINDOW_LEFT else Facing.LEFT
+        self._transition(PetState.CLIMB)
+
     def _snap_to_climb_side(self) -> None:
         side = self.snapshot.platform_by_id(self.pet.target_platform_id)
         if side is None:
             return
         self.pet.position.x = side.rect.center_x - self.pet.width / 2
+
+    def _climb_reachability(self, side: Platform) -> str:
+        top = self._top_platform_for_side(side)
+        if top is None:
+            return "unreachable"
+
+        required_height = max(0.0, self.pet.bottom - top.rect.top)
+        if required_height <= self.pet.height + 4:
+            return "stand"
+        if required_height <= self.pet.height + self._max_jump_height():
+            return "jump"
+        return "unreachable"
+
+    def _can_ever_reach_climb_side(self, side: Platform) -> bool:
+        top = self._top_platform_for_side(side)
+        if top is None:
+            return False
+        required_height = max(0.0, self.pet.bottom - top.rect.top)
+        return required_height <= self.pet.height + self._max_jump_height()
+
+    def _top_platform_for_side(self, side: Platform) -> Platform | None:
+        if side.source_id is None:
+            return None
+        return self.snapshot.platform_by_id(f"window:{side.source_id}:top")
+
+    def _max_jump_height(self) -> float:
+        jump_speed_y = abs(self.config.physics.jump_speed_y)
+        gravity = max(self.config.physics.gravity, 1.0)
+        return jump_speed_y * jump_speed_y / (2.0 * gravity)
+
+    def _max_jump_distance(self) -> float:
+        jump_speed_y = abs(self.config.physics.jump_speed_y)
+        gravity = max(self.config.physics.gravity, 1.0)
+        air_time = 2.0 * jump_speed_y / gravity
+        return self.config.physics.jump_speed_x * air_time
 
     def _keep_walking_on_platform(self, support: Platform | None, dt: float) -> None:
         now = time.monotonic()

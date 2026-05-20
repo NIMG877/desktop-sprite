@@ -170,3 +170,28 @@ def test_supported_pet_is_not_carried_down_when_dynamic_platform_moves_down():
     physics.reconcile_platform_motion(pet, previous, current)
 
     assert pet.position.y == 60
+
+
+def test_jumping_pet_lands_like_falling_pet():
+    physics = make_physics()
+    pet = Pet(
+        position=Vec2(50, 40),
+        velocity=Vec2(0, 200),
+        width=40,
+        height=60,
+        state=PetState.JUMP,
+    )
+    platform = Platform(
+        id="ground:test",
+        type=PlatformType.GROUND,
+        rect=Rect.from_xywh(0, 120, 200, 4),
+        walkable=True,
+        climbable=False,
+    )
+    snapshot = make_snapshot([platform])
+
+    physics.update(pet, snapshot, 0.1)
+
+    assert pet.support_platform_id == "ground:test"
+    assert pet.position.y == 60
+    assert pet.state == PetState.IDLE

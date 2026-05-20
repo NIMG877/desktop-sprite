@@ -29,7 +29,9 @@ def test_climb_pose_alternates_hand_and_foot_targets():
     first = builder.build(pet, phase=0.0, width=84, height=104)
     second = builder.build(pet, phase=0.25, width=84, height=104)
 
-    assert first.edge_line is not None
+    assert first.edge_line is None
+    assert len({round(limb.end.x, 4) for limb in first.limbs}) == 1
+    assert len({round(limb.end.x, 4) for limb in second.limbs}) == 1
     assert first.limbs[0].end.y != second.limbs[0].end.y
     assert first.limbs[2].end.y != second.limbs[2].end.y
 
@@ -42,3 +44,14 @@ def test_walk_pose_has_opposed_feet():
     left_foot = pose.limbs[2].end
     right_foot = pose.limbs[3].end
     assert left_foot.y > right_foot.y
+
+
+def test_jump_pose_raises_hands_and_tucks_feet():
+    builder = PoseBuilder()
+    pet = make_pet(PetState.JUMP, Vec2(120, -520))
+    pose = builder.build(pet, phase=0.25, width=84, height=104)
+
+    assert pose.limbs[0].end.y < pose.body.front.y
+    assert pose.limbs[1].end.y < pose.body.front.y
+    assert pose.limbs[2].end.y < 104 * 0.86
+    assert pose.scarf.tail_tip.y < 104 * 0.50

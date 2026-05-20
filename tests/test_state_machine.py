@@ -14,3 +14,10 @@ def test_blocks_unexpected_sleep_to_climb_transition():
 
     assert not machine.transition(PetState.CLIMB)
     assert machine.state == PetState.SLEEP
+
+
+def test_move_to_target_can_jump_before_climbing():
+    machine = BehaviorStateMachine(PetState.MOVE_TO_TARGET)
+
+    assert machine.transition(PetState.JUMP)
+    assert machine.state == PetState.JUMP

@@ -154,9 +154,6 @@ class PoseBuilder:
         scarf = self._scarf(resolved_state, cycle, width, height, fall_strength)
         eyes = self._eyes(resolved_state, cycle, width, height, fall_strength)
         shadow = self._shadow(resolved_state, width, height, fall_strength)
-        edge_line = None
-        if resolved_state == PetState.CLIMB:
-            edge_line = (PosePoint(width * 0.79, height * 0.12), PosePoint(width * 0.79, height * 0.84))
 
         return RenderPose(
             facing=pet.facing,
@@ -167,12 +164,14 @@ class PoseBuilder:
             scarf=scarf,
             shadow=shadow,
             limbs=limbs,
-            edge_line=edge_line,
+            edge_line=None,
         )
 
     def _offset(self, state: PetState, cycle: float, speed: float, fall_strength: float) -> PosePoint:
         if state in {PetState.WALK, PetState.MOVE_TO_TARGET}:
             return PosePoint(math.sin(cycle) * 1.5 * speed, math.sin(cycle * 2.0) * 2.4 * speed)
+        if state == PetState.JUMP:
+            return PosePoint(math.sin(cycle) * 1.0, -3.0 + math.sin(cycle * 1.5) * 1.2)
         if state == PetState.IDLE:
             return PosePoint(math.sin(cycle * 0.7) * 0.9, math.sin(cycle) * 1.8)
         if state == PetState.CLIMB:
@@ -189,6 +188,10 @@ class PoseBuilder:
             return -12.0 - fall_strength * 14.0 + drift * 8.0
         if state == PetState.CLIMB:
             return -7.0
+        if state == PetState.JUMP:
+            drift = clamp(pet.velocity.x / 500.0, -1.0, 1.0)
+            lift = clamp(max(-pet.velocity.y, 0.0) / 520.0, 0.0, 1.0)
+            return 7.0 * lift + drift * 8.0
         if state == PetState.DRAGGED:
             return clamp(pet.velocity.x / 70.0, -10.0, 10.0)
         return 0.0
@@ -213,6 +216,12 @@ class PoseBuilder:
                 PoseRect(w * 0.22, h * 0.17, w * 0.60, h * 0.68),
                 PoseRect(w * 0.19, h * 0.13, w * 0.60, h * 0.66),
                 PoseRect(w * 0.31, h * 0.22, w * 0.20, h * 0.17),
+            )
+        if state == PetState.JUMP:
+            return BodyPose(
+                PoseRect(w * 0.23, h * 0.16, w * 0.56, h * 0.68),
+                PoseRect(w * 0.20, h * 0.12, w * 0.56, h * 0.66),
+                PoseRect(w * 0.32, h * 0.22, w * 0.18, h * 0.17),
             )
         return BodyPose(
             PoseRect(w * 0.22, h * 0.18, w * 0.58, h * 0.70),
@@ -239,8 +248,8 @@ class PoseBuilder:
             return (
                 LimbPose(PosePoint(w * 0.42, h * 0.34), PosePoint(w * 0.58, h * 0.29), PosePoint(grip_x, h * 0.24 + hand_shift), radius, terminal),
                 LimbPose(PosePoint(w * 0.44, h * 0.50), PosePoint(w * 0.59, h * 0.47), PosePoint(grip_x, h * 0.43 - hand_shift), radius, terminal),
-                LimbPose(PosePoint(w * 0.42, h * 0.70), PosePoint(w * 0.55, h * 0.68), PosePoint(w * 0.68, h * 0.70 + foot_shift), radius, terminal),
-                LimbPose(PosePoint(w * 0.36, h * 0.75), PosePoint(w * 0.49, h * 0.80), PosePoint(w * 0.62, h * 0.82 - foot_shift), radius, terminal),
+                LimbPose(PosePoint(w * 0.42, h * 0.70), PosePoint(w * 0.60, h * 0.68), PosePoint(grip_x, h * 0.70 + foot_shift), radius, terminal),
+                LimbPose(PosePoint(w * 0.36, h * 0.75), PosePoint(w * 0.57, h * 0.80), PosePoint(grip_x, h * 0.82 - foot_shift), radius, terminal),
             )
 
         if state == PetState.FALL:
@@ -251,6 +260,15 @@ class PoseBuilder:
                 LimbPose(PosePoint(w * 0.64, h * 0.45), PosePoint(w * (0.78 + 0.04 * spread), h * 0.36), PosePoint(w * (0.91 + 0.03 * spread), h * (0.31 - 0.05 * spread) - arm_wave), radius, terminal),
                 LimbPose(PosePoint(w * 0.40, h * 0.74), PosePoint(w * 0.31, h * (0.82 + 0.02 * spread)), PosePoint(w * (0.20 - 0.03 * spread), h * 0.88), radius, terminal),
                 LimbPose(PosePoint(w * 0.58, h * 0.74), PosePoint(w * 0.68, h * (0.82 + 0.02 * spread)), PosePoint(w * (0.78 + 0.03 * spread), h * 0.88), radius, terminal),
+            )
+
+        if state == PetState.JUMP:
+            tuck = math.sin(cycle) * h * 0.025
+            return (
+                LimbPose(PosePoint(w * 0.34, h * 0.43), PosePoint(w * 0.25, h * 0.25), PosePoint(w * 0.20, h * 0.09 + tuck), radius, terminal),
+                LimbPose(PosePoint(w * 0.62, h * 0.43), PosePoint(w * 0.72, h * 0.25), PosePoint(w * 0.78, h * 0.09 - tuck), radius, terminal),
+                LimbPose(PosePoint(w * 0.39, h * 0.72), PosePoint(w * 0.33, h * 0.78), PosePoint(w * 0.28, h * 0.78 + tuck), radius, terminal),
+                LimbPose(PosePoint(w * 0.58, h * 0.72), PosePoint(w * 0.66, h * 0.78), PosePoint(w * 0.72, h * 0.78 - tuck), radius, terminal),
             )
 
         stride = math.sin(cycle) * h * 0.05 * max(speed, 0.35)
@@ -271,6 +289,9 @@ class PoseBuilder:
         if state == PetState.CLIMB:
             scarf_y = h * 0.54
             tail_tip_y = h * (0.52 + math.sin(cycle) * 0.025)
+        elif state == PetState.JUMP:
+            scarf_y = h * 0.54
+            tail_tip_y = h * (0.42 + math.sin(cycle) * 0.035)
         elif state == PetState.FALL:
             scarf_y = h * 0.51
             tail_tip_y = h * (0.30 - fall_strength * 0.12 + math.sin(cycle) * 0.025)
@@ -288,6 +309,8 @@ class PoseBuilder:
         eye_y = h * 0.40
         if state == PetState.SLEEP:
             eye_y = h * 0.43
+        elif state == PetState.JUMP:
+            eye_y = h * 0.38
         elif state == PetState.FALL:
             eye_y = h * 0.38
         elif state == PetState.CLIMB:
@@ -309,4 +332,6 @@ class PoseBuilder:
     def _shadow(self, state: PetState, w: int, h: int, fall_strength: float) -> ShadowPose:
         if state == PetState.FALL:
             return ShadowPose(PoseRect(w * 0.34, h * 0.91, w * (0.40 - fall_strength * 0.12), h * 0.055), round(36 - fall_strength * 14))
+        if state == PetState.JUMP:
+            return ShadowPose(PoseRect(w * 0.30, h * 0.90, w * 0.42, h * 0.06), 42)
         return ShadowPose(PoseRect(w * 0.22, h * 0.84, w * 0.56, h * 0.10), 70)

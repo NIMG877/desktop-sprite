@@ -108,7 +108,7 @@ class PhysicsEngine:
         pet.position.y = platform.rect.top - pet.height
         pet.velocity.y = 0.0
         pet.support_platform_id = platform.id
-        if pet.state == PetState.FALL:
+        if pet.state in {PetState.FALL, PetState.JUMP}:
             pet.state = PetState.IDLE if abs(pet.velocity.x) < 1 else PetState.WALK
 
     def _clamp_horizontal(self, pet: Pet, snapshot: EnvironmentSnapshot) -> None:
@@ -163,7 +163,7 @@ class PhysicsEngine:
         pet.position.y = floor_y - pet.height
         pet.velocity.y = 0.0
         pet.support_platform_id = "ground:work_area"
-        if pet.state == PetState.FALL:
+        if pet.state in {PetState.FALL, PetState.JUMP}:
             pet.state = PetState.IDLE if abs(pet.velocity.x) < 1 else PetState.WALK
 
     def _clamp_to_screen(self, pet: Pet, snapshot: EnvironmentSnapshot) -> None:

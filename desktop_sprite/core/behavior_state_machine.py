@@ -4,9 +4,10 @@ from desktop_sprite.models.state import PetState
 
 
 ALLOWED_TRANSITIONS: dict[PetState, set[PetState]] = {
-    PetState.IDLE: {PetState.WALK, PetState.MOVE_TO_TARGET, PetState.FALL, PetState.DRAGGED, PetState.SLEEP},
-    PetState.WALK: {PetState.IDLE, PetState.MOVE_TO_TARGET, PetState.CLIMB, PetState.FALL, PetState.DRAGGED, PetState.SLEEP},
-    PetState.MOVE_TO_TARGET: {PetState.IDLE, PetState.WALK, PetState.CLIMB, PetState.FALL, PetState.DRAGGED},
+    PetState.IDLE: {PetState.WALK, PetState.MOVE_TO_TARGET, PetState.JUMP, PetState.FALL, PetState.DRAGGED, PetState.SLEEP},
+    PetState.WALK: {PetState.IDLE, PetState.MOVE_TO_TARGET, PetState.JUMP, PetState.CLIMB, PetState.FALL, PetState.DRAGGED, PetState.SLEEP},
+    PetState.MOVE_TO_TARGET: {PetState.IDLE, PetState.WALK, PetState.JUMP, PetState.CLIMB, PetState.FALL, PetState.DRAGGED},
+    PetState.JUMP: {PetState.CLIMB, PetState.FALL, PetState.IDLE, PetState.WALK, PetState.DRAGGED},
     PetState.CLIMB: {PetState.WALK, PetState.FALL, PetState.DRAGGED},
     PetState.FALL: {PetState.IDLE, PetState.WALK, PetState.CLIMB, PetState.DRAGGED},
     PetState.DRAGGED: {PetState.FALL},

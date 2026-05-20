@@ -1,10 +1,12 @@
 from desktop_sprite.core.behavior_state_machine import BehaviorStateMachine
+from desktop_sprite.core.pathfinding import PathAction, PathEdge, PathFinder, PathPlan
 from desktop_sprite.core.pet_controller import PetController
 from desktop_sprite.core.stamina_system import StaminaSystem
 from desktop_sprite.environment.environment_snapshot import EnvironmentSnapshot
 from desktop_sprite.models.geometry import Rect, Vec2
 from desktop_sprite.models.platform import Platform, PlatformType
 from desktop_sprite.models.state import Pet, PetState
+from desktop_sprite.models.window_info import WindowInfo
 from desktop_sprite.utils.config import load_config
 
 
@@ -13,6 +15,8 @@ def make_controller(window_top_y: float, pet_bottom: float = 200) -> tuple[PetCo
     controller = PetController.__new__(PetController)
     controller.config = config
     controller.stamina = StaminaSystem(config.stamina, config.physics)
+    controller.pathfinder = PathFinder()
+    controller.path_plan = None
     controller.pet = Pet(
         position=Vec2(100, pet_bottom - config.pet.height),
         velocity=Vec2(0, 0),
@@ -158,3 +162,120 @@ def test_exhausted_pet_clears_target_and_rests():
     assert controller.pet.target_platform_id is None
     assert controller.pet.velocity.x == 0
     assert controller.pet.state == PetState.IDLE
+
+
+def window_platforms(hwnd: int, left: float, top: float, right: float, bottom: float) -> list[Platform]:
+    return [
+        Platform(
+            id=f"window:{hwnd}:top",
+            type=PlatformType.WINDOW_TOP,
+            rect=Rect(left, top, right, top + 8),
+            walkable=True,
+            climbable=False,
+            dynamic=True,
+            source_id=hwnd,
+        ),
+        Platform(
+            id=f"window:{hwnd}:left",
+            type=PlatformType.WINDOW_LEFT,
+            rect=Rect(left - 8, top, left + 6, bottom),
+            walkable=False,
+            climbable=True,
+            dynamic=True,
+            source_id=hwnd,
+        ),
+        Platform(
+            id=f"window:{hwnd}:right",
+            type=PlatformType.WINDOW_RIGHT,
+            rect=Rect(right - 6, top, right + 8, bottom),
+            walkable=False,
+            climbable=True,
+            dynamic=True,
+            source_id=hwnd,
+        ),
+    ]
+
+
+def test_controller_plans_intermediate_path_to_high_foreground_window():
+    controller, _side = make_controller(window_top_y=430)
+    controller.snapshot = EnvironmentSnapshot(
+        screen_rect=Rect.from_xywh(0, 0, 900, 700),
+        work_area_rect=Rect.from_xywh(0, 0, 900, 650),
+        taskbar_rect=None,
+        windows=[
+            WindowInfo(
+                hwnd=2,
+                title="target",
+                rect=Rect(340, 300, 520, 500),
+                visible=True,
+                minimized=False,
+                is_foreground=True,
+            )
+        ],
+        platforms=[
+            Platform(
+                id="ground:work_area",
+                type=PlatformType.GROUND,
+                rect=Rect.from_xywh(0, 650, 900, 4),
+                walkable=True,
+                climbable=False,
+            ),
+            *window_platforms(1, 160, 430, 320, 620),
+            *window_platforms(2, 340, 300, 520, 500),
+        ],
+        timestamp=2.0,
+    )
+
+    controller._maybe_target_foreground_window()
+
+    assert controller.path_plan is not None
+    assert controller.path_plan.target_window_id == 2
+    assert len(controller.path_plan.edges) >= 2
+
+
+def test_controller_clears_path_when_next_platform_disappears():
+    controller, _side = make_controller(window_top_y=120)
+    controller.path_plan = PathPlan(
+        edges=[
+            PathEdge(
+                action=PathAction.JUMP,
+                from_platform_id="ground:work_area",
+                to_platform_id="missing:platform",
+                target_x=100,
+                cost=1,
+            )
+        ],
+        current_index=0,
+        target_window_id=99,
+        snapshot_timestamp=1.0,
+    )
+
+    controller._validate_path_plan()
+
+    assert controller.path_plan is None
+
+
+def test_controller_does_not_plan_when_stamina_below_resume_threshold():
+    controller, _side = make_controller(window_top_y=120)
+    controller.pet.stamina = 20
+    controller.snapshot = EnvironmentSnapshot(
+        screen_rect=controller.snapshot.screen_rect,
+        work_area_rect=controller.snapshot.work_area_rect,
+        taskbar_rect=None,
+        windows=[
+            WindowInfo(
+                hwnd=123,
+                title="target",
+                rect=Rect(80, 120, 260, 300),
+                visible=True,
+                minimized=False,
+                is_foreground=True,
+            )
+        ],
+        platforms=controller.snapshot.platforms,
+        timestamp=3.0,
+    )
+
+    controller._maybe_target_foreground_window()
+
+    assert controller.path_plan is None

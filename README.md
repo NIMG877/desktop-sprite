@@ -37,7 +37,7 @@ python app.py
 默认配置在 `config/default.json`。常用项：
 
 - `app.debug_draw`: 显示碰撞框、状态和速度
-- `app.environment_refresh_hz`: 环境感知刷新频率
+- `app.fps`: 主循环、动画和环境感知刷新频率
 - `physics.gravity`: 重力
 - `physics.walk_speed`: 行走速度
 - `physics.climb_speed`: 攀爬速度

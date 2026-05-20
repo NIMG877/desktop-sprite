@@ -9,7 +9,6 @@ from typing import Any
 @dataclass(frozen=True, slots=True)
 class RuntimeConfig:
     fps: int
-    environment_refresh_hz: int
     always_on_top: bool
     debug_draw: bool
     log_level: str
@@ -68,8 +67,14 @@ def load_config(path: str | Path | None = None) -> AppConfig:
     with config_path.open("r", encoding="utf-8") as file:
         data: dict[str, Any] = json.load(file)
 
+    app_data = data["app"]
     return AppConfig(
-        app=RuntimeConfig(**data["app"]),
+        app=RuntimeConfig(
+            fps=app_data["fps"],
+            always_on_top=app_data["always_on_top"],
+            debug_draw=app_data["debug_draw"],
+            log_level=app_data["log_level"],
+        ),
         pet=PetConfig(**data["pet"]),
         physics=PhysicsConfig(**data["physics"]),
         behavior=BehaviorConfig(**data["behavior"]),

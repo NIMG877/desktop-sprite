@@ -31,7 +31,6 @@ class PetController:
         self._last_environment_refresh = 0.0
         self._state_goal_until = 0.0
         self._drag_offset = Vec2()
-        self._last_support_rects: dict[str, tuple[float, float]] = {}
         self._pick_new_idle_goal()
 
     def set_own_window_handle(self, hwnd: int | None) -> None:
@@ -39,7 +38,6 @@ class PetController:
 
     def tick(self, dt: float) -> None:
         self._refresh_environment_if_needed()
-        self._follow_dynamic_support()
         self._update_behavior(dt)
         self.physics.update(self.pet, self.snapshot, dt)
         self.pet.state_time += dt
@@ -80,31 +78,13 @@ class PetController:
 
     def _refresh_environment_if_needed(self) -> None:
         now = time.monotonic()
-        refresh_interval = 1.0 / max(self.config.app.environment_refresh_hz, 1)
+        refresh_interval = 1.0 / max(self.config.app.fps, 1)
         if now - self._last_environment_refresh < refresh_interval:
             return
-        previous = {platform.id: platform.rect for platform in self.snapshot.platforms}
+        previous_snapshot = self.snapshot
         self.snapshot = self.environment.snapshot()
-        self._last_support_rects = {
-            platform_id: (rect.left, rect.top) for platform_id, rect in previous.items()
-        }
+        self.physics.reconcile_platform_motion(self.pet, previous_snapshot, self.snapshot)
         self._last_environment_refresh = now
-
-    def _follow_dynamic_support(self) -> None:
-        platform = self.snapshot.platform_by_id(self.pet.support_platform_id)
-        if platform is None:
-            if self.pet.support_platform_id is not None and self.pet.state != PetState.DRAGGED:
-                self.pet.support_platform_id = None
-                self._transition(PetState.FALL)
-            return
-
-        previous = self._last_support_rects.get(platform.id)
-        if previous and platform.dynamic:
-            dx = platform.rect.left - previous[0]
-            dy = platform.rect.top - previous[1]
-            self.pet.position.x += dx
-            self.pet.position.y += dy
-            self._last_support_rects[platform.id] = (platform.rect.left, platform.rect.top)
 
     def _update_behavior(self, dt: float) -> None:
         if self.pet.state == PetState.DRAGGED:

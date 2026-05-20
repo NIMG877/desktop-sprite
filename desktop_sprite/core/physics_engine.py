@@ -10,6 +10,30 @@ class PhysicsEngine:
     def __init__(self, config: PhysicsConfig) -> None:
         self.config = config
 
+    def reconcile_platform_motion(
+        self,
+        pet: Pet,
+        previous_snapshot: EnvironmentSnapshot,
+        current_snapshot: EnvironmentSnapshot,
+    ) -> None:
+        if pet.state == PetState.DRAGGED or pet.support_platform_id is None:
+            return
+
+        previous = previous_snapshot.platform_by_id(pet.support_platform_id)
+        current = current_snapshot.platform_by_id(pet.support_platform_id)
+        if previous is None or current is None or not current.dynamic or not current.walkable:
+            return
+
+        dy = current.rect.top - previous.rect.top
+        if dy >= 0:
+            return
+        if not pet.rect.overlaps_x(current.rect, padding=8):
+            return
+
+        pet.position.y += dy
+        if pet.velocity.y > 0:
+            pet.velocity.y = 0.0
+
     def update(self, pet: Pet, snapshot: EnvironmentSnapshot, dt: float) -> None:
         if pet.state == PetState.DRAGGED:
             self._clamp_to_work_area(pet, snapshot)
@@ -20,6 +44,7 @@ class PhysicsEngine:
             self._clamp_to_screen(pet, snapshot)
             return
 
+        self._validate_support(pet, snapshot)
         old_bottom = pet.bottom
 
         if pet.support_platform_id is None:
@@ -96,6 +121,25 @@ class PhysicsEngine:
             pet.position.x = bounds.right - pet.width
             pet.velocity.x = -abs(pet.velocity.x)
             pet.facing = Facing.LEFT
+
+    def _validate_support(self, pet: Pet, snapshot: EnvironmentSnapshot) -> None:
+        if pet.support_platform_id is None:
+            return
+
+        platform = snapshot.platform_by_id(pet.support_platform_id)
+        if platform is None or not platform.walkable:
+            pet.support_platform_id = None
+            pet.state = PetState.FALL
+            return
+
+        vertical_tolerance = 3.0
+        is_on_top = abs(pet.bottom - platform.rect.top) <= vertical_tolerance
+        overlaps = pet.rect.overlaps_x(platform.rect, padding=8)
+        if is_on_top and overlaps:
+            return
+
+        pet.support_platform_id = None
+        pet.state = PetState.FALL
 
     def _clamp_to_work_area(self, pet: Pet, snapshot: EnvironmentSnapshot) -> None:
         self._clamp_horizontal(pet, snapshot)

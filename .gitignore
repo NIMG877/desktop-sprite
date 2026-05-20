@@ -10,3 +10,6 @@ __pycache__/
 
 # Runtime logs and local-only config
 logs/
+
+# Plans
+*_plan.md

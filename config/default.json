@@ -1,7 +1,6 @@
 {
   "app": {
     "fps": 60,
-    "environment_refresh_hz": 10,
     "always_on_top": true,
     "debug_draw": true,
     "log_level": "INFO"

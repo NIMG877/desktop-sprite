@@ -1,0 +1,40 @@
+{
+  "app": {
+    "fps": 60,
+    "environment_refresh_hz": 10,
+    "always_on_top": true,
+    "debug_draw": true,
+    "log_level": "INFO"
+  },
+  "pet": {
+    "width": 84,
+    "height": 104,
+    "default_spawn_x": 300,
+    "default_spawn_y": 300
+  },
+  "physics": {
+    "gravity": 1800,
+    "walk_speed": 120,
+    "climb_speed": 92,
+    "jump_speed_x": 180,
+    "jump_speed_y": -520,
+    "max_fall_speed": 1100,
+    "drag_throw_factor": 0.65,
+    "edge_snap_distance": 10
+  },
+  "behavior": {
+    "idle_min_seconds": 1.0,
+    "idle_max_seconds": 2.5,
+    "walk_min_seconds": 2.0,
+    "walk_max_seconds": 6.0,
+    "sleep_after_seconds": 120,
+    "prefer_foreground_window": true,
+    "target_repick_seconds": 3.5
+  },
+  "interaction": {
+    "draggable": true,
+    "throw_enabled": true,
+    "click_reaction": true,
+    "mouse_hover_reaction": true
+  }
+}

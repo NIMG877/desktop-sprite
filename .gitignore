@@ -1,0 +1,12 @@
+# Python bytecode and caches
+__pycache__/
+
+# Virtual environments
+.venv/
+
+# Test and coverage output
+.pytest_cache/
+
+
+# Runtime logs and local-only config
+logs/

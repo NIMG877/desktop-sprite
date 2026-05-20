@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QApplication, QWidget
 
 from desktop_sprite.core.pet_controller import PetController
 from desktop_sprite.ui.pet_renderer import PetRenderer
+from desktop_sprite.ui.render_pose import PoseBuilder
 from desktop_sprite.utils.config import AppConfig
 from desktop_sprite.utils.dpi import qt_primary_screen_scale
 
@@ -21,6 +22,7 @@ class SpriteWindow(QWidget):
         self._press_global: QPoint | None = None
         self._dragging = False
         self.pet_renderer = PetRenderer()
+        self.pose_builder = PoseBuilder()
 
         flags = Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool
         if config.app.always_on_top:
@@ -50,10 +52,25 @@ class SpriteWindow(QWidget):
     def paintEvent(self, _event) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        self.pet_renderer.draw(
-            painter,
+        animation = self.controller.animation
+        pose = self.pose_builder.build(
             self.controller.pet,
-            self.controller.animation.phase,
+            animation.phase,
+            self.width(),
+            self.height(),
+        )
+        if animation.previous_state is not None and animation.blend_alpha < 1.0:
+            previous_pose = self.pose_builder.build(
+                self.controller.pet,
+                animation.previous_phase,
+                self.width(),
+                self.height(),
+                state=animation.previous_state,
+            )
+            pose = previous_pose.blend(pose, animation.blend_alpha)
+        self.pet_renderer.draw_pose(
+            painter,
+            pose,
             self.width(),
             self.height(),
         )

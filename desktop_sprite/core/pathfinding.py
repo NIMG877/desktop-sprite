@@ -225,20 +225,21 @@ class PathFinder:
             )
 
         for source in walkable:
-            landing = self._drop_landing_platform(source, walkable)
-            if landing is not None:
-                for side in ("left", "right"):
-                    if not self._is_drop_side_valid(source, side, snapshot, pet):
-                        continue
-                    drop_x = source.rect.left - pet.width + 7.0 if side == "left" else source.rect.right - 7.0
-                    drop_node = self._ensure_drop_node(mesh, source, pet, drop_x, side, physics)
-                    landing_anchor = self._ensure_drop_landing_node(mesh, landing, pet, drop_x, source.id, side, physics)
-                    if drop_node is None or landing_anchor is None:
-                        continue
-                    vertical = landing.rect.top - source.rect.top
-                    adjacency[drop_node.id].append(
-                        NavEdge(drop_node.id, landing_anchor.id, PathAction.WALK, vertical / 200.0 + 3.0, meta={"drop": "1"})
-                    )
+            for side in ("left", "right"):
+                if not self._is_drop_side_valid(source, side, snapshot, pet):
+                    continue
+                drop_x = source.rect.left - pet.width + 7.0 if side == "left" else source.rect.right - 7.0
+                landing = self._first_platform_hit_below(source, drop_x, walkable, pet)
+                if landing is None:
+                    continue
+                drop_node = self._ensure_drop_node(mesh, source, pet, drop_x, side, physics)
+                landing_anchor = self._ensure_drop_landing_node(mesh, landing, pet, drop_x, source.id, side, physics)
+                if drop_node is None or landing_anchor is None:
+                    continue
+                vertical = landing.rect.top - source.rect.top
+                adjacency[drop_node.id].append(
+                    NavEdge(drop_node.id, landing_anchor.id, PathAction.WALK, vertical / 200.0 + 3.0, meta={"drop": "1"})
+                )
 
             for target in walkable:
                 if target.id == source.id:
@@ -467,15 +468,23 @@ class PathFinder:
             trimmed.pop()
         return trimmed
 
-    def _drop_landing_platform(self, source: Platform, platforms: list[Platform]) -> Platform | None:
+    def _first_platform_hit_below(
+        self,
+        source: Platform,
+        drop_x: float,
+        platforms: list[Platform],
+        pet: Pet,
+    ) -> Platform | None:
         candidates = [
             target
             for target in platforms
-            if target.id != source.id and target.rect.top > source.rect.top and self._platform_horizontal_gap(source, target) <= max(source.rect.width, target.rect.width) * 0.25
+            if target.id != source.id
+            and target.rect.top > source.rect.top
+            and target.rect.left <= drop_x <= target.rect.right - pet.width
         ]
         if not candidates:
             return None
-        return min(candidates, key=lambda p: p.rect.top)
+        return min(candidates, key=lambda platform: platform.rect.top)
 
     def _is_drop_side_valid(
         self,

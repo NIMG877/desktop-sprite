@@ -88,7 +88,7 @@ def test_path_to_point_on_current_platform_generates_walk_edge():
     assert plan.edges[0].to_platform_id == "ground:work_area"
 
 
-def test_lower_platform_transfer_walks_off_source_edge():
+def test_lower_platform_transfer_requires_vertical_hit_below_drop_point():
     pet = make_pet()
     pet.support_platform_id = "window:1:top"
     source_top = platform("window:1:top", PlatformType.WINDOW_TOP, Rect(160, 430, 320, 438), source_id=1)
@@ -98,10 +98,22 @@ def test_lower_platform_transfer_walks_off_source_edge():
     graph = PathFinder().build_navigation_graph(pet, snapshot, make_physics())
 
     edges = [edge for edge in graph["window:1:top"] if edge.to_platform_id == "window:2:top"]
+    assert not edges
+
+
+def test_drop_edge_is_created_when_vertical_ray_hits_platform():
+    pet = make_pet()
+    pet.support_platform_id = "window:1:top"
+    source_top = platform("window:1:top", PlatformType.WINDOW_TOP, Rect(160, 430, 320, 438), source_id=1)
+    lower_top = platform("window:2:top", PlatformType.WINDOW_TOP, Rect(260, 520, 420, 528), source_id=2)
+    snapshot = make_snapshot([ground(), source_top, lower_top])
+
+    graph = PathFinder().build_navigation_graph(pet, snapshot, make_physics())
+
+    edges = [edge for edge in graph["window:1:top"] if edge.to_platform_id == "window:2:top"]
     assert edges
     assert all(edge.action == PathAction.WALK for edge in edges)
-    expected = {source_top.rect.left - pet.width + 7.0, source_top.rect.right - 7.0}
-    assert any(edge.target_x in expected for edge in edges)
+    assert any(edge.target_x == source_top.rect.right - 7.0 for edge in edges)
 
 
 def test_low_window_path_climbs_from_ground_to_window_top():

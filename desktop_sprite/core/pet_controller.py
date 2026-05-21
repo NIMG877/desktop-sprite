@@ -135,7 +135,13 @@ class PetController:
 
         if self.pet.state == PetState.JUMP:
             edge = self.path_plan.current_edge if self.path_plan else None
-            if edge and edge.action == PathAction.CLIMB:
+            if edge and (
+                edge.action == PathAction.CLIMB
+                or (
+                    edge.action == PathAction.JUMP
+                    and bool((side := self.snapshot.platform_by_id(edge.to_platform_id)) and side.climbable)
+                )
+            ):
                 self._maybe_grab_climb_side_while_jumping()
             return
 
@@ -312,7 +318,14 @@ class PetController:
         self._transition(PetState.JUMP)
 
     def _maybe_grab_climb_side_while_jumping(self) -> None:
-        side = self.snapshot.platform_by_id(self.pet.target_platform_id)
+        edge = self.path_plan.current_edge if self.path_plan else None
+        side_id = self.pet.target_platform_id
+        if edge and edge.action == PathAction.JUMP:
+            candidate = self.snapshot.platform_by_id(edge.to_platform_id)
+            if candidate and candidate.climbable:
+                side_id = edge.to_platform_id
+
+        side = self.snapshot.platform_by_id(side_id)
         if side is None or not side.climbable:
             self.pet.target_platform_id = None
             return
@@ -330,6 +343,11 @@ class PetController:
         self.pet.support_platform_id = None
         self.pet.target_platform_id = side.id
         self.pet.facing = Facing.RIGHT if side.type == PlatformType.WINDOW_LEFT else Facing.LEFT
+        if edge and edge.action == PathAction.JUMP and edge.to_platform_id == side.id:
+            self.path_plan.advance()
+            if self.path_plan.is_complete:
+                self._finish_path_plan(finish_climb=True)
+                return
         self._transition(PetState.CLIMB)
 
     def _snap_to_climb_side(self) -> None:

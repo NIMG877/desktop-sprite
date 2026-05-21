@@ -22,6 +22,7 @@ class NavNodeKind(StrEnum):
     DROP_POINT = "drop_point"
     JUMP_POINT = "jump_point"
     CLIMB_CONTACT = "climb_contact"
+    CLIMB_ENDPOINT = "climb_endpoint"
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,7 +137,6 @@ class PathFinder:
         path_edges = self._map_edges(nav_edges, mesh)
         if not path_edges:
             return None
-        path_edges = self._trim_platform_walk_transitions(path_edges)
         return PathPlan(path_edges, 0, target_window_id, snapshot.timestamp, target_platform_id=target_platform_id)
 
     def find_path_to_point(
@@ -213,15 +213,18 @@ class PathFinder:
             top = snapshot.platform_by_id(PlatformTopology.top_id_for_side(side))
             if top is None or not top.walkable:
                 continue
+            # Only create climb endpoints on the same window's top platform.
+            if side.source_id is None or top.source_id is None or side.source_id != top.source_id:
+                continue
             contact = nodes.get(f"{side.id}:climb_contact")
             if contact is None:
                 continue
-            top_anchor = self._ensure_jump_node(mesh, top, pet, contact.x, physics)
-            if top_anchor is None:
+            endpoint = self._ensure_climb_endpoint_node(mesh, top, side, pet, contact.x, physics)
+            if endpoint is None:
                 continue
             climb_distance = max(0.0, side.rect.bottom - top.rect.top)
             adjacency[contact.id].append(
-                NavEdge(contact.id, top_anchor.id, PathAction.CLIMB, climb_distance / max(physics.climb_speed, 1.0), side_platform_id=side.id)
+                NavEdge(contact.id, endpoint.id, PathAction.CLIMB, climb_distance / max(physics.climb_speed, 1.0), side_platform_id=side.id)
             )
 
         for source in walkable:
@@ -364,6 +367,25 @@ class PathFinder:
             self._rewire_platform_walk(mesh, platform.id, physics)
         return node
 
+    def _ensure_climb_endpoint_node(
+        self,
+        mesh: NavigationMesh,
+        platform: Platform,
+        side: Platform,
+        pet: Pet,
+        x: float,
+        physics: PhysicsConfig,
+    ) -> NavNode | None:
+        clamped = self._clamp_jump_x(platform, x, pet)
+        node_id = f"{platform.id}:climb_endpoint:{side.id}:{round(clamped,1)}"
+        node = mesh.nodes.get(node_id)
+        if node is None:
+            node = NavNode(node_id, platform.id, clamped, platform.rect.top - pet.height, NavNodeKind.CLIMB_ENDPOINT)
+            mesh.nodes[node_id] = node
+            mesh.adjacency.setdefault(node_id, [])
+            self._rewire_platform_walk(mesh, platform.id, physics)
+        return node
+
     def _rewire_platform_walk(self, mesh: NavigationMesh, platform_id: str, physics: PhysicsConfig) -> None:
         nodes = [node for node in mesh.nodes.values() if node.platform_id == platform_id and node.kind != NavNodeKind.CLIMB_CONTACT]
         node_ids = {node.id for node in nodes}
@@ -400,35 +422,7 @@ class PathFinder:
             mapped = self._to_path_edge(edge, mesh)
             if mapped is not None:
                 raw.append(mapped)
-        result: list[PathEdge] = []
-        i = 0
-        while i < len(raw):
-            cur = raw[i]
-            if (
-                cur.action == PathAction.WALK
-                and cur.from_platform_id == cur.to_platform_id
-                and i + 1 < len(raw)
-                and raw[i + 1].action == PathAction.CLIMB
-                and raw[i + 1].from_platform_id == cur.from_platform_id
-            ):
-                i += 1
-                continue
-            if (
-                cur.action == PathAction.JUMP
-                and i + 1 < len(raw)
-                and raw[i + 1].action == PathAction.CLIMB
-                and cur.to_platform_id == raw[i + 1].from_platform_id
-                and raw[i + 1].side_platform_id == cur.to_platform_id
-            ):
-                climb = raw[i + 1]
-                result.append(
-                    PathEdge(PathAction.CLIMB, cur.from_platform_id, climb.to_platform_id, cur.target_x, cur.cost + climb.cost, climb.side_platform_id)
-                )
-                i += 2
-                continue
-            result.append(cur)
-            i += 1
-        return result
+        return raw
 
     def _to_path_edge(self, edge: NavEdge, mesh: NavigationMesh) -> PathEdge | None:
         source = mesh.nodes.get(edge.from_node_id)

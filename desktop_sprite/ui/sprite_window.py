@@ -197,12 +197,6 @@ class DebugOverlayWindow(QWidget):
             )
         )
 
-        for window in snapshot.windows:
-            color = QColor(255, 170, 40, 95) if window.is_foreground else QColor(80, 80, 80, 45)
-            painter.setPen(QPen(color, 1))
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRect(QRectF(window.rect.left, window.rect.top, window.rect.width, window.rect.height))
-
         for platform in snapshot.platforms:
             self._draw_platform(painter, platform)
 
@@ -277,6 +271,8 @@ class DebugOverlayWindow(QWidget):
             color = QColor(70, 110, 220, 135)
         elif node.kind == NavNodeKind.JUMP_POINT:
             color = QColor(235, 185, 45, 165)
+        elif node.kind == NavNodeKind.CLIMB_ENDPOINT:
+            color = QColor(30, 160, 90, 180)
         self._draw_node_marker(painter, point, color)
 
     def _draw_collision_box(self, painter: QPainter) -> None:
@@ -475,6 +471,9 @@ class DebugOverlayWindow(QWidget):
                 QPointF(side.rect.center_x, target.rect.top - pet.height / 2),
             ]
 
+        if edge.action == PathAction.JUMP and target.climbable:
+            return [QPointF(edge.target_x + pet.width / 2, target.rect.bottom - pet.height / 2)]
+
         return [QPointF(edge.target_x + pet.width / 2, target.rect.top - pet.height / 2)]
 
     def _edge_debug_steps(self, edge: PathEdge) -> list[str]:
@@ -579,8 +578,8 @@ class DebugOverlayWindow(QWidget):
         if action == PathAction.WALK:
             return QColor(35, 125, 220, 85)
         if action == PathAction.CLIMB:
-            return QColor(230, 180, 40, 95)
-        return QColor(45, 105, 220, 70)
+            return QColor(30, 160, 90, 95)
+        return QColor(230, 180, 40, 95)
 
     def _path_color(self, action: PathAction, current: bool) -> QColor:
         alpha = 230 if current else 165

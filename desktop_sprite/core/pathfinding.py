@@ -103,47 +103,18 @@ class PathFinder:
         target_window_id: int,
         physics: PhysicsConfig,
     ) -> PathPlan | None:
-        return self.find_path_to_platform(
+        target_platform_id = PlatformTopology.window_top_id(target_window_id)
+        target_platform = snapshot.platform_by_id(target_platform_id)
+        if target_platform is None:
+            return None
+        return self.find_path_to_point(
             pet=pet,
             snapshot=snapshot,
-            target_platform_id=PlatformTopology.window_top_id(target_window_id),
+            target_platform_id=target_platform_id,
+            target_x=target_platform.rect.center_x - pet.width / 2,
             physics=physics,
             target_window_id=target_window_id,
         )
-
-    def find_path_to_platform(
-        self,
-        pet: Pet,
-        snapshot: EnvironmentSnapshot,
-        target_platform_id: str,
-        physics: PhysicsConfig,
-        target_window_id: int | None = None,
-    ) -> PathPlan | None:
-        start_platform_id = pet.support_platform_id
-        if start_platform_id is None or start_platform_id == target_platform_id:
-            return None
-        if snapshot.platform_by_id(start_platform_id) is None or snapshot.platform_by_id(target_platform_id) is None:
-            return None
-
-        mesh = self.build_navigation_mesh(pet, snapshot, physics)
-        start_platform = snapshot.platform_by_id(start_platform_id)
-        start_node = self._ensure_jump_node(mesh, start_platform, pet, pet.position.x, physics) if start_platform else None
-        target_platform = snapshot.platform_by_id(target_platform_id)
-        if start_node is None or target_platform is None:
-            return None
-        target_x = target_platform.rect.center_x - pet.width / 2
-        target_node = self._ensure_jump_node(mesh, target_platform, pet, target_x, physics)
-        if target_node is None:
-            return None
-
-        nav_edges = self._search(mesh, start_node.id, target_node.id)
-        if not nav_edges:
-            return None
-        path_edges = self._map_edges(nav_edges, mesh)
-        if not path_edges:
-            return None
-        path_edges = self._merge_consecutive_same_platform_walk_edges(path_edges)
-        return PathPlan(path_edges, 0, target_window_id, snapshot.timestamp, target_platform_id=target_platform_id)
 
     def find_path_to_point(
         self,

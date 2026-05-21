@@ -274,43 +274,6 @@ def window_platforms(hwnd: int, left: float, top: float, right: float, bottom: f
     ]
 
 
-def test_controller_plans_intermediate_path_to_high_foreground_window():
-    controller, _side = make_controller(window_top_y=430)
-    controller.snapshot = EnvironmentSnapshot(
-        screen_rect=Rect.from_xywh(0, 0, 900, 700),
-        work_area_rect=Rect.from_xywh(0, 0, 900, 650),
-        taskbar_rect=None,
-        windows=[
-            WindowInfo(
-                hwnd=2,
-                title="target",
-                rect=Rect(340, 300, 520, 500),
-                visible=True,
-                minimized=False,
-                is_foreground=True,
-            )
-        ],
-        platforms=[
-            Platform(
-                id="ground:work_area",
-                type=PlatformType.GROUND,
-                rect=Rect.from_xywh(0, 650, 900, 4),
-                walkable=True,
-                climbable=False,
-            ),
-            *window_platforms(1, 160, 430, 320, 620),
-            *window_platforms(2, 340, 300, 520, 500),
-        ],
-        timestamp=2.0,
-    )
-
-    controller._maybe_target_foreground_window()
-
-    assert controller.path_plan is not None
-    assert controller.path_plan.target_window_id == 2
-    assert len(controller.path_plan.edges) >= 2
-
-
 def test_controller_clears_path_when_next_platform_disappears():
     controller, _side = make_controller(window_top_y=120)
     controller.path_plan = PathPlan(

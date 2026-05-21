@@ -155,33 +155,12 @@ class PetController:
         if self._execute_path_plan():
             return
 
-        self._maybe_target_foreground_window()
-        if self._execute_path_plan():
-            return
-
         target_side = self.snapshot.platform_by_id(self.pet.target_platform_id)
         if target_side and target_side.climbable:
             self._walk_toward_climb_side(target_side)
             return
 
         self._keep_walking_on_platform(support, dt)
-
-    def _maybe_target_foreground_window(self) -> None:
-        if not self.config.behavior.prefer_foreground_window:
-            return
-        if self.pet.target_platform_id and self.snapshot.platform_by_id(self.pet.target_platform_id):
-            return
-        foreground = self.snapshot.foreground_window
-        if foreground is None:
-            return
-        if self.pet.support_platform_id == PlatformTopology.window_top_id(foreground.hwnd):
-            return
-
-        plan = self.pathfinder.find_path(self.pet, self.snapshot, foreground.hwnd, self.config.physics)
-        if plan is None:
-            return
-        self.path_plan = plan
-        self.pet.target_window_id = foreground.hwnd
 
     def _execute_path_plan(self) -> bool:
         return self._executor().execute_path_plan()
@@ -304,15 +283,15 @@ class PetController:
         self._transition(PetState.WALK)
 
     def _start_jump_toward_climb_side(self, side: Platform, distance: float) -> None:
-        direction = 0
-        if abs(distance) > self.config.physics.edge_snap_distance:
-            direction = 1 if distance > 0 else -1
-
+        target_x = side.rect.center_x - self.pet.width / 2
+        target_y = side.rect.bottom - self.pet.height
+        vx, vy = self._executor().compute_jump_velocity_to(target_x, target_y)
+        direction = 0 if abs(vx) <= 1e-6 else (1 if vx > 0 else -1)
         self.pet.target_platform_id = side.id
         self.pet.target_window_id = side.source_id
         self.pet.support_platform_id = None
-        self.pet.velocity.x = direction * self.config.physics.jump_speed_x
-        self.pet.velocity.y = self.config.physics.jump_speed_y
+        self.pet.velocity.x = vx
+        self.pet.velocity.y = vy
         if direction:
             self.pet.facing = Facing.RIGHT if direction > 0 else Facing.LEFT
         self._transition(PetState.JUMP)

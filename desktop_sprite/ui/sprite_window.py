@@ -590,4 +590,4 @@ class DebugOverlayWindow(QWidget):
             return QColor(40, 130, 230, alpha)
         if action == PathAction.CLIMB:
             return QColor(30, 160, 90, alpha)
-        return QColor(255, 145, 35, alpha) if current else QColor(45, 120, 255, alpha)
+        return QColor(255, 145, 35, alpha)

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 from desktop_sprite.core.pathfinding import PathAction, PathEdge
 from desktop_sprite.models.platform import PlatformType
 from desktop_sprite.models.state import Facing, PetState
@@ -88,20 +90,43 @@ class PathExecutor:
         raw_land_x = edge.land_x if edge.land_x is not None else edge.approach_x
         if target.climbable:
             target_x = raw_land_x
+            target_y = target.rect.bottom - controller.pet.height
         else:
             target_x = min(
                 max(raw_land_x, target.rect.left - controller.pet.width / 2),
                 target.rect.right - controller.pet.width / 2,
             )
-        distance = target_x - controller.pet.position.x
-        direction = 0 if abs(distance) <= controller.config.physics.edge_snap_distance else (1 if distance > 0 else -1)
+            target_y = target.rect.top - controller.pet.height
+        vx, vy = self.compute_jump_velocity_to(target_x, target_y)
+        direction = 0 if abs(vx) <= 1e-6 else (1 if vx > 0 else -1)
         controller.pet.target_platform_id = edge.to_platform_id
         controller.pet.support_platform_id = None
-        controller.pet.velocity.x = direction * controller.config.physics.jump_speed_x
-        controller.pet.velocity.y = controller.config.physics.jump_speed_y
+        controller.pet.velocity.x = vx
+        controller.pet.velocity.y = vy
         if direction:
             controller.pet.facing = Facing.RIGHT if direction > 0 else Facing.LEFT
         controller._transition(PetState.JUMP)
+
+    def compute_jump_velocity_to(self, target_x: float, target_y: float) -> tuple[float, float]:
+        controller = self.controller
+        start_x = controller.pet.position.x
+        start_y = controller.pet.position.y
+        dx = target_x - start_x
+        dy = target_y - start_y
+        g = max(controller.config.physics.gravity, 1.0)
+        max_vx = max(abs(controller.config.physics.jump_speed_x), 1.0)
+        min_up_vy = min(controller.config.physics.jump_speed_y, -1.0)
+
+        # Pick a feasible flight time from horizontal travel, then derive vertical speed.
+        t = max(abs(dx) / max_vx, 0.18)
+        vy = (dy - 0.5 * g * t * t) / t
+        if vy > -1.0:
+            # Force an upward takeoff; increase apex by solving with required vy.
+            vy = min_up_vy
+            disc = vy * vy + 2.0 * g * max(dy, 0.0)
+            t = max((math.sqrt(max(disc, 0.0)) - vy) / g, 0.18)
+        vx = dx / max(t, 1e-3)
+        return vx, vy
 
     def execute_climb_edge(self, edge: PathEdge) -> bool:
         controller = self.controller

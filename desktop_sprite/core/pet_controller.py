@@ -6,12 +6,15 @@ import time
 from desktop_sprite.core.animation_player import AnimationPlayer
 from desktop_sprite.core.behavior_state_machine import BehaviorStateMachine
 from desktop_sprite.core.pathfinding import PathAction, PathEdge, PathFinder, PathPlan
+from desktop_sprite.core.path_executor import PathExecutor
 from desktop_sprite.core.physics_engine import PhysicsEngine
+from desktop_sprite.core.reachability_policy import ReachabilityPolicy
 from desktop_sprite.core.stamina_system import StaminaSystem
 from desktop_sprite.environment.desktop_environment import DesktopEnvironment
 from desktop_sprite.environment.environment_snapshot import EnvironmentSnapshot
 from desktop_sprite.models.geometry import Vec2
 from desktop_sprite.models.platform import Platform, PlatformType
+from desktop_sprite.models.platform_topology import PlatformTopology
 from desktop_sprite.models.state import Facing, Pet, PetState
 from desktop_sprite.utils.config import AppConfig
 
@@ -22,6 +25,8 @@ MIN_WANDER_DISTANCE_FACTOR = 0.8
 
 
 class PetController:
+    WALK_TARGET_ARRIVAL_DISTANCE = WALK_TARGET_ARRIVAL_DISTANCE
+
     def __init__(self, config: AppConfig) -> None:
         self.config = config
         self.pet = Pet(
@@ -34,8 +39,9 @@ class PetController:
         self.environment = DesktopEnvironment(config.pet.width, config.pet.height)
         self.stamina = StaminaSystem(config.stamina, config.physics)
         self.stamina.clamp(self.pet)
-        self.physics = PhysicsEngine(config.physics, self.stamina)
+        self.physics = PhysicsEngine(config.physics, self.stamina, apply_state_transitions=False)
         self.pathfinder = PathFinder()
+        self.path_executor = PathExecutor(self)
         self.path_plan: PathPlan | None = None
         self.state_machine = BehaviorStateMachine(self.pet.state)
         self.animation = AnimationPlayer()
@@ -55,7 +61,8 @@ class PetController:
         old_position = self.pet.position.copy()
         old_state = self.pet.state
         old_support_platform_id = self.pet.support_platform_id
-        self.physics.update(self.pet, self.snapshot, dt)
+        motion_events = self.physics.update(self.pet, self.snapshot, dt)
+        self._apply_motion_events(motion_events)
         self._landed_on_platform_last_tick = (
             old_support_platform_id is None
             and self.pet.support_platform_id is not None
@@ -178,7 +185,7 @@ class PetController:
         foreground = self.snapshot.foreground_window
         if foreground is None:
             return
-        if self.pet.support_platform_id and self.pet.support_platform_id.startswith(f"window:{foreground.hwnd}:top"):
+        if self.pet.support_platform_id == PlatformTopology.window_top_id(foreground.hwnd):
             return
 
         plan = self.pathfinder.find_path(self.pet, self.snapshot, foreground.hwnd, self.stamina)
@@ -189,89 +196,13 @@ class PetController:
         self._transition(PetState.MOVE_TO_TARGET)
 
     def _execute_path_plan(self) -> bool:
-        if self.path_plan is None or self.path_plan.is_complete:
-            return False
-
-        edge = self.path_plan.current_edge
-        if edge is None:
-            return False
-        if not self._is_path_edge_present(edge):
-            self.path_plan = None
-            return False
-
-        if self.pet.support_platform_id == edge.to_platform_id and not (
-            edge.action == PathAction.WALK and edge.from_platform_id == edge.to_platform_id
-        ):
-            self.path_plan.advance()
-            if self.path_plan.is_complete:
-                self._finish_path_plan()
-            return True
-
-        if self.pet.support_platform_id != edge.from_platform_id:
-            self.path_plan = None
-            return False
-
-        if edge.action == PathAction.CLIMB:
-            if not self._execute_climb_edge(edge):
-                self.path_plan = None
-                return False
-            return True
-
-        if edge.action == PathAction.WALK:
-            if self._walk_toward_x(edge.target_x):
-                target = self.snapshot.platform_by_id(edge.to_platform_id)
-                source = self.snapshot.platform_by_id(edge.from_platform_id)
-                if target is None or source is None:
-                    self.path_plan = None
-                    return True
-                if target.rect.top > source.rect.top + self.config.physics.edge_snap_distance:
-                    self.pet.support_platform_id = None
-                    self._transition(PetState.FALL)
-                else:
-                    self.pet.support_platform_id = edge.to_platform_id
-                    self.path_plan.advance()
-                    if self.path_plan.is_complete:
-                        self._finish_path_plan()
-            return True
-
-        if edge.action == PathAction.JUMP:
-            if self._walk_toward_x(edge.target_x):
-                self._start_jump_toward_platform(edge)
-            return True
-
-        return False
+        return self._executor().execute_path_plan()
 
     def _walk_toward_x(self, target_x: float) -> bool:
-        distance = target_x - self.pet.position.x
-        passed_target = (self.pet.velocity.x > 0 and self.pet.position.x >= target_x) or (
-            self.pet.velocity.x < 0 and self.pet.position.x <= target_x
-        )
-        if abs(distance) <= WALK_TARGET_ARRIVAL_DISTANCE or passed_target:
-            self.pet.position.x = target_x
-            self.pet.velocity.x = 0.0
-            return True
-        direction = 1 if distance > 0 else -1
-        self.pet.velocity.x = direction * self.stamina.effective_walk_speed(self.pet)
-        self.pet.facing = Facing.RIGHT if direction > 0 else Facing.LEFT
-        self._transition(PetState.MOVE_TO_TARGET)
-        return False
+        return self._executor().walk_toward_x(target_x)
 
     def _start_jump_toward_platform(self, edge: PathEdge) -> None:
-        target = self.snapshot.platform_by_id(edge.to_platform_id)
-        if target is None:
-            self.path_plan = None
-            return
-        target_x = min(max(edge.target_x, target.rect.left - self.pet.width / 2), target.rect.right - self.pet.width / 2)
-        distance = target_x - self.pet.position.x
-        direction = 0 if abs(distance) <= self.config.physics.edge_snap_distance else (1 if distance > 0 else -1)
-        self.pet.target_platform_id = edge.to_platform_id
-        self.pet.support_platform_id = None
-        self.pet.velocity.x = direction * self.stamina.effective_jump_speed_x(self.pet)
-        self.pet.velocity.y = self.stamina.effective_jump_speed_y(self.pet)
-        self.stamina.consume_jump(self.pet)
-        if direction:
-            self.pet.facing = Facing.RIGHT if direction > 0 else Facing.LEFT
-        self._transition(PetState.JUMP)
+        self._executor().start_jump_toward_platform(edge)
 
     def _advance_path_if_reached(self) -> None:
         if self.path_plan is None:
@@ -335,32 +266,14 @@ class PetController:
         return True
 
     def _execute_climb_edge(self, edge: PathEdge) -> bool:
-        side = self.snapshot.platform_by_id(edge.side_platform_id)
-        source = self.snapshot.platform_by_id(edge.from_platform_id)
-        if side is None or source is None or not side.climbable:
-            return False
+        return self._executor().execute_climb_edge(edge)
 
-        target_x = side.rect.center_x - self.pet.width / 2
-        distance = target_x - self.pet.position.x
-        if abs(distance) > self.config.physics.edge_snap_distance:
-            direction = 1 if distance > 0 else -1
-            self.pet.velocity.x = direction * self.stamina.effective_walk_speed(self.pet)
-            self.pet.facing = Facing.RIGHT if direction > 0 else Facing.LEFT
-            self._transition(PetState.MOVE_TO_TARGET)
-            return True
-
-        self.pet.position.x = target_x
-        self.pet.velocity.x = 0.0
-        self.pet.target_platform_id = side.id
-        self.pet.target_window_id = side.source_id
-        if source.rect.top - side.rect.bottom > self.config.physics.edge_snap_distance:
-            self._start_jump_toward_climb_side(side, distance)
-            return True
-
-        self.pet.facing = Facing.RIGHT if side.type == PlatformType.WINDOW_LEFT else Facing.LEFT
-        self.pet.support_platform_id = None
-        self._transition(PetState.CLIMB)
-        return True
+    def _executor(self) -> PathExecutor:
+        executor = getattr(self, "path_executor", None)
+        if executor is None:
+            executor = PathExecutor(self)
+            self.path_executor = executor
+        return executor
 
     def _nearest_reachable_side_for_window(self, hwnd: int) -> Platform | None:
         sides = [
@@ -441,11 +354,12 @@ class PetController:
         self.pet.position.x = side.rect.center_x - self.pet.width / 2
 
     def _climb_reachability(self, side: Platform) -> str:
+        reachability = ReachabilityPolicy(self.stamina, self.config.physics.edge_snap_distance)
         top = self._top_platform_for_side(side)
         if top is None:
             return "unreachable"
 
-        if not self._has_stamina_for_climb_to_top(side, top):
+        if not reachability.has_stamina_for_climb_to_top(self.pet, side, top):
             return "unreachable"
 
         bottom_gap = self.pet.bottom - side.rect.bottom
@@ -456,33 +370,23 @@ class PetController:
         return "unreachable"
 
     def _can_ever_reach_climb_side(self, side: Platform) -> bool:
+        reachability = ReachabilityPolicy(self.stamina, self.config.physics.edge_snap_distance)
         top = self._top_platform_for_side(side)
         if top is None:
             return False
-        if not self._has_stamina_for_climb_to_top(side, top):
+        if not reachability.has_stamina_for_climb_to_top(self.pet, side, top):
             return False
         bottom_gap = self.pet.bottom - side.rect.bottom
         return bottom_gap <= self._max_jump_height()
 
     def _top_platform_for_side(self, side: Platform) -> Platform | None:
-        if side.source_id is None:
-            return None
-        return self.snapshot.platform_by_id(f"window:{side.source_id}:top")
+        return self.snapshot.platform_by_id(PlatformTopology.top_id_for_side(side))
 
     def _max_jump_height(self) -> float:
         return self.stamina.max_jump_height(self.pet)
 
     def _max_jump_distance(self) -> float:
         return self.stamina.max_jump_distance(self.pet)
-
-    def _max_climb_distance(self) -> float:
-        available = max(0.0, self.pet.stamina - self.config.stamina.exhausted_threshold)
-        cost_per_px = max(self.config.stamina.climb_cost_per_px, 0.001)
-        return available / cost_per_px
-
-    def _has_stamina_for_climb_to_top(self, side: Platform, top: Platform) -> bool:
-        climb_distance = max(0.0, side.rect.bottom - top.rect.top)
-        return climb_distance <= self._max_climb_distance()
 
     def _keep_walking_on_platform(self, support: Platform | None, dt: float) -> None:
         now = time.monotonic()
@@ -617,6 +521,13 @@ class PetController:
             self._transition(PetState.FALL)
         elif self.pet.state in {PetState.WALK, PetState.MOVE_TO_TARGET}:
             self._rest_from_exhaustion()
+
+    def _apply_motion_events(self, events) -> None:
+        if events.support_lost and self.pet.state not in {PetState.DRAGGED, PetState.CLIMB}:
+            self._transition(PetState.FALL)
+        if events.landed_on and self.pet.state in {PetState.FALL, PetState.JUMP}:
+            self.pet.velocity.x = 0.0
+            self._transition(PetState.IDLE)
 
     def _record_drag(self, mouse_x: float, mouse_y: float) -> None:
         now = time.monotonic()

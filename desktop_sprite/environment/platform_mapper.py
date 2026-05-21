@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from desktop_sprite.models.geometry import Rect
 from desktop_sprite.models.platform import Platform, PlatformType
+from desktop_sprite.models.platform_topology import PlatformTopology
 from desktop_sprite.models.window_info import WindowInfo
 
 
@@ -54,7 +55,7 @@ class PlatformMapper:
 
         return [
             Platform(
-                id=f"window:{window.hwnd}:top",
+                id=PlatformTopology.window_top_id(window.hwnd),
                 type=PlatformType.WINDOW_TOP,
                 rect=self._clip_horizontal(top_rect, screen_rect),
                 walkable=True,
@@ -63,7 +64,7 @@ class PlatformMapper:
                 source_id=window.hwnd,
             ),
             Platform(
-                id=f"window:{window.hwnd}:left",
+                id=PlatformTopology.window_left_id(window.hwnd),
                 type=PlatformType.WINDOW_LEFT,
                 rect=left_rect,
                 walkable=False,
@@ -72,7 +73,7 @@ class PlatformMapper:
                 source_id=window.hwnd,
             ),
             Platform(
-                id=f"window:{window.hwnd}:right",
+                id=PlatformTopology.window_right_id(window.hwnd),
                 type=PlatformType.WINDOW_RIGHT,
                 rect=right_rect,
                 walkable=False,

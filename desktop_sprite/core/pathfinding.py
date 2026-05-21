@@ -1,13 +1,15 @@
 from __future__ import annotations
 
-import heapq
 from dataclasses import dataclass
 from enum import StrEnum
 
+from desktop_sprite.core.planner import GraphPlanner
 from desktop_sprite.environment.environment_snapshot import EnvironmentSnapshot
 from desktop_sprite.models.platform import Platform
+from desktop_sprite.models.platform_topology import PlatformTopology
 from desktop_sprite.models.state import Pet
 from desktop_sprite.core.stamina_system import StaminaSystem
+from desktop_sprite.core.reachability_policy import ReachabilityPolicy
 
 
 class PathAction(StrEnum):
@@ -55,6 +57,9 @@ class PathPlan:
 
 
 class PathFinder:
+    def __init__(self) -> None:
+        self.planner = GraphPlanner()
+
     def find_path(
         self,
         pet: Pet,
@@ -63,7 +68,7 @@ class PathFinder:
         stamina: StaminaSystem,
     ) -> PathPlan | None:
         start_id = pet.support_platform_id
-        target_id = f"window:{target_window_id}:top"
+        target_id = PlatformTopology.window_top_id(target_window_id)
         if start_id is None or start_id == target_id:
             return None
 
@@ -164,26 +169,14 @@ class PathFinder:
         target_window_id: int | None,
         timestamp: float,
     ) -> PathPlan | None:
-        distances: dict[str, float] = {start_id: 0.0}
-        previous: dict[str, tuple[str, PathEdge]] = {}
-        queue: list[tuple[float, str]] = [(0.0, start_id)]
-
-        while queue:
-            cost, platform_id = heapq.heappop(queue)
-            if cost > distances.get(platform_id, float("inf")):
-                continue
-            if platform_id == target_id:
-                return self._reconstruct_plan(previous, start_id, target_id, target_window_id, timestamp)
-
-            for edge in graph.get(platform_id, []):
-                next_cost = cost + edge.cost
-                if next_cost >= distances.get(edge.to_platform_id, float("inf")):
-                    continue
-                distances[edge.to_platform_id] = next_cost
-                previous[edge.to_platform_id] = (platform_id, edge)
-                heapq.heappush(queue, (next_cost, edge.to_platform_id))
-
-        return None
+        previous = self.planner.shortest_path_tree(
+            graph=graph,
+            start_id=start_id,
+            target_id=target_id,
+        )
+        if previous is None:
+            return None
+        return self._reconstruct_plan(previous, start_id, target_id, target_window_id, timestamp)
 
     def build_navigation_graph(
         self,
@@ -201,6 +194,7 @@ class PathFinder:
         walkable: dict[str, Platform],
         stamina: StaminaSystem,
     ) -> dict[str, list[PathEdge]]:
+        reachability = ReachabilityPolicy(stamina, stamina.physics.edge_snap_distance)
         graph: dict[str, list[PathEdge]] = {platform_id: [] for platform_id in walkable}
 
         for side in [platform for platform in snapshot.platforms if platform.climbable]:
@@ -208,12 +202,12 @@ class PathFinder:
             if top is None:
                 continue
             climb_distance = max(0.0, side.rect.bottom - top.rect.top)
-            if climb_distance > self._max_climb_distance(pet, stamina):
+            if climb_distance > reachability.max_climb_distance(pet):
                 continue
             for source in walkable.values():
                 if source.id == top.id:
                     continue
-                if not self._can_reach_side_bottom(source, side, stamina, pet):
+                if not reachability.can_reach_side_bottom(pet, source, side):
                     continue
                 horizontal = abs(source.rect.center_x - side.rect.center_x)
                 graph[source.id].append(
@@ -233,11 +227,12 @@ class PathFinder:
             for target in platforms:
                 if source.id == target.id:
                     continue
-                if self._can_walk_transfer(source, target, stamina):
+                horizontal_gap = self._horizontal_gap(source, target)
+                if reachability.can_walk_transfer(source, target, horizontal_gap=horizontal_gap):
                     graph[source.id].append(self._walk_edge(source, target, stamina, pet))
-                elif self._can_drop(source, target):
+                elif reachability.can_drop(source, target, horizontal_gap=horizontal_gap):
                     graph[source.id].append(self._walk_off_edge(source, target, stamina, pet))
-                elif self._can_jump(source, target, stamina, pet):
+                elif reachability.can_jump_between(pet, source, target, horizontal_gap=horizontal_gap):
                     graph[source.id].append(self._jump_edge(source, target, stamina, pet))
 
         return graph
@@ -295,31 +290,7 @@ class PathFinder:
         )
 
     def _top_for_side(self, side: Platform, walkable: dict[str, Platform]) -> Platform | None:
-        if side.source_id is None:
-            return None
-        return walkable.get(f"window:{side.source_id}:top")
-
-    def _can_reach_side_bottom(self, source: Platform, side: Platform, stamina: StaminaSystem, pet: Pet) -> bool:
-        bottom_gap = source.rect.top - side.rect.bottom
-        if bottom_gap <= stamina.physics.edge_snap_distance:
-            return True
-        return bottom_gap <= stamina.max_jump_height(pet)
-
-    def _can_jump(self, source: Platform, target: Platform, stamina: StaminaSystem, pet: Pet) -> bool:
-        if target.rect.top > source.rect.top + stamina.physics.edge_snap_distance:
-            return False
-        if self._can_walk_transfer(source, target, stamina):
-            return False
-        vertical_up = max(0.0, source.rect.top - target.rect.top)
-        if vertical_up > stamina.max_jump_height(pet):
-            return False
-        return self._horizontal_gap(source, target) <= stamina.max_jump_distance(pet)
-
-    def _can_walk_transfer(self, source: Platform, target: Platform, stamina: StaminaSystem) -> bool:
-        same_level = abs(source.rect.top - target.rect.top) <= stamina.physics.edge_snap_distance
-        if not same_level:
-            return False
-        return self._horizontal_gap(source, target) <= stamina.physics.edge_snap_distance
+        return walkable.get(PlatformTopology.top_id_for_side(side))
 
     def _walk_edge(self, source: Platform, target: Platform, stamina: StaminaSystem, pet: Pet) -> PathEdge:
         horizontal = abs(source.rect.center_x - target.rect.center_x)
@@ -359,11 +330,6 @@ class PathFinder:
             cost=air_time + horizontal / max(stamina.effective_jump_speed_x(pet), 1.0) + vertical / 400.0 + 2.0,
         )
 
-    def _can_drop(self, source: Platform, target: Platform) -> bool:
-        if target.rect.top <= source.rect.top:
-            return False
-        return self._horizontal_gap(source, target) <= max(source.rect.width, target.rect.width) * 0.25
-
     def _walk_off_edge(self, source: Platform, target: Platform, stamina: StaminaSystem, pet: Pet) -> PathEdge:
         vertical = target.rect.top - source.rect.top
         target_x = self._platform_exit_x(source, target, pet)
@@ -396,8 +362,3 @@ class PathFinder:
         else:
             center = target.rect.right if target.rect.center_x < source.rect.center_x else target.rect.left
         return center - pet.width / 2
-
-    def _max_climb_distance(self, pet: Pet, stamina: StaminaSystem) -> float:
-        available = max(0.0, pet.stamina - stamina.config.exhausted_threshold)
-        cost_per_px = max(stamina.config.climb_cost_per_px, 0.001)
-        return available / cost_per_px

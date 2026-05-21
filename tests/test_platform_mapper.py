@@ -42,3 +42,25 @@ def test_skips_taskbar_platform_when_it_duplicates_ground():
 
     assert any(platform.id == "ground:work_area" for platform in platforms)
     assert not any(platform.id == "taskbar:main" for platform in platforms)
+
+
+def test_window_top_is_not_walkable_when_too_close_to_screen_top():
+    mapper = PlatformMapper(pet_width=80, pet_height=100)
+    window = WindowInfo(
+        hwnd=456,
+        title="NearTop",
+        rect=Rect.from_xywh(100, 20, 300, 200),
+        visible=True,
+        minimized=False,
+        is_foreground=False,
+    )
+
+    platforms = mapper.map_platforms(
+        screen_rect=Rect.from_xywh(0, 0, 1000, 800),
+        work_area_rect=Rect.from_xywh(0, 0, 1000, 760),
+        taskbar_rect=None,
+        windows=[window],
+    )
+
+    top = next(platform for platform in platforms if platform.id == "window:456:top")
+    assert not top.walkable

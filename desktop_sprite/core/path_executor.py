@@ -74,9 +74,9 @@ class PathExecutor:
             controller.pet.velocity.x = 0.0
             return True
         direction = 1 if distance > 0 else -1
-        controller.pet.velocity.x = direction * controller.stamina.effective_walk_speed(controller.pet)
+        controller.pet.velocity.x = direction * controller.config.physics.walk_speed
         controller.pet.facing = Facing.RIGHT if direction > 0 else Facing.LEFT
-        controller._transition(PetState.MOVE_TO_TARGET)
+        controller._transition(PetState.WALK)
         return False
 
     def start_jump_toward_platform(self, edge: PathEdge) -> None:
@@ -93,9 +93,8 @@ class PathExecutor:
         direction = 0 if abs(distance) <= controller.config.physics.edge_snap_distance else (1 if distance > 0 else -1)
         controller.pet.target_platform_id = edge.to_platform_id
         controller.pet.support_platform_id = None
-        controller.pet.velocity.x = direction * controller.stamina.effective_jump_speed_x(controller.pet)
-        controller.pet.velocity.y = controller.stamina.effective_jump_speed_y(controller.pet)
-        controller.stamina.consume_jump(controller.pet)
+        controller.pet.velocity.x = direction * controller.config.physics.jump_speed_x
+        controller.pet.velocity.y = controller.config.physics.jump_speed_y
         if direction:
             controller.pet.facing = Facing.RIGHT if direction > 0 else Facing.LEFT
         controller._transition(PetState.JUMP)
@@ -111,9 +110,9 @@ class PathExecutor:
         distance = target_x - controller.pet.position.x
         if abs(distance) > controller.config.physics.edge_snap_distance:
             direction = 1 if distance > 0 else -1
-            controller.pet.velocity.x = direction * controller.stamina.effective_walk_speed(controller.pet)
+            controller.pet.velocity.x = direction * controller.config.physics.walk_speed
             controller.pet.facing = Facing.RIGHT if direction > 0 else Facing.LEFT
-            controller._transition(PetState.MOVE_TO_TARGET)
+            controller._transition(PetState.WALK)
             return True
 
         controller.pet.position.x = target_x
@@ -128,4 +127,3 @@ class PathExecutor:
         controller.pet.support_platform_id = None
         controller._transition(PetState.CLIMB)
         return True
-

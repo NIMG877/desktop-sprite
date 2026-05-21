@@ -294,7 +294,6 @@ class DebugOverlayWindow(QWidget):
             f"floor={floor_y:.0f} over={overflow:.0f}",
             f"scale={scale:.2f}",
             f"v=({pet.velocity.x:.0f},{pet.velocity.y:.0f})",
-            f"stamina={pet.stamina:.0f}/{self.config.stamina.max_stamina:.0f}",
             f"p={pet.support_platform_id or '-'}",
             f"p_name={self._support_window_title()}",
         ]
@@ -372,7 +371,7 @@ class DebugOverlayWindow(QWidget):
         return self.controller.pathfinder.build_navigation_graph(
             self.controller.pet,
             self.controller.snapshot,
-            self.controller.stamina,
+            self.controller.config.physics,
         )
 
     def _graph_edge_segments(self, edge: PathEdge) -> list[tuple[QPointF, QPointF]]:

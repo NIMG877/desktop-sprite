@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from desktop_sprite.environment.environment_snapshot import EnvironmentSnapshot
-from desktop_sprite.core.stamina_system import StaminaSystem
 from desktop_sprite.models.platform import Platform
 from desktop_sprite.models.platform_topology import PlatformTopology
 from desktop_sprite.models.state import Facing, Pet, PetState
@@ -23,12 +22,10 @@ class PhysicsEngine:
     def __init__(
         self,
         config: PhysicsConfig,
-        stamina: StaminaSystem | None = None,
         *,
         apply_state_transitions: bool = True,
     ) -> None:
         self.config = config
-        self.stamina = stamina
         self.apply_state_transitions = apply_state_transitions
 
     def reconcile_platform_motion(
@@ -105,8 +102,7 @@ class PhysicsEngine:
             return
 
         pet.velocity.x = 0.0
-        climb_speed = self.stamina.effective_climb_speed(pet) if self.stamina else self.config.climb_speed
-        pet.velocity.y = -climb_speed
+        pet.velocity.y = -self.config.climb_speed
         pet.position.y += pet.velocity.y * dt
 
         if pet.bottom <= top.rect.top + 3:

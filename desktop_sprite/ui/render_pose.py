@@ -168,7 +168,7 @@ class PoseBuilder:
         )
 
     def _offset(self, state: PetState, cycle: float, speed: float, fall_strength: float) -> PosePoint:
-        if state in {PetState.WALK, PetState.MOVE_TO_TARGET}:
+        if state == PetState.WALK:
             return PosePoint(math.sin(cycle) * 1.5 * speed, math.sin(cycle * 2.0) * 2.4 * speed)
         if state == PetState.JUMP:
             return PosePoint(math.sin(cycle) * 1.0, -3.0 + math.sin(cycle * 1.5) * 1.2)

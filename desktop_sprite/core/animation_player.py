@@ -15,7 +15,6 @@ class AnimationSpec:
 DEFAULT_ANIMATIONS: dict[PetState, AnimationSpec] = {
     PetState.IDLE: AnimationSpec(fps=4, frame_count=8),
     PetState.WALK: AnimationSpec(fps=10, frame_count=6),
-    PetState.MOVE_TO_TARGET: AnimationSpec(fps=10, frame_count=6),
     PetState.JUMP: AnimationSpec(fps=8, frame_count=5),
     PetState.CLIMB: AnimationSpec(fps=8, frame_count=4),
     PetState.FALL: AnimationSpec(fps=6, frame_count=3),

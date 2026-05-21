@@ -52,13 +52,14 @@ class PlatformMapper:
         top_rect = Rect(rect.left, rect.top, rect.right, rect.top + 8)
         left_rect = Rect(rect.left - 8, rect.top, rect.left + 6, rect.bottom)
         right_rect = Rect(rect.right - 6, rect.top, rect.right + 8, rect.bottom)
+        top_walkable = (rect.top - screen_rect.top) >= self.pet_height
 
         return [
             Platform(
                 id=PlatformTopology.window_top_id(window.hwnd),
                 type=PlatformType.WINDOW_TOP,
                 rect=self._clip_horizontal(top_rect, screen_rect),
-                walkable=True,
+                walkable=top_walkable,
                 climbable=False,
                 dynamic=True,
                 source_id=window.hwnd,

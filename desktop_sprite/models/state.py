@@ -9,7 +9,6 @@ from desktop_sprite.models.geometry import Rect, Vec2
 class PetState(StrEnum):
     IDLE = "idle"
     WALK = "walk"
-    MOVE_TO_TARGET = "move_to_target"
     JUMP = "jump"
     CLIMB = "climb"
     FALL = "fall"
@@ -33,7 +32,6 @@ class Pet:
     support_platform_id: str | None = None
     target_platform_id: str | None = None
     target_window_id: int | None = None
-    stamina: float = 100.0
     state_time: float = 0.0
     idle_timer: float = 0.0
     drag_positions: list[tuple[float, float, float]] = field(default_factory=list)

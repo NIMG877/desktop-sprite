@@ -1,5 +1,4 @@
 from desktop_sprite.core.pathfinding import PathAction, PathFinder
-from desktop_sprite.core.stamina_system import StaminaSystem
 from desktop_sprite.environment.environment_snapshot import EnvironmentSnapshot
 from desktop_sprite.models.geometry import Rect, Vec2
 from desktop_sprite.models.platform import Platform, PlatformType
@@ -38,20 +37,18 @@ def make_snapshot(platforms: list[Platform]) -> EnvironmentSnapshot:
     )
 
 
-def make_pet(stamina_value: float = 100) -> Pet:
+def make_pet() -> Pet:
     return Pet(
         position=Vec2(100, 546),
         velocity=Vec2(),
         width=84,
         height=104,
         support_platform_id="ground:work_area",
-        stamina=stamina_value,
     )
 
 
-def make_stamina() -> StaminaSystem:
-    config = load_config()
-    return StaminaSystem(config.stamina, config.physics)
+def make_physics():
+    return load_config().physics
 
 
 def ground() -> Platform:
@@ -64,7 +61,7 @@ def test_same_level_overlapping_platforms_generate_walk_not_jump():
     taskbar = platform("taskbar:main", PlatformType.TASKBAR, Rect.from_xywh(0, 650, 900, 4))
     snapshot = make_snapshot([ground(), taskbar])
 
-    graph = PathFinder().build_navigation_graph(pet, snapshot, make_stamina())
+    graph = PathFinder().build_navigation_graph(pet, snapshot, make_physics())
 
     edge = next(edge for edge in graph["taskbar:main"] if edge.to_platform_id == "ground:work_area")
     assert edge.action == PathAction.WALK
@@ -79,7 +76,7 @@ def test_path_to_point_on_current_platform_generates_walk_edge():
         snapshot=snapshot,
         target_platform_id="ground:work_area",
         target_x=300,
-        stamina=make_stamina(),
+        physics=make_physics(),
     )
 
     assert plan is not None
@@ -98,7 +95,7 @@ def test_lower_platform_transfer_walks_off_source_edge():
     lower_top = platform("window:2:top", PlatformType.WINDOW_TOP, Rect(170, 520, 310, 528), source_id=2)
     snapshot = make_snapshot([ground(), source_top, lower_top])
 
-    graph = PathFinder().build_navigation_graph(pet, snapshot, make_stamina())
+    graph = PathFinder().build_navigation_graph(pet, snapshot, make_physics())
 
     edge = next(edge for edge in graph["window:1:top"] if edge.to_platform_id == "window:2:top")
     assert edge.action == PathAction.WALK
@@ -109,7 +106,7 @@ def test_low_window_path_climbs_from_ground_to_window_top():
     pet = make_pet()
     snapshot = make_snapshot([ground(), *window_platforms(1, 160, 430, 320, 620)])
 
-    plan = PathFinder().find_path(pet, snapshot, target_window_id=1, stamina=make_stamina())
+    plan = PathFinder().find_path(pet, snapshot, target_window_id=1, physics=make_physics())
 
     assert plan is not None
     assert [edge.action for edge in plan.edges] == [PathAction.CLIMB]
@@ -126,7 +123,7 @@ def test_high_window_can_be_reached_through_lower_window():
         ]
     )
 
-    plan = PathFinder().find_path(pet, snapshot, target_window_id=2, stamina=make_stamina())
+    plan = PathFinder().find_path(pet, snapshot, target_window_id=2, physics=make_physics())
 
     assert plan is not None
     assert len(plan.edges) >= 2
@@ -139,7 +136,7 @@ def test_gap_between_platforms_generates_jump_edge_when_in_range():
     target_top = platform("window:2:top", PlatformType.WINDOW_TOP, Rect(360, 430, 520, 438), source_id=2)
     snapshot = make_snapshot([ground(), *window_platforms(1, 160, 430, 320, 620), target_top])
 
-    plan = PathFinder().find_path(pet, snapshot, target_window_id=2, stamina=make_stamina())
+    plan = PathFinder().find_path(pet, snapshot, target_window_id=2, physics=make_physics())
 
     assert plan is not None
     assert any(edge.action == PathAction.JUMP for edge in plan.edges)
@@ -152,7 +149,7 @@ def test_jump_to_platform_on_right_targets_near_edge():
     target_top = platform("window:2:top", PlatformType.WINDOW_TOP, Rect(360, 430, 520, 438), source_id=2)
     snapshot = make_snapshot([ground(), source_top, target_top])
 
-    plan = PathFinder().find_path(pet, snapshot, target_window_id=2, stamina=make_stamina())
+    plan = PathFinder().find_path(pet, snapshot, target_window_id=2, physics=make_physics())
 
     assert plan is not None
     jump = next(edge for edge in plan.edges if edge.action == PathAction.JUMP)
@@ -164,7 +161,7 @@ def test_gap_beyond_jump_distance_has_no_path():
     target_top = platform("window:2:top", PlatformType.WINDOW_TOP, Rect(760, 430, 880, 438), source_id=2)
     snapshot = make_snapshot([ground(), *window_platforms(1, 160, 430, 320, 620), target_top])
 
-    plan = PathFinder().find_path(pet, snapshot, target_window_id=2, stamina=make_stamina())
+    plan = PathFinder().find_path(pet, snapshot, target_window_id=2, physics=make_physics())
 
     assert plan is None
 
@@ -173,15 +170,7 @@ def test_high_window_without_intermediate_path_is_unreachable():
     pet = make_pet()
     snapshot = make_snapshot([ground(), *window_platforms(1, 160, 100, 320, 280)])
 
-    plan = PathFinder().find_path(pet, snapshot, target_window_id=1, stamina=make_stamina())
+    plan = PathFinder().find_path(pet, snapshot, target_window_id=1, physics=make_physics())
 
     assert plan is None
 
-
-def test_low_stamina_blocks_climb_edge():
-    pet = make_pet(stamina_value=20)
-    snapshot = make_snapshot([ground(), *window_platforms(1, 160, 430, 320, 620)])
-
-    plan = PathFinder().find_path(pet, snapshot, target_window_id=1, stamina=make_stamina())
-
-    assert plan is None

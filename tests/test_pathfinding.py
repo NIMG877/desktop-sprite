@@ -167,7 +167,7 @@ def test_jump_to_platform_on_right_targets_near_edge():
 
     assert plan is not None
     jump = next(edge for edge in plan.edges if edge.action == PathAction.JUMP)
-    assert jump.target_x == target_top.rect.left - pet.width / 2
+    assert jump.land_x == target_top.rect.left - pet.width / 2
 
 
 def test_gap_beyond_jump_distance_has_no_path():

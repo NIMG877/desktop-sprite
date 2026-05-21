@@ -62,6 +62,11 @@ class PathEdge:
     target_x: float
     cost: float
     side_platform_id: str | None = None
+    land_x: float | None = None
+
+    @property
+    def approach_x(self) -> float:
+        return self.target_x
 
 
 @dataclass(slots=True)
@@ -137,6 +142,7 @@ class PathFinder:
         path_edges = self._map_edges(nav_edges, mesh)
         if not path_edges:
             return None
+        path_edges = self._merge_consecutive_same_platform_walk_edges(path_edges)
         return PathPlan(path_edges, 0, target_window_id, snapshot.timestamp, target_platform_id=target_platform_id)
 
     def find_path_to_point(
@@ -177,7 +183,7 @@ class PathFinder:
         path_edges = self._map_edges(nav_edges, mesh)
         if not path_edges:
             return None
-        path_edges.append(self._point_walk_edge(target_platform, clamped_target_x, physics, pet))
+        path_edges = self._merge_consecutive_same_platform_walk_edges(path_edges)
         return PathPlan(
             edges=path_edges,
             current_index=0,
@@ -429,17 +435,31 @@ class PathFinder:
         target = mesh.nodes.get(edge.to_node_id)
         if source is None or target is None:
             return None
-        target_x = target.x
+        approach_x = target.x
+        land_x: float | None = target.x
         if edge.meta.get("drop") == "1":
-            target_x = source.x
+            approach_x = source.x
+            land_x = source.x
         if edge.action == PathAction.JUMP and "target_x" in edge.meta:
-            target_x = float(edge.meta["target_x"])
+            land_x = float(edge.meta["target_x"])
+            approach_x = source.x
         if edge.action == PathAction.CLIMB:
-            target_x = source.x
-        return PathEdge(edge.action, source.platform_id, target.platform_id, target_x, edge.cost, edge.side_platform_id)
+            approach_x = source.x
+            land_x = target.x
+        if edge.action == PathAction.WALK and edge.from_node_id != edge.to_node_id and edge.meta.get("drop") != "1":
+            # For normal WALK transfers, approach/land are the same walk destination.
+            land_x = approach_x
+        return PathEdge(edge.action, source.platform_id, target.platform_id, approach_x, edge.cost, edge.side_platform_id, land_x=land_x)
 
     def _point_walk_edge(self, platform: Platform, target_x: float, physics: PhysicsConfig, pet: Pet) -> PathEdge:
-        return PathEdge(PathAction.WALK, platform.id, platform.id, target_x, abs(target_x - pet.position.x) / max(physics.walk_speed, 1.0))
+        return PathEdge(
+            PathAction.WALK,
+            platform.id,
+            platform.id,
+            target_x,
+            abs(target_x - pet.position.x) / max(physics.walk_speed, 1.0),
+            land_x=target_x,
+        )
 
     def _trim_platform_walk_transitions(self, edges: list[PathEdge]) -> list[PathEdge]:
         if len(edges) <= 1:
@@ -461,6 +481,47 @@ class PathFinder:
         ):
             trimmed.pop()
         return trimmed
+
+    def _merge_consecutive_same_platform_walk_edges(self, edges: list[PathEdge]) -> list[PathEdge]:
+        if len(edges) <= 1:
+            return edges
+        merged: list[PathEdge] = []
+        i = 0
+        while i < len(edges):
+            cur = edges[i]
+            if not (cur.action == PathAction.WALK and cur.from_platform_id == cur.to_platform_id):
+                merged.append(cur)
+                i += 1
+                continue
+
+            total_cost = cur.cost
+            last = cur
+            j = i + 1
+            while j < len(edges):
+                nxt = edges[j]
+                if not (
+                    nxt.action == PathAction.WALK
+                    and nxt.from_platform_id == nxt.to_platform_id
+                    and nxt.from_platform_id == cur.from_platform_id
+                ):
+                    break
+                total_cost += nxt.cost
+                last = nxt
+                j += 1
+
+            merged.append(
+                PathEdge(
+                    action=PathAction.WALK,
+                    from_platform_id=cur.from_platform_id,
+                    to_platform_id=cur.to_platform_id,
+                    target_x=last.target_x,
+                    cost=total_cost,
+                    side_platform_id=None,
+                    land_x=last.land_x if last.land_x is not None else last.target_x,
+                )
+            )
+            i = j
+        return merged
 
     def _first_platform_hit_below(
         self,

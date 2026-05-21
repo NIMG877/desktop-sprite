@@ -342,15 +342,15 @@ class DebugOverlayWindow(QWidget):
             f"scale={scale:.2f}",
             f"v=({pet.velocity.x:.0f},{pet.velocity.y:.0f})",
             f"p={pet.support_platform_id or '-'}",
-            f"p_name={self._support_window_title()}",
+            # f"p_name={self._support_window_title()}",
         ]
         walkable = sum(1 for platform in debug_state.snapshot.platforms if platform.walkable)
         climbable = sum(1 for platform in debug_state.snapshot.platforms if platform.climbable)
-        lines.append(f"map platform={walkable} climb={climbable}")
-        lines.append(f"mesh nodes={len(mesh.nodes)} edges={graph_edges}")
-        lines.append(f"edge walk={walk_edges} drop={drop_edges} jump={jump_edges} climb={climb_edges}")
-        lines.append("map: blue walk green climb")
-        lines.append("graph: dotted path: bold yellow=dotted jump-related")
+        # lines.append(f"map platform={walkable} climb={climbable}")
+        # lines.append(f"mesh nodes={len(mesh.nodes)} edges={graph_edges}")
+        # lines.append(f"edge walk={walk_edges} drop={drop_edges} jump={jump_edges} climb={climb_edges}")
+        # lines.append("map: blue walk green climb")
+        # lines.append("graph: dotted path: bold yellow=dotted jump-related")
         path_plan = debug_state.path_plan
         if path_plan is None or path_plan.is_complete:
             lines.append("path=-")
@@ -465,30 +465,33 @@ class DebugOverlayWindow(QWidget):
         if edge.action == PathAction.CLIMB:
             side = snapshot.platform_by_id(edge.side_platform_id)
             if side is None:
-                return [QPointF(edge.target_x + pet.width / 2, target.rect.top - pet.height / 2)]
+                return [QPointF(edge.approach_x + pet.width / 2, target.rect.top - pet.height / 2)]
             return [
                 QPointF(side.rect.center_x, side.rect.bottom - pet.height / 2),
                 QPointF(side.rect.center_x, target.rect.top - pet.height / 2),
             ]
 
         if edge.action == PathAction.JUMP and target.climbable:
-            return [QPointF(edge.target_x + pet.width / 2, target.rect.bottom - pet.height / 2)]
+            land_x = edge.land_x if edge.land_x is not None else edge.approach_x
+            return [QPointF(land_x + pet.width / 2, target.rect.bottom - pet.height / 2)]
 
-        return [QPointF(edge.target_x + pet.width / 2, target.rect.top - pet.height / 2)]
+        land_x = edge.land_x if edge.land_x is not None else edge.approach_x
+        return [QPointF(land_x + pet.width / 2, target.rect.top - pet.height / 2)]
 
     def _edge_debug_steps(self, edge: PathEdge) -> list[str]:
         if edge.action == PathAction.WALK:
-            return [f"walk x={edge.target_x:.0f} -> {edge.to_platform_id}"]
+            return [f"walk x={edge.approach_x:.0f} -> {edge.to_platform_id}"]
         if edge.action == PathAction.CLIMB:
             side = edge.side_platform_id or "-"
             return [
-                f"walk x={edge.target_x:.0f} -> {side}",
+                f"walk x={edge.approach_x:.0f} -> {side}",
                 f"climb -> {edge.to_platform_id}",
             ]
         if edge.action == PathAction.JUMP:
+            land_x = edge.land_x if edge.land_x is not None else edge.approach_x
             return [
-                f"walk x={edge.target_x:.0f}",
-                f"jump -> {edge.to_platform_id}",
+                f"approach x={edge.approach_x:.0f}",
+                f"jump land x={land_x:.0f} -> {edge.to_platform_id}",
             ]
         return [f"{edge.action} -> {edge.to_platform_id}"]
 

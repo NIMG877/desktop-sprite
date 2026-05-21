@@ -40,7 +40,7 @@ class PathExecutor:
             return True
 
         if edge.action == PathAction.WALK:
-            if self.walk_toward_x(edge.target_x):
+            if self.walk_toward_x(edge.approach_x):
                 target = controller.snapshot.platform_by_id(edge.to_platform_id)
                 source = controller.snapshot.platform_by_id(edge.from_platform_id)
                 if target is None or source is None:
@@ -57,7 +57,7 @@ class PathExecutor:
             return True
 
         if edge.action == PathAction.JUMP:
-            if self.walk_toward_x(edge.target_x):
+            if self.walk_toward_x(edge.approach_x):
                 self.start_jump_toward_platform(edge)
             return True
 
@@ -85,10 +85,14 @@ class PathExecutor:
         if target is None:
             controller.path_plan = None
             return
-        target_x = min(
-            max(edge.target_x, target.rect.left - controller.pet.width / 2),
-            target.rect.right - controller.pet.width / 2,
-        )
+        raw_land_x = edge.land_x if edge.land_x is not None else edge.approach_x
+        if target.climbable:
+            target_x = raw_land_x
+        else:
+            target_x = min(
+                max(raw_land_x, target.rect.left - controller.pet.width / 2),
+                target.rect.right - controller.pet.width / 2,
+            )
         distance = target_x - controller.pet.position.x
         direction = 0 if abs(distance) <= controller.config.physics.edge_snap_distance else (1 if distance > 0 else -1)
         controller.pet.target_platform_id = edge.to_platform_id
@@ -106,7 +110,7 @@ class PathExecutor:
         if side is None or source is None or not side.climbable:
             return False
 
-        launch_x = edge.target_x
+        launch_x = edge.approach_x
         distance = launch_x - controller.pet.position.x
         if abs(distance) > controller.config.physics.edge_snap_distance:
             direction = 1 if distance > 0 else -1

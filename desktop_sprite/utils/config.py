@@ -52,12 +52,18 @@ class InteractionConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class CharacterConfig:
+    default_type: str
+    profile_files: dict[str, str]
+
+@dataclass(frozen=True, slots=True)
 class AppConfig:
     app: RuntimeConfig
     pet: PetConfig
     physics: PhysicsConfig
     behavior: BehaviorConfig
     interaction: InteractionConfig
+    character: CharacterConfig
 
 
 def load_config(path: str | Path | None = None) -> AppConfig:
@@ -65,6 +71,7 @@ def load_config(path: str | Path | None = None) -> AppConfig:
     with config_path.open("r", encoding="utf-8") as file:
         data: dict[str, Any] = json.load(file)
 
+    _load_character_profiles(config_path.parent, data)
     app_data = data["app"]
     return AppConfig(
         app=RuntimeConfig(
@@ -77,4 +84,23 @@ def load_config(path: str | Path | None = None) -> AppConfig:
         physics=PhysicsConfig(**data["physics"]),
         behavior=BehaviorConfig(**data["behavior"]),
         interaction=InteractionConfig(**data["interaction"]),
+        character=CharacterConfig(**data["character"]),
     )
+
+
+def _load_character_profiles(config_root: Path, data: dict[str, Any]) -> None:
+    character_cfg = data.get("character", {})
+    profile_files = character_cfg.get("profile_files", {})
+    for _name, relative_path in profile_files.items():
+        profile_path = config_root / relative_path
+        with profile_path.open("r", encoding="utf-8") as file:
+            profile_data: dict[str, Any] = json.load(file)
+        _merge_dict(data, profile_data)
+
+
+def _merge_dict(target: dict[str, Any], source: dict[str, Any]) -> None:
+    for key, value in source.items():
+        if isinstance(value, dict) and isinstance(target.get(key), dict):
+            _merge_dict(target[key], value)
+        else:
+            target[key] = value

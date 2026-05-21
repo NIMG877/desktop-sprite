@@ -1,0 +1,8 @@
+{
+  "pet": {
+    "width": 84,
+    "height": 104,
+    "default_spawn_x": 300,
+    "default_spawn_y": 300
+  }
+}

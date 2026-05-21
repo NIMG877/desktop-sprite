@@ -7,8 +7,8 @@ from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import QApplication, QWidget
 
+from desktop_sprite.core.character import CharacterDebugState, DesktopCharacter
 from desktop_sprite.core.pathfinding import PathAction, PathEdge
-from desktop_sprite.core.pet_controller import PetController
 from desktop_sprite.models.platform import Platform, PlatformType
 from desktop_sprite.ui.pet_renderer import PetRenderer
 from desktop_sprite.ui.render_pose import PoseBuilder
@@ -17,16 +17,16 @@ from desktop_sprite.utils.dpi import qt_primary_screen_scale
 
 
 class SpriteWindow(QWidget):
-    def __init__(self, controller: PetController, config: AppConfig) -> None:
+    def __init__(self, character: DesktopCharacter, config: AppConfig) -> None:
         super().__init__()
-        self.controller = controller
+        self.character = character
         self.config = config
         self._last_tick = time.monotonic()
         self._press_global: QPoint | None = None
         self._dragging = False
         self.pet_renderer = PetRenderer()
         self.pose_builder = PoseBuilder()
-        self.debug_overlay = DebugOverlayWindow(controller, config) if config.app.debug_draw else None
+        self.debug_overlay = DebugOverlayWindow(character, config) if config.app.debug_draw else None
 
         flags = Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool
         if config.app.always_on_top:
@@ -34,7 +34,8 @@ class SpriteWindow(QWidget):
         self.setWindowFlags(flags)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setMouseTracking(True)
-        self.resize(config.pet.width, config.pet.height)
+        initial = self.character.render_state()
+        self.resize(initial.width, initial.height)
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._tick)
@@ -45,10 +46,12 @@ class SpriteWindow(QWidget):
             now = time.monotonic()
             dt = min(now - self._last_tick, 0.05)
             self._last_tick = now
-            self.controller.tick(dt)
+            self.character.tick(dt)
 
-            pet = self.controller.pet
-            self.move(round(pet.position.x), round(pet.position.y))
+            render_state = self.character.render_state()
+            if self.width() != render_state.width or self.height() != render_state.height:
+                self.resize(render_state.width, render_state.height)
+            self.move(round(render_state.x), round(render_state.y))
             self.update()
             if self.debug_overlay is not None:
                 self.debug_overlay.sync_to_snapshot()
@@ -58,16 +61,23 @@ class SpriteWindow(QWidget):
     def paintEvent(self, _event) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        animation = self.controller.animation
+        paint_fn = getattr(self.character, "paint", None)
+        if callable(paint_fn) and paint_fn(painter, self.width(), self.height()):
+            return
+
+        render_state = self.character.render_state()
+        if render_state.body is None or render_state.animation is None:
+            return
+        animation = render_state.animation
         pose = self.pose_builder.build(
-            self.controller.pet,
+            render_state.body,
             animation.phase,
             self.width(),
             self.height(),
         )
         if animation.previous_state is not None and animation.blend_alpha < 1.0:
             previous_pose = self.pose_builder.build(
-                self.controller.pet,
+                render_state.body,
                 animation.previous_phase,
                 self.width(),
                 self.height(),
@@ -87,26 +97,26 @@ class SpriteWindow(QWidget):
         self._press_global = event.globalPosition().toPoint()
         self._dragging = True
         global_pos = event.globalPosition()
-        self.controller.start_drag(global_pos.x(), global_pos.y())
+        self.character.start_drag(global_pos.x(), global_pos.y())
 
     def mouseMoveEvent(self, event) -> None:
         if not self._dragging:
             return
         global_pos = event.globalPosition()
-        self.controller.drag_to(global_pos.x(), global_pos.y())
+        self.character.drag_to(global_pos.x(), global_pos.y())
 
     def mouseReleaseEvent(self, event) -> None:
         if event.button() != Qt.MouseButton.LeftButton:
             return
         global_pos = event.globalPosition()
         if self._dragging:
-            self.controller.release_drag(global_pos.x(), global_pos.y())
+            self.character.release_drag(global_pos.x(), global_pos.y())
         self._dragging = False
         self._press_global = None
 
     def mouseDoubleClickEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
-            self.controller.poke()
+            self.character.poke()
 
     def closeEvent(self, event) -> None:
         if self.debug_overlay is not None:
@@ -115,9 +125,9 @@ class SpriteWindow(QWidget):
 
 
 class DebugOverlayWindow(QWidget):
-    def __init__(self, controller: PetController, config: AppConfig) -> None:
+    def __init__(self, character: DesktopCharacter, config: AppConfig) -> None:
         super().__init__()
-        self.controller = controller
+        self.character = character
         self.config = config
 
         flags = (
@@ -135,7 +145,7 @@ class DebugOverlayWindow(QWidget):
         self.setMouseTracking(False)
 
     def sync_to_snapshot(self) -> None:
-        screen = self.controller.snapshot.screen_rect
+        screen = self.character.debug_state().snapshot.screen_rect
         self.setGeometry(
             round(screen.left),
             round(screen.top),
@@ -149,7 +159,7 @@ class DebugOverlayWindow(QWidget):
     def paintEvent(self, _event) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        screen = self.controller.snapshot.screen_rect
+        screen = self.character.debug_state().snapshot.screen_rect
         painter.translate(-screen.left, -screen.top)
         self._draw_debug(painter)
 
@@ -162,7 +172,7 @@ class DebugOverlayWindow(QWidget):
         self._draw_debug_info(painter, graph)
 
     def _draw_navigation_map(self, painter: QPainter) -> None:
-        snapshot = self.controller.snapshot
+        snapshot = self.character.debug_state().snapshot
 
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.setPen(QPen(QColor(90, 90, 90, 80), 1))
@@ -259,18 +269,22 @@ class DebugOverlayWindow(QWidget):
     def _draw_collision_box(self, painter: QPainter) -> None:
         painter.setPen(QPen(QColor(255, 60, 60), 2))
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        pet = self.controller.pet
+        pet = self.character.render_state().body
+        if pet is None:
+            render = self.character.render_state()
+            painter.drawRect(QRectF(render.x, render.y, render.width, render.height))
+            return
         painter.drawRect(QRectF(pet.position.x, pet.position.y, pet.width, pet.height))
 
     def _draw_debug_info(self, painter: QPainter, graph: dict[str, list[PathEdge]]) -> None:
-        pet = self.controller.pet
+        pet = self.character.render_state().body
         lines = self._debug_lines(graph)
 
         painter.setFont(QFont("Consolas", 8))
         metrics = painter.fontMetrics()
         width = max(metrics.horizontalAdvance(line) for line in lines) + 12
         height = metrics.lineSpacing() * len(lines) + 10
-        screen = self.controller.snapshot.screen_rect
+        screen = self.character.debug_state().snapshot.screen_rect
         width = min(width, max(round(screen.width) - 16, 80))
         height = min(height, max(round(screen.height) - 16, metrics.lineSpacing() + 10))
         rect = self._debug_info_rect(width, height)
@@ -282,8 +296,26 @@ class DebugOverlayWindow(QWidget):
         painter.drawText(rect.adjusted(6, 5, -6, -5), Qt.AlignmentFlag.AlignLeft, "\n".join(lines))
 
     def _debug_lines(self, graph: dict[str, list[PathEdge]]) -> list[str]:
-        pet = self.controller.pet
-        floor_y = self.controller.snapshot.work_area_rect.bottom
+        debug_state = self.character.debug_state()
+        pet = self.character.render_state().body
+        if pet is None:
+            payload = self.character.render_state().payload or {}
+            lines = [
+                f"{payload.get('state', 'custom')}",
+                f"center=({payload.get('center_x', 0.0):.1f},{payload.get('center_y', 0.0):.1f})",
+                f"driver=({payload.get('driver_x', 0.0):.1f},{payload.get('driver_y', 0.0):.1f})",
+                f"v=({payload.get('center_vx', 0.0):.1f},{payload.get('center_vy', 0.0):.1f})",
+                f"driver_v=({payload.get('driver_vx', 0.0):.1f},{payload.get('driver_vy', 0.0):.1f})",
+                f"contacts={payload.get('contacts', 0)}",
+                f"area_err={payload.get('area_error_ratio', 0.0):+.3f}",
+            ]
+            graph_edges = sum(len(edges) for edges in graph.values())
+            walkable = sum(1 for platform in debug_state.snapshot.platforms if platform.walkable)
+            climbable = sum(1 for platform in debug_state.snapshot.platforms if platform.climbable)
+            lines.append(f"map nodes={walkable} climb={climbable} edges={graph_edges}")
+            lines.append("path=-")
+            return lines
+        floor_y = debug_state.snapshot.work_area_rect.bottom
         overflow = pet.bottom - floor_y
         scale = qt_primary_screen_scale()
         lines = [
@@ -298,12 +330,12 @@ class DebugOverlayWindow(QWidget):
             f"p_name={self._support_window_title()}",
         ]
         graph_edges = sum(len(edges) for edges in graph.values())
-        walkable = sum(1 for platform in self.controller.snapshot.platforms if platform.walkable)
-        climbable = sum(1 for platform in self.controller.snapshot.platforms if platform.climbable)
+        walkable = sum(1 for platform in debug_state.snapshot.platforms if platform.walkable)
+        climbable = sum(1 for platform in debug_state.snapshot.platforms if platform.climbable)
         lines.append(f"map nodes={walkable} climb={climbable} edges={graph_edges}")
         lines.append("map: blue walk green climb")
         lines.append("graph: dotted path: bold")
-        path_plan = self.controller.path_plan
+        path_plan = debug_state.path_plan
         if path_plan is None or path_plan.is_complete:
             lines.append("path=-")
             return lines
@@ -317,8 +349,10 @@ class DebugOverlayWindow(QWidget):
         return lines
 
     def _debug_info_rect(self, width: int, height: int) -> QRectF:
-        pet = self.controller.pet
-        screen = self.controller.snapshot.screen_rect
+        pet = self.character.render_state().body
+        if pet is None:
+            return QRectF(8, 8, width, height)
+        screen = self.character.debug_state().snapshot.screen_rect
         margin = 8
         x = pet.position.x + pet.width + margin
         y = pet.position.y
@@ -343,7 +377,7 @@ class DebugOverlayWindow(QWidget):
         return QRectF(x, y, width, height)
 
     def _draw_complete_path(self, painter: QPainter) -> None:
-        path_plan = self.controller.path_plan
+        path_plan = self.character.debug_state().path_plan
         if path_plan is None or path_plan.is_complete:
             return
 
@@ -368,18 +402,20 @@ class DebugOverlayWindow(QWidget):
         self._draw_path_labels(painter, segments)
 
     def _navigation_graph(self) -> dict[str, list[PathEdge]]:
-        return self.controller.pathfinder.build_navigation_graph(
-            self.controller.pet,
-            self.controller.snapshot,
-            self.controller.config.physics,
+        debug_state: CharacterDebugState = self.character.debug_state()
+        return debug_state.pathfinder.build_navigation_graph(
+            self.character.render_state().body,
+            debug_state.snapshot,
+            debug_state.physics,
         )
 
     def _graph_edge_segments(self, edge: PathEdge) -> list[tuple[QPointF, QPointF]]:
-        source = self.controller.snapshot.platform_by_id(edge.from_platform_id)
+        snapshot = self.character.debug_state().snapshot
+        source = snapshot.platform_by_id(edge.from_platform_id)
         if source is None:
             return []
 
-        pet = self.controller.pet
+        pet = self.character.render_state().body
         current = QPointF(source.rect.center_x, source.rect.top - pet.height / 2)
         segments: list[tuple[QPointF, QPointF]] = []
         for waypoint in self._edge_waypoints(edge):
@@ -388,11 +424,13 @@ class DebugOverlayWindow(QWidget):
         return segments
 
     def _path_segments(self) -> list[tuple[QPointF, QPointF, int, PathAction]]:
-        path_plan = self.controller.path_plan
+        path_plan = self.character.debug_state().path_plan
         if path_plan is None or path_plan.is_complete:
             return []
 
-        pet = self.controller.pet
+        pet = self.character.render_state().body
+        if pet is None:
+            return []
         current = QPointF(pet.center_x, pet.position.y + pet.height / 2)
         segments: list[tuple[QPointF, QPointF, int, PathAction]] = []
         for edge_index in range(path_plan.current_index, len(path_plan.edges)):
@@ -403,8 +441,10 @@ class DebugOverlayWindow(QWidget):
         return segments
 
     def _edge_waypoints(self, edge: PathEdge) -> list[QPointF]:
-        pet = self.controller.pet
-        snapshot = self.controller.snapshot
+        pet = self.character.render_state().body
+        if pet is None:
+            return []
+        snapshot = self.character.debug_state().snapshot
         target = snapshot.platform_by_id(edge.to_platform_id)
         if target is None:
             return []
@@ -437,11 +477,15 @@ class DebugOverlayWindow(QWidget):
         return [f"{edge.action} -> {edge.to_platform_id}"]
 
     def _support_window_title(self) -> str:
-        platform = self.controller.snapshot.platform_by_id(self.controller.pet.support_platform_id)
+        debug_state = self.character.debug_state()
+        pet = self.character.render_state().body
+        if pet is None:
+            return "-"
+        platform = debug_state.snapshot.platform_by_id(pet.support_platform_id)
         if platform is None or platform.source_id is None:
             return "-"
         window = next(
-            (item for item in self.controller.snapshot.windows if item.hwnd == platform.source_id),
+            (item for item in debug_state.snapshot.windows if item.hwnd == platform.source_id),
             None,
         )
         if window is None:
@@ -457,7 +501,7 @@ class DebugOverlayWindow(QWidget):
         return f"{text[: max(limit - 3, 0)]}..."
 
     def _draw_path_platforms(self, painter: QPainter) -> None:
-        path_plan = self.controller.path_plan
+        path_plan = self.character.debug_state().path_plan
         if path_plan is None:
             return
 
@@ -470,7 +514,7 @@ class DebugOverlayWindow(QWidget):
 
         painter.setBrush(Qt.BrushStyle.NoBrush)
         for platform_id in platform_ids:
-            platform = self.controller.snapshot.platform_by_id(platform_id)
+            platform = self.character.debug_state().snapshot.platform_by_id(platform_id)
             if platform is None:
                 continue
             color = QColor(35, 150, 90, 150) if platform.climbable else QColor(40, 110, 255, 130)

@@ -5,6 +5,7 @@ import time
 
 from desktop_sprite.core.animation_player import AnimationPlayer
 from desktop_sprite.core.behavior_state_machine import BehaviorStateMachine
+from desktop_sprite.core.character import CharacterDebugState, CharacterRenderState
 from desktop_sprite.core.pathfinding import PathAction, PathEdge, PathFinder, PathPlan
 from desktop_sprite.core.path_executor import PathExecutor
 from desktop_sprite.core.physics_engine import PhysicsEngine
@@ -506,3 +507,21 @@ class PetController:
         end = self.pet.drag_positions[-1]
         dt = max(end[0] - start[0], 0.001)
         return Vec2((end[1] - start[1]) / dt, (end[2] - start[2]) / dt)
+
+    def render_state(self) -> CharacterRenderState:
+        return CharacterRenderState(
+            x=self.pet.position.x,
+            y=self.pet.position.y,
+            width=self.pet.width,
+            height=self.pet.height,
+            body=self.pet,
+            animation=self.animation,
+        )
+
+    def debug_state(self) -> CharacterDebugState:
+        return CharacterDebugState(
+            snapshot=self.snapshot,
+            pathfinder=self.pathfinder,
+            path_plan=self.path_plan,
+            physics=self.config.physics,
+        )

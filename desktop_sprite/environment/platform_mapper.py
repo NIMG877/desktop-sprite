@@ -27,7 +27,7 @@ class PlatformMapper:
             )
         ]
 
-        if taskbar_rect and taskbar_rect.is_valid():
+        if taskbar_rect and taskbar_rect.is_valid() and not self._duplicates_ground(taskbar_rect, work_area_rect):
             platforms.append(
                 Platform(
                     id="taskbar:main",
@@ -84,3 +84,8 @@ class PlatformMapper:
 
     def _clip_horizontal(self, rect: Rect, bounds: Rect) -> Rect:
         return Rect(max(rect.left, bounds.left), rect.top, min(rect.right, bounds.right), rect.bottom)
+
+    def _duplicates_ground(self, taskbar_rect: Rect, work_area_rect: Rect) -> bool:
+        same_top = abs(taskbar_rect.top - work_area_rect.bottom) <= 3
+        overlaps_work_area = taskbar_rect.right > work_area_rect.left and taskbar_rect.left < work_area_rect.right
+        return same_top and overlaps_work_area

@@ -89,9 +89,7 @@ class PhysicsEngine:
             pet.support_platform_id = top.id
             pet.target_platform_id = None
             pet.velocity.y = 0.0
-            walk_speed = self.stamina.effective_walk_speed(pet) if self.stamina else self.config.walk_speed
-            pet.velocity.x = walk_speed if pet.facing == Facing.RIGHT else -walk_speed
-            pet.state = PetState.WALK
+            pet.velocity.x = 0.0
 
     def _resolve_platform_landing(self, pet: Pet, snapshot: EnvironmentSnapshot, old_bottom: float) -> None:
         if pet.velocity.y < 0:
@@ -113,7 +111,8 @@ class PhysicsEngine:
         pet.velocity.y = 0.0
         pet.support_platform_id = platform.id
         if pet.state in {PetState.FALL, PetState.JUMP}:
-            pet.state = PetState.IDLE if abs(pet.velocity.x) < 1 else PetState.WALK
+            pet.velocity.x = 0.0
+            pet.state = PetState.IDLE
 
     def _clamp_horizontal(self, pet: Pet, snapshot: EnvironmentSnapshot) -> None:
         bounds = snapshot.work_area_rect
@@ -168,7 +167,8 @@ class PhysicsEngine:
         pet.velocity.y = 0.0
         pet.support_platform_id = "ground:work_area"
         if pet.state in {PetState.FALL, PetState.JUMP}:
-            pet.state = PetState.IDLE if abs(pet.velocity.x) < 1 else PetState.WALK
+            pet.velocity.x = 0.0
+            pet.state = PetState.IDLE
 
     def _clamp_to_screen(self, pet: Pet, snapshot: EnvironmentSnapshot) -> None:
         bottom_limit = snapshot.screen_rect.bottom + pet.height * 2

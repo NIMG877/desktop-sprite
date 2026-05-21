@@ -36,8 +36,6 @@
   "behavior": {
     "idle_min_seconds": 1.0,
     "idle_max_seconds": 2.5,
-    "walk_min_seconds": 2.0,
-    "walk_max_seconds": 6.0,
     "sleep_after_seconds": 120,
     "prefer_foreground_window": true,
     "target_repick_seconds": 3.5

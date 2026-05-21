@@ -55,6 +55,32 @@ def test_falling_pet_lands_on_platform():
     assert pet.support_platform_id == "ground:test"
     assert pet.position.y == 60
     assert pet.velocity.y == 0
+    assert pet.state == PetState.IDLE
+
+
+def test_falling_pet_lands_idle_even_with_horizontal_velocity():
+    physics = make_physics()
+    pet = Pet(
+        position=Vec2(50, 40),
+        velocity=Vec2(120, 200),
+        width=40,
+        height=60,
+        state=PetState.FALL,
+    )
+    platform = Platform(
+        id="ground:test",
+        type=PlatformType.GROUND,
+        rect=Rect.from_xywh(0, 120, 200, 4),
+        walkable=True,
+        climbable=False,
+    )
+    snapshot = make_snapshot([platform])
+
+    physics.update(pet, snapshot, 0.1)
+
+    assert pet.support_platform_id == "ground:test"
+    assert pet.velocity.x == 0
+    assert pet.state == PetState.IDLE
 
 
 def test_supported_pet_falls_when_platform_moves_out_from_under_it():
@@ -195,3 +221,42 @@ def test_jumping_pet_lands_like_falling_pet():
     assert pet.support_platform_id == "ground:test"
     assert pet.position.y == 60
     assert pet.state == PetState.IDLE
+
+
+def test_climb_completion_does_not_change_state_to_walk_or_idle():
+    physics = make_physics()
+    pet = Pet(
+        position=Vec2(100, 50),
+        velocity=Vec2(0, 0),
+        width=40,
+        height=60,
+        state=PetState.CLIMB,
+        target_platform_id="window:123:left",
+    )
+    top = Platform(
+        id="window:123:top",
+        type=PlatformType.WINDOW_TOP,
+        rect=Rect.from_xywh(80, 100, 180, 4),
+        walkable=True,
+        climbable=False,
+        dynamic=True,
+        source_id=123,
+    )
+    side = Platform(
+        id="window:123:left",
+        type=PlatformType.WINDOW_LEFT,
+        rect=Rect.from_xywh(100, 100, 8, 120),
+        walkable=False,
+        climbable=True,
+        dynamic=True,
+        source_id=123,
+    )
+    snapshot = make_snapshot([top, side])
+
+    physics.update(pet, snapshot, 0.1)
+
+    assert pet.support_platform_id == "window:123:top"
+    assert pet.target_platform_id is None
+    assert pet.velocity.x == 0
+    assert pet.velocity.y == 0
+    assert pet.state == PetState.CLIMB

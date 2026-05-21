@@ -28,3 +28,17 @@ def test_maps_window_to_top_and_side_platforms():
     assert PlatformType.WINDOW_LEFT in types
     assert PlatformType.WINDOW_RIGHT in types
     assert any(platform.id == "window:123:top" for platform in platforms)
+
+
+def test_skips_taskbar_platform_when_it_duplicates_ground():
+    mapper = PlatformMapper(pet_width=80, pet_height=100)
+
+    platforms = mapper.map_platforms(
+        screen_rect=Rect.from_xywh(0, 0, 1000, 800),
+        work_area_rect=Rect.from_xywh(0, 0, 1000, 760),
+        taskbar_rect=Rect.from_xywh(0, 760, 1000, 40),
+        windows=[],
+    )
+
+    assert any(platform.id == "ground:work_area" for platform in platforms)
+    assert not any(platform.id == "taskbar:main" for platform in platforms)

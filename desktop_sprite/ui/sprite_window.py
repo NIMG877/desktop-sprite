@@ -296,6 +296,7 @@ class DebugOverlayWindow(QWidget):
             f"v=({pet.velocity.x:.0f},{pet.velocity.y:.0f})",
             f"stamina={pet.stamina:.0f}/{self.config.stamina.max_stamina:.0f}",
             f"p={pet.support_platform_id or '-'}",
+            f"p_name={self._support_window_title()}",
         ]
         graph_edges = sum(len(edges) for edges in graph.values())
         walkable = sum(1 for platform in self.controller.snapshot.platforms if platform.walkable)
@@ -312,6 +313,8 @@ class DebugOverlayWindow(QWidget):
         for index, edge in enumerate(path_plan.edges, start=1):
             marker = ">" if index - 1 == path_plan.current_index else " "
             lines.append(f"{marker}{index}:{edge.action}->{edge.to_platform_id}")
+            if index - 1 >= path_plan.current_index:
+                lines.extend(f"  {step}" for step in self._edge_debug_steps(edge))
         return lines
 
     def _debug_info_rect(self, width: int, height: int) -> QRectF:
@@ -418,6 +421,42 @@ class DebugOverlayWindow(QWidget):
 
         return [QPointF(edge.target_x + pet.width / 2, target.rect.top - pet.height / 2)]
 
+    def _edge_debug_steps(self, edge: PathEdge) -> list[str]:
+        if edge.action == PathAction.WALK:
+            return [f"walk x={edge.target_x:.0f} -> {edge.to_platform_id}"]
+        if edge.action == PathAction.CLIMB:
+            side = edge.side_platform_id or "-"
+            return [
+                f"walk x={edge.target_x:.0f} -> {side}",
+                f"climb -> {edge.to_platform_id}",
+            ]
+        if edge.action == PathAction.JUMP:
+            return [
+                f"walk x={edge.target_x:.0f}",
+                f"jump -> {edge.to_platform_id}",
+            ]
+        return [f"{edge.action} -> {edge.to_platform_id}"]
+
+    def _support_window_title(self) -> str:
+        platform = self.controller.snapshot.platform_by_id(self.controller.pet.support_platform_id)
+        if platform is None or platform.source_id is None:
+            return "-"
+        window = next(
+            (item for item in self.controller.snapshot.windows if item.hwnd == platform.source_id),
+            None,
+        )
+        if window is None:
+            return f"<{platform.source_id}>"
+        title = window.title.strip()
+        if not title:
+            return f"<{platform.source_id}>"
+        return self._shorten_debug_text(title, 64)
+
+    def _shorten_debug_text(self, text: str, limit: int) -> str:
+        if len(text) <= limit:
+            return text
+        return f"{text[: max(limit - 3, 0)]}..."
+
     def _draw_path_platforms(self, painter: QPainter) -> None:
         path_plan = self.controller.path_plan
         if path_plan is None:
@@ -477,16 +516,16 @@ class DebugOverlayWindow(QWidget):
         return math.hypot(end.x() - start.x(), end.y() - start.y())
 
     def _graph_edge_color(self, action: PathAction) -> QColor:
+        if action == PathAction.WALK:
+            return QColor(35, 125, 220, 85)
         if action == PathAction.CLIMB:
             return QColor(30, 145, 85, 80)
-        if action == PathAction.DROP:
-            return QColor(140, 75, 200, 75)
         return QColor(45, 105, 220, 70)
 
     def _path_color(self, action: PathAction, current: bool) -> QColor:
         alpha = 230 if current else 165
+        if action == PathAction.WALK:
+            return QColor(40, 130, 230, alpha)
         if action == PathAction.CLIMB:
             return QColor(30, 160, 90, alpha)
-        if action == PathAction.DROP:
-            return QColor(150, 80, 210, alpha)
         return QColor(255, 145, 35, alpha) if current else QColor(45, 120, 255, alpha)

@@ -58,6 +58,53 @@ def ground() -> Platform:
     return platform("ground:work_area", PlatformType.GROUND, Rect.from_xywh(0, 650, 900, 4))
 
 
+def test_same_level_overlapping_platforms_generate_walk_not_jump():
+    pet = make_pet()
+    pet.support_platform_id = "taskbar:main"
+    taskbar = platform("taskbar:main", PlatformType.TASKBAR, Rect.from_xywh(0, 650, 900, 4))
+    snapshot = make_snapshot([ground(), taskbar])
+
+    graph = PathFinder().build_navigation_graph(pet, snapshot, make_stamina())
+
+    edge = next(edge for edge in graph["taskbar:main"] if edge.to_platform_id == "ground:work_area")
+    assert edge.action == PathAction.WALK
+
+
+def test_path_to_point_on_current_platform_generates_walk_edge():
+    pet = make_pet()
+    snapshot = make_snapshot([ground()])
+
+    plan = PathFinder().find_path_to_point(
+        pet=pet,
+        snapshot=snapshot,
+        target_platform_id="ground:work_area",
+        target_x=300,
+        stamina=make_stamina(),
+    )
+
+    assert plan is not None
+    assert plan.target_platform_id == "ground:work_area"
+    assert plan.target_x == 300
+    assert len(plan.edges) == 1
+    assert plan.edges[0].action == PathAction.WALK
+    assert plan.edges[0].from_platform_id == "ground:work_area"
+    assert plan.edges[0].to_platform_id == "ground:work_area"
+
+
+def test_lower_platform_transfer_walks_off_source_edge():
+    pet = make_pet()
+    pet.support_platform_id = "window:1:top"
+    source_top = platform("window:1:top", PlatformType.WINDOW_TOP, Rect(160, 430, 320, 438), source_id=1)
+    lower_top = platform("window:2:top", PlatformType.WINDOW_TOP, Rect(170, 520, 310, 528), source_id=2)
+    snapshot = make_snapshot([ground(), source_top, lower_top])
+
+    graph = PathFinder().build_navigation_graph(pet, snapshot, make_stamina())
+
+    edge = next(edge for edge in graph["window:1:top"] if edge.to_platform_id == "window:2:top")
+    assert edge.action == PathAction.WALK
+    assert edge.target_x > source_top.rect.right - 8
+
+
 def test_low_window_path_climbs_from_ground_to_window_top():
     pet = make_pet()
     snapshot = make_snapshot([ground(), *window_platforms(1, 160, 430, 320, 620)])
@@ -96,6 +143,20 @@ def test_gap_between_platforms_generates_jump_edge_when_in_range():
 
     assert plan is not None
     assert any(edge.action == PathAction.JUMP for edge in plan.edges)
+
+
+def test_jump_to_platform_on_right_targets_near_edge():
+    pet = make_pet()
+    pet.support_platform_id = "window:1:top"
+    source_top = platform("window:1:top", PlatformType.WINDOW_TOP, Rect(160, 430, 320, 438), source_id=1)
+    target_top = platform("window:2:top", PlatformType.WINDOW_TOP, Rect(360, 430, 520, 438), source_id=2)
+    snapshot = make_snapshot([ground(), source_top, target_top])
+
+    plan = PathFinder().find_path(pet, snapshot, target_window_id=2, stamina=make_stamina())
+
+    assert plan is not None
+    jump = next(edge for edge in plan.edges if edge.action == PathAction.JUMP)
+    assert jump.target_x == target_top.rect.left - pet.width / 2
 
 
 def test_gap_beyond_jump_distance_has_no_path():

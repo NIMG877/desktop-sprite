@@ -52,8 +52,6 @@ class StaminaConfig:
 class BehaviorConfig:
     idle_min_seconds: float
     idle_max_seconds: float
-    walk_min_seconds: float
-    walk_max_seconds: float
     sleep_after_seconds: float
     prefer_foreground_window: bool
     target_repick_seconds: float

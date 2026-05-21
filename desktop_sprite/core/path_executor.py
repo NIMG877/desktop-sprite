@@ -106,8 +106,8 @@ class PathExecutor:
         if side is None or source is None or not side.climbable:
             return False
 
-        target_x = side.rect.center_x - controller.pet.width / 2
-        distance = target_x - controller.pet.position.x
+        launch_x = edge.target_x
+        distance = launch_x - controller.pet.position.x
         if abs(distance) > controller.config.physics.edge_snap_distance:
             direction = 1 if distance > 0 else -1
             controller.pet.velocity.x = direction * controller.config.physics.walk_speed
@@ -115,14 +115,16 @@ class PathExecutor:
             controller._transition(PetState.WALK)
             return True
 
-        controller.pet.position.x = target_x
+        controller.pet.position.x = launch_x
         controller.pet.velocity.x = 0.0
         controller.pet.target_platform_id = side.id
         controller.pet.target_window_id = side.source_id
         if source.rect.top - side.rect.bottom > controller.config.physics.edge_snap_distance:
-            controller._start_jump_toward_climb_side(side, distance)
+            side_align_x = side.rect.center_x - controller.pet.width / 2
+            controller._start_jump_toward_climb_side(side, side_align_x - controller.pet.position.x)
             return True
 
+        controller.pet.position.x = side.rect.center_x - controller.pet.width / 2
         controller.pet.facing = Facing.RIGHT if side.type == PlatformType.WINDOW_LEFT else Facing.LEFT
         controller.pet.support_platform_id = None
         controller._transition(PetState.CLIMB)

@@ -22,10 +22,20 @@ class GraphPlanner:
                 return previous
 
             for edge in graph.get(platform_id, []):
-                next_cost = cost + edge.cost
-                if next_cost >= distances.get(edge.to_platform_id, float("inf")):
+                to_id = self._edge_target_id(edge)
+                if to_id is None:
                     continue
-                distances[edge.to_platform_id] = next_cost
-                previous[edge.to_platform_id] = (platform_id, edge)
-                heapq.heappush(queue, (next_cost, edge.to_platform_id))
+                next_cost = cost + edge.cost
+                if next_cost >= distances.get(to_id, float("inf")):
+                    continue
+                distances[to_id] = next_cost
+                previous[to_id] = (platform_id, edge)
+                heapq.heappush(queue, (next_cost, to_id))
+        return None
+
+    def _edge_target_id(self, edge) -> str | None:
+        if hasattr(edge, "to_platform_id"):
+            return getattr(edge, "to_platform_id")
+        if hasattr(edge, "to_node_id"):
+            return getattr(edge, "to_node_id")
         return None

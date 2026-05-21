@@ -8,7 +8,7 @@ from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import QApplication, QWidget
 
 from desktop_sprite.core.character import CharacterDebugState, DesktopCharacter
-from desktop_sprite.core.pathfinding import PathAction, PathEdge
+from desktop_sprite.core.pathfinding import NavNodeKind, NavigationMesh, PathAction, PathEdge
 from desktop_sprite.models.platform import Platform, PlatformType
 from desktop_sprite.ui.pet_renderer import PetRenderer
 from desktop_sprite.ui.render_pose import PoseBuilder
@@ -164,12 +164,12 @@ class DebugOverlayWindow(QWidget):
         self._draw_debug(painter)
 
     def _draw_debug(self, painter: QPainter) -> None:
-        graph = self._navigation_graph()
+        mesh = self._navigation_mesh()
         self._draw_navigation_map(painter)
-        self._draw_navigation_graph(painter, graph)
+        self._draw_navigation_graph(painter, mesh)
         self._draw_collision_box(painter)
         self._draw_complete_path(painter)
-        self._draw_debug_info(painter, graph)
+        self._draw_debug_info(painter, mesh)
 
     def _draw_navigation_map(self, painter: QPainter) -> None:
         snapshot = self.character.debug_state().snapshot
@@ -226,8 +226,6 @@ class DebugOverlayWindow(QWidget):
 
         if platform.walkable:
             self._draw_node_marker(painter, QPointF(platform.rect.center_x, platform.rect.top), QColor(45, 120, 255, 180))
-        elif platform.climbable:
-            self._draw_climb_marker(painter, QPointF(platform.rect.center_x, platform.rect.center_y))
 
     def _draw_node_marker(self, painter: QPainter, point: QPointF, color: QColor) -> None:
         painter.setPen(QPen(QColor(color.red(), color.green(), color.blue(), 220), 1))
@@ -250,21 +248,36 @@ class DebugOverlayWindow(QWidget):
             )
         )
 
-    def _draw_navigation_graph(self, painter: QPainter, graph: dict[str, list[PathEdge]]) -> None:
-        if not graph:
+    def _draw_navigation_graph(self, painter: QPainter, mesh: NavigationMesh) -> None:
+        if not mesh.adjacency:
             return
 
-        for edges in graph.values():
+        for node in mesh.nodes.values():
+            self._draw_nav_node_marker(painter, node)
+
+        for edges in mesh.adjacency.values():
             for edge in edges:
                 color = self._graph_edge_color(edge.action)
                 pen = QPen(color, 1)
                 pen.setStyle(Qt.PenStyle.DotLine)
                 painter.setPen(pen)
                 painter.setBrush(Qt.BrushStyle.NoBrush)
-                for start, end in self._graph_edge_segments(edge):
+                for start, end in self._graph_edge_segments(edge, mesh):
                     painter.drawLine(start, end)
                     if self._distance(start, end) >= 24:
                         self._draw_arrowhead(painter, start, end, color, 5)
+
+    def _draw_nav_node_marker(self, painter: QPainter, node) -> None:
+        point = QPointF(node.x + self.character.render_state().width / 2, node.y + self.character.render_state().height / 2)
+        if node.kind == NavNodeKind.CLIMB_CONTACT:
+            self._draw_climb_marker(painter, point)
+            return
+        color = QColor(55, 135, 255, 160)
+        if node.kind == NavNodeKind.DROP_POINT:
+            color = QColor(70, 110, 220, 135)
+        elif node.kind == NavNodeKind.JUMP_POINT:
+            color = QColor(235, 185, 45, 165)
+        self._draw_node_marker(painter, point, color)
 
     def _draw_collision_box(self, painter: QPainter) -> None:
         painter.setPen(QPen(QColor(255, 60, 60), 2))
@@ -276,9 +289,9 @@ class DebugOverlayWindow(QWidget):
             return
         painter.drawRect(QRectF(pet.position.x, pet.position.y, pet.width, pet.height))
 
-    def _draw_debug_info(self, painter: QPainter, graph: dict[str, list[PathEdge]]) -> None:
+    def _draw_debug_info(self, painter: QPainter, mesh: NavigationMesh) -> None:
         pet = self.character.render_state().body
-        lines = self._debug_lines(graph)
+        lines = self._debug_lines(mesh)
 
         painter.setFont(QFont("Consolas", 8))
         metrics = painter.fontMetrics()
@@ -295,9 +308,14 @@ class DebugOverlayWindow(QWidget):
         painter.setPen(QPen(QColor(20, 20, 20), 1))
         painter.drawText(rect.adjusted(6, 5, -6, -5), Qt.AlignmentFlag.AlignLeft, "\n".join(lines))
 
-    def _debug_lines(self, graph: dict[str, list[PathEdge]]) -> list[str]:
+    def _debug_lines(self, mesh: NavigationMesh) -> list[str]:
         debug_state = self.character.debug_state()
         pet = self.character.render_state().body
+        graph_edges = len(mesh.edges)
+        walk_edges = sum(1 for edge in mesh.edges if edge.action == PathAction.WALK and edge.meta.get("drop") != "1")
+        drop_edges = sum(1 for edge in mesh.edges if edge.meta.get("drop") == "1")
+        jump_edges = sum(1 for edge in mesh.edges if edge.action == PathAction.JUMP)
+        climb_edges = sum(1 for edge in mesh.edges if edge.action == PathAction.CLIMB)
         if pet is None:
             payload = self.character.render_state().payload or {}
             lines = [
@@ -309,10 +327,11 @@ class DebugOverlayWindow(QWidget):
                 f"contacts={payload.get('contacts', 0)}",
                 f"area_err={payload.get('area_error_ratio', 0.0):+.3f}",
             ]
-            graph_edges = sum(len(edges) for edges in graph.values())
             walkable = sum(1 for platform in debug_state.snapshot.platforms if platform.walkable)
             climbable = sum(1 for platform in debug_state.snapshot.platforms if platform.climbable)
-            lines.append(f"map nodes={walkable} climb={climbable} edges={graph_edges}")
+            lines.append(f"map platform={walkable} climb={climbable}")
+            lines.append(f"mesh nodes={len(mesh.nodes)} edges={graph_edges}")
+            lines.append(f"edge walk={walk_edges} drop={drop_edges} jump={jump_edges} climb={climb_edges}")
             lines.append("path=-")
             return lines
         floor_y = debug_state.snapshot.work_area_rect.bottom
@@ -329,12 +348,13 @@ class DebugOverlayWindow(QWidget):
             f"p={pet.support_platform_id or '-'}",
             f"p_name={self._support_window_title()}",
         ]
-        graph_edges = sum(len(edges) for edges in graph.values())
         walkable = sum(1 for platform in debug_state.snapshot.platforms if platform.walkable)
         climbable = sum(1 for platform in debug_state.snapshot.platforms if platform.climbable)
-        lines.append(f"map nodes={walkable} climb={climbable} edges={graph_edges}")
+        lines.append(f"map platform={walkable} climb={climbable}")
+        lines.append(f"mesh nodes={len(mesh.nodes)} edges={graph_edges}")
+        lines.append(f"edge walk={walk_edges} drop={drop_edges} jump={jump_edges} climb={climb_edges}")
         lines.append("map: blue walk green climb")
-        lines.append("graph: dotted path: bold")
+        lines.append("graph: dotted path: bold yellow=dotted jump-related")
         path_plan = debug_state.path_plan
         if path_plan is None or path_plan.is_complete:
             lines.append("path=-")
@@ -401,27 +421,24 @@ class DebugOverlayWindow(QWidget):
 
         self._draw_path_labels(painter, segments)
 
-    def _navigation_graph(self) -> dict[str, list[PathEdge]]:
+    def _navigation_mesh(self) -> NavigationMesh:
         debug_state: CharacterDebugState = self.character.debug_state()
-        return debug_state.pathfinder.build_navigation_graph(
-            self.character.render_state().body,
-            debug_state.snapshot,
-            debug_state.physics,
-        )
+        body = self.character.render_state().body
+        if body is None:
+            return NavigationMesh(nodes={}, adjacency={})
+        return debug_state.pathfinder.build_navigation_mesh(body, debug_state.snapshot, debug_state.physics)
 
-    def _graph_edge_segments(self, edge: PathEdge) -> list[tuple[QPointF, QPointF]]:
-        snapshot = self.character.debug_state().snapshot
-        source = snapshot.platform_by_id(edge.from_platform_id)
-        if source is None:
+    def _graph_edge_segments(self, edge, mesh: NavigationMesh) -> list[tuple[QPointF, QPointF]]:
+        source = mesh.nodes.get(edge.from_node_id)
+        target = mesh.nodes.get(edge.to_node_id)
+        if source is None or target is None:
             return []
-
         pet = self.character.render_state().body
-        current = QPointF(source.rect.center_x, source.rect.top - pet.height / 2)
-        segments: list[tuple[QPointF, QPointF]] = []
-        for waypoint in self._edge_waypoints(edge):
-            segments.append((current, waypoint))
-            current = waypoint
-        return segments
+        half_w = pet.width / 2 if pet else 0.0
+        half_h = pet.height / 2 if pet else 0.0
+        start = QPointF(source.x + half_w, source.y + half_h)
+        end = QPointF(target.x + half_w, target.y + half_h)
+        return [(start, end)]
 
     def _path_segments(self) -> list[tuple[QPointF, QPointF, int, PathAction]]:
         path_plan = self.character.debug_state().path_plan
@@ -562,7 +579,7 @@ class DebugOverlayWindow(QWidget):
         if action == PathAction.WALK:
             return QColor(35, 125, 220, 85)
         if action == PathAction.CLIMB:
-            return QColor(30, 145, 85, 80)
+            return QColor(230, 180, 40, 95)
         return QColor(45, 105, 220, 70)
 
     def _path_color(self, action: PathAction, current: bool) -> QColor:

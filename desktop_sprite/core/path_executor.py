@@ -35,13 +35,13 @@ class PathExecutor:
             controller.path_plan = None
             return False
 
-        if edge.action == PathAction.CLIMB:
-            if not self.execute_climb_edge(edge):
+        if edge.action == PathAction.TRANSFORM:
+            if not self.execute_transform_edge(edge):
                 controller.path_plan = None
                 return False
             return True
 
-        if edge.action == PathAction.WALK:
+        if edge.action == PathAction.MOVE:
             if self.walk_toward_x(edge.approach_x):
                 target = controller.snapshot.platform_by_id(edge.to_platform_id)
                 source = controller.snapshot.platform_by_id(edge.from_platform_id)
@@ -56,6 +56,13 @@ class PathExecutor:
                     controller.path_plan.advance()
                     if controller.path_plan.is_complete:
                         controller._finish_path_plan()
+            return True
+
+        if edge.action == PathAction.FALL:
+            if self.walk_toward_x(edge.approach_x):
+                controller.pet.support_platform_id = None
+                controller.pet.target_platform_id = edge.to_platform_id
+                controller._transition(PetState.FALL)
             return True
 
         if edge.action == PathAction.JUMP:
@@ -90,13 +97,13 @@ class PathExecutor:
         raw_land_x = edge.land_x if edge.land_x is not None else edge.approach_x
         if target.climbable:
             target_x = raw_land_x
-            target_y = target.rect.bottom - controller.pet.height
+            target_y = edge.land_y if edge.land_y is not None else target.rect.bottom - controller.pet.height
         else:
             target_x = min(
                 max(raw_land_x, target.rect.left - controller.pet.width / 2),
                 target.rect.right - controller.pet.width / 2,
             )
-            target_y = target.rect.top - controller.pet.height
+            target_y = edge.land_y if edge.land_y is not None else target.rect.top - controller.pet.height
         vx, vy = self.compute_jump_velocity_to(target_x, target_y)
         direction = 0 if abs(vx) <= 1e-6 else (1 if vx > 0 else -1)
         controller.pet.target_platform_id = edge.to_platform_id
@@ -106,6 +113,25 @@ class PathExecutor:
         if direction:
             controller.pet.facing = Facing.RIGHT if direction > 0 else Facing.LEFT
         controller._transition(PetState.JUMP)
+
+    def execute_transform_edge(self, edge: PathEdge) -> bool:
+        controller = self.controller
+        source = controller.snapshot.platform_by_id(edge.from_platform_id)
+        target = controller.snapshot.platform_by_id(edge.to_platform_id)
+        if source is None or target is None:
+            return False
+        if edge.side_platform_id is not None:
+            return self.execute_climb_edge(edge)
+
+        if source.walkable and target.walkable:
+            if self.walk_toward_x(edge.approach_x):
+                controller.pet.support_platform_id = target.id
+                controller.path_plan.advance()
+                if controller.path_plan.is_complete:
+                    controller._finish_path_plan()
+            return True
+
+        return False
 
     def compute_jump_velocity_to(self, target_x: float, target_y: float) -> tuple[float, float]:
         controller = self.controller

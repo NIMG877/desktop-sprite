@@ -226,6 +226,32 @@ def test_same_platform_walk_plan_is_not_advanced_before_moving():
     assert controller.pet.state == PetState.WALK
 
 
+def test_controller_executes_fall_step_from_surface_edge():
+    controller, _side = make_controller(window_top_y=120)
+    controller.pet.position.x = 100
+    controller.path_plan = PathPlan(
+        edges=[
+            PathEdge(
+                action=PathAction.FALL,
+                from_platform_id="ground:work_area",
+                to_platform_id="window:123:top",
+                target_x=100,
+                cost=1,
+            )
+        ],
+        current_index=0,
+        target_window_id=123,
+        snapshot_timestamp=1.0,
+    )
+
+    handled = controller._execute_path_plan()
+
+    assert handled
+    assert controller.pet.state == PetState.FALL
+    assert controller.pet.support_platform_id is None
+    assert controller.pet.target_platform_id == "window:123:top"
+
+
 def test_random_wander_prefers_current_platform_via_path_plan(monkeypatch):
     controller, _side = make_controller(window_top_y=120)
     support = controller.snapshot.platform_by_id("ground:work_area")

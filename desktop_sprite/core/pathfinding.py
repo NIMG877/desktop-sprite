@@ -6,87 +6,304 @@ from enum import StrEnum
 from desktop_sprite.core.planner import GraphPlanner
 from desktop_sprite.core.reachability_policy import ReachabilityPolicy
 from desktop_sprite.environment.environment_snapshot import EnvironmentSnapshot
-from desktop_sprite.models.platform import Platform
+from desktop_sprite.models.platform import Platform, PlatformType
 from desktop_sprite.models.platform_topology import PlatformTopology
 from desktop_sprite.models.state import Pet
 from desktop_sprite.utils.config import PhysicsConfig
 
 
-class PathAction(StrEnum):
-    WALK = "walk"
+class SurfaceOrientation(StrEnum):
+    HORIZONTAL = "horizontal"
+    VERTICAL = "vertical"
+
+
+class TraversalAction(StrEnum):
+    MOVE = "move"
     JUMP = "jump"
-    CLIMB = "climb"
+    TRANSFORM = "transform"
+    FALL = "fall"
+
+    # Compatibility aliases for the old platform vocabulary.
+    WALK = "move"
+    CLIMB = "transform"
+
+
+PathAction = TraversalAction
+
+
+class SurfaceCapability(StrEnum):
+    MOVE = "move"
+    JUMP_TARGET = "jump_target"
+    FALL = "fall"
+    TRANSFORM = "transform"
 
 
 class NavNodeKind(StrEnum):
+    EVENT_POINT = "event_point"
     DROP_POINT = "drop_point"
     JUMP_POINT = "jump_point"
     CLIMB_CONTACT = "climb_contact"
     CLIMB_ENDPOINT = "climb_endpoint"
+    TRANSFORM_POINT = "transform_point"
+
+
+@dataclass(frozen=True, slots=True)
+class Surface:
+    id: str
+    rect: object
+    orientation: SurfaceOrientation
+    capabilities: frozenset[SurfaceCapability]
+    dynamic: bool = False
+    source_id: int | None = None
+    type: PlatformType | None = None
+
+    @classmethod
+    def from_platform(cls, platform: Platform) -> "Surface":
+        if platform.climbable:
+            orientation = SurfaceOrientation.VERTICAL
+            capabilities = frozenset(
+                {
+                    SurfaceCapability.MOVE,
+                    SurfaceCapability.TRANSFORM,
+                    SurfaceCapability.JUMP_TARGET,
+                }
+            )
+        else:
+            orientation = SurfaceOrientation.HORIZONTAL
+            capabilities = frozenset(
+                {
+                    SurfaceCapability.MOVE,
+                    SurfaceCapability.FALL,
+                    SurfaceCapability.JUMP_TARGET,
+                }
+            )
+        return cls(
+            id=platform.id,
+            rect=platform.rect,
+            orientation=orientation,
+            capabilities=capabilities,
+            dynamic=platform.dynamic,
+            source_id=platform.source_id,
+            type=platform.type,
+        )
+
+    @property
+    def is_horizontal(self) -> bool:
+        return self.orientation == SurfaceOrientation.HORIZONTAL
+
+    @property
+    def is_vertical(self) -> bool:
+        return self.orientation == SurfaceOrientation.VERTICAL
+
+
+class SurfaceTopology:
+    @staticmethod
+    def window_top_id(hwnd: int) -> str:
+        return PlatformTopology.window_top_id(hwnd)
+
+    @staticmethod
+    def window_left_id(hwnd: int) -> str:
+        return PlatformTopology.window_left_id(hwnd)
+
+    @staticmethod
+    def window_right_id(hwnd: int) -> str:
+        return PlatformTopology.window_right_id(hwnd)
+
+    @staticmethod
+    def top_id_for_side_id(side_id: str) -> str:
+        return PlatformTopology.top_id_for_side_id(side_id)
+
+    @staticmethod
+    def top_id_for_side(side: Surface | Platform) -> str:
+        return SurfaceTopology.top_id_for_side_id(side.id)
 
 
 @dataclass(frozen=True, slots=True)
 class NavNode:
     id: str
-    platform_id: str
+    surface_id: str
+    anchor_t: float
+    role: NavNodeKind
     x: float
     y: float
-    kind: NavNodeKind
+
+    @property
+    def platform_id(self) -> str:
+        return self.surface_id
+
+    @property
+    def kind(self) -> NavNodeKind:
+        return self.role
 
 
 @dataclass(frozen=True, slots=True)
 class NavEdge:
     from_node_id: str
     to_node_id: str
-    action: PathAction
+    action: TraversalAction
     cost: float
-    side_platform_id: str | None = None
+    contact_surface_id: str | None = None
     meta: dict[str, float | str] = field(default_factory=dict)
+
+    @property
+    def side_platform_id(self) -> str | None:
+        return self.contact_surface_id
 
 
 @dataclass(slots=True)
-class NavigationMesh:
-    nodes: dict[str, NavNode]
-    adjacency: dict[str, list[NavEdge]]
+class SurfaceGraph:
+    nodes: dict[str, NavNode] = field(default_factory=dict)
+    adjacency: dict[str, list[NavEdge]] = field(default_factory=dict)
+    surfaces: dict[str, Surface] = field(default_factory=dict)
 
     @property
     def edges(self) -> list[NavEdge]:
         return [edge for edges in self.adjacency.values() for edge in edges]
 
 
-@dataclass(frozen=True, slots=True)
-class PathEdge:
-    action: PathAction
-    from_platform_id: str
-    to_platform_id: str
-    target_x: float
+NavigationMesh = SurfaceGraph
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class PathStep:
+    action: TraversalAction
+    from_surface_id: str
+    to_surface_id: str
+    target_t: float
     cost: float
-    side_platform_id: str | None = None
-    land_x: float | None = None
+    contact_surface_id: str | None
+    land_t: float | None
+    approach_point: tuple[float, float] | None
+    land_point: tuple[float, float] | None
+
+    def __init__(
+        self,
+        action: TraversalAction,
+        from_surface_id: str | None = None,
+        to_surface_id: str | None = None,
+        target_t: float | None = None,
+        cost: float = 0.0,
+        contact_surface_id: str | None = None,
+        land_t: float | None = None,
+        approach_point: tuple[float, float] | None = None,
+        land_point: tuple[float, float] | None = None,
+        *,
+        from_platform_id: str | None = None,
+        to_platform_id: str | None = None,
+        target_x: float | None = None,
+        side_platform_id: str | None = None,
+        land_x: float | None = None,
+    ) -> None:
+        object.__setattr__(self, "action", action)
+        object.__setattr__(self, "from_surface_id", from_surface_id or from_platform_id or "")
+        object.__setattr__(self, "to_surface_id", to_surface_id or to_platform_id or "")
+        object.__setattr__(self, "target_t", target_t if target_t is not None else (target_x if target_x is not None else 0.0))
+        object.__setattr__(self, "cost", cost)
+        object.__setattr__(self, "contact_surface_id", contact_surface_id or side_platform_id)
+        object.__setattr__(self, "land_t", land_t if land_t is not None else land_x)
+        fallback_x = target_t if target_t is not None else target_x
+        fallback_land_x = land_x if land_x is not None else fallback_x
+        object.__setattr__(self, "approach_point", approach_point or ((fallback_x, 0.0) if fallback_x is not None else None))
+        object.__setattr__(self, "land_point", land_point or ((fallback_land_x, 0.0) if fallback_land_x is not None else None))
+
+    @property
+    def from_platform_id(self) -> str:
+        return self.from_surface_id
+
+    @property
+    def to_platform_id(self) -> str:
+        return self.to_surface_id
+
+    @property
+    def side_platform_id(self) -> str | None:
+        return self.contact_surface_id
+
+    @property
+    def target_x(self) -> float:
+        return self.target_t
 
     @property
     def approach_x(self) -> float:
-        return self.target_x
+        if self.approach_point is not None:
+            return self.approach_point[0]
+        return self.target_t
+
+    @property
+    def land_x(self) -> float | None:
+        if self.land_point is not None:
+            return self.land_point[0]
+        return self.land_t
+
+    @property
+    def approach_y(self) -> float | None:
+        if self.approach_point is None:
+            return None
+        return self.approach_point[1]
+
+    @property
+    def land_y(self) -> float | None:
+        if self.land_point is None:
+            return None
+        return self.land_point[1]
 
 
-@dataclass(slots=True)
+PathEdge = PathStep
+
+
+@dataclass(slots=True, init=False)
 class PathPlan:
-    edges: list[PathEdge]
+    steps: list[PathStep]
     current_index: int
     target_window_id: int | None
     snapshot_timestamp: float
-    target_platform_id: str | None = None
-    target_x: float | None = None
+    target_surface_id: str | None
+    target_anchor_t: float | None
+
+    def __init__(
+        self,
+        steps: list[PathStep] | None = None,
+        current_index: int = 0,
+        target_window_id: int | None = None,
+        snapshot_timestamp: float = 0.0,
+        target_surface_id: str | None = None,
+        target_anchor_t: float | None = None,
+        *,
+        edges: list[PathStep] | None = None,
+        target_platform_id: str | None = None,
+        target_x: float | None = None,
+    ) -> None:
+        self.steps = steps if steps is not None else (edges or [])
+        self.current_index = current_index
+        self.target_window_id = target_window_id
+        self.snapshot_timestamp = snapshot_timestamp
+        self.target_surface_id = target_surface_id or target_platform_id
+        self.target_anchor_t = target_anchor_t if target_anchor_t is not None else target_x
 
     @property
-    def current_edge(self) -> PathEdge | None:
-        if self.current_index >= len(self.edges):
+    def edges(self) -> list[PathStep]:
+        return self.steps
+
+    @property
+    def target_platform_id(self) -> str | None:
+        return self.target_surface_id
+
+    @property
+    def target_x(self) -> float | None:
+        return self.target_anchor_t
+
+    @property
+    def current_edge(self) -> PathStep | None:
+        return self.current_step
+
+    @property
+    def current_step(self) -> PathStep | None:
+        if self.current_index >= len(self.steps):
             return None
-        return self.edges[self.current_index]
+        return self.steps[self.current_index]
 
     @property
     def is_complete(self) -> bool:
-        return self.current_index >= len(self.edges)
+        return self.current_index >= len(self.steps)
 
     def advance(self) -> None:
         self.current_index += 1
@@ -103,15 +320,15 @@ class PathFinder:
         target_window_id: int,
         physics: PhysicsConfig,
     ) -> PathPlan | None:
-        target_platform_id = PlatformTopology.window_top_id(target_window_id)
-        target_platform = snapshot.platform_by_id(target_platform_id)
-        if target_platform is None:
+        target_surface_id = SurfaceTopology.window_top_id(target_window_id)
+        target_surface = snapshot.platform_by_id(target_surface_id)
+        if target_surface is None:
             return None
         return self.find_path_to_point(
             pet=pet,
             snapshot=snapshot,
-            target_platform_id=target_platform_id,
-            target_x=target_platform.rect.center_x - pet.width / 2,
+            target_platform_id=target_surface_id,
+            target_x=target_surface.rect.center_x - pet.width / 2,
             physics=physics,
             target_window_id=target_window_id,
         )
@@ -125,261 +342,243 @@ class PathFinder:
         physics: PhysicsConfig,
         target_window_id: int | None = None,
     ) -> PathPlan | None:
-        start_platform_id = pet.support_platform_id
-        if start_platform_id is None:
-            return None
         target_platform = snapshot.platform_by_id(target_platform_id)
-        start_platform = snapshot.platform_by_id(start_platform_id)
-        if target_platform is None or start_platform is None:
+        if target_platform is None:
             return None
-        clamped_target_x = min(max(target_x, target_platform.rect.left), target_platform.rect.right - pet.width)
-        if start_platform_id == target_platform_id:
+        target_surface = Surface.from_platform(target_platform)
+        target_anchor_t = self._clamp_anchor(target_surface, target_x, pet)
+        return self.find_path_to_surface_point(
+            pet=pet,
+            snapshot=snapshot,
+            target_surface_id=target_platform_id,
+            target_anchor_t=target_anchor_t,
+            physics=physics,
+            target_window_id=target_window_id,
+        )
+
+    def find_path_to_surface_point(
+        self,
+        pet: Pet,
+        snapshot: EnvironmentSnapshot,
+        target_surface_id: str,
+        target_anchor_t: float,
+        physics: PhysicsConfig,
+        target_window_id: int | None = None,
+    ) -> PathPlan | None:
+        start_surface_id = pet.support_platform_id
+        if start_surface_id is None:
+            return None
+        start_platform = snapshot.platform_by_id(start_surface_id)
+        target_platform = snapshot.platform_by_id(target_surface_id)
+        if start_platform is None or target_platform is None:
+            return None
+
+        start_surface = Surface.from_platform(start_platform)
+        target_surface = Surface.from_platform(target_platform)
+        clamped_target_t = self._clamp_anchor(target_surface, target_anchor_t, pet)
+        if start_surface_id == target_surface_id:
             return PathPlan(
-                edges=[self._point_walk_edge(start_platform, clamped_target_x, physics, pet)],
+                steps=[self._point_move_step(start_surface, clamped_target_t, physics, pet)],
                 current_index=0,
                 target_window_id=target_window_id,
                 snapshot_timestamp=snapshot.timestamp,
-                target_platform_id=target_platform_id,
-                target_x=clamped_target_x,
+                target_surface_id=target_surface_id,
+                target_anchor_t=clamped_target_t,
             )
 
-        mesh = self.build_navigation_mesh(pet, snapshot, physics)
-        start_node = self._ensure_jump_node(mesh, start_platform, pet, pet.position.x, physics)
-        target_node = self._ensure_jump_node(mesh, target_platform, pet, clamped_target_x, physics)
+        graph = self.build_surface_graph(pet, snapshot, physics)
+        start_node = self._ensure_node(graph, start_surface, pet, self._pet_anchor_t(start_surface, pet), NavNodeKind.JUMP_POINT, physics)
+        target_node = self._ensure_node(graph, target_surface, pet, clamped_target_t, NavNodeKind.JUMP_POINT, physics)
         if start_node is None or target_node is None:
             return None
-        nav_edges = self._search(mesh, start_node.id, target_node.id)
+        nav_edges = self._search(graph, start_node.id, target_node.id)
         if not nav_edges:
             return None
-        path_edges = self._map_edges(nav_edges, mesh)
-        if not path_edges:
+        steps = self._map_edges(nav_edges, graph)
+        if not steps:
             return None
-        path_edges = self._merge_consecutive_same_platform_walk_edges(path_edges)
+        steps = self._collapse_vertical_move_transforms(steps, graph)
+        steps = self._merge_consecutive_same_surface_move_steps(steps)
         return PathPlan(
-            edges=path_edges,
+            steps=steps,
             current_index=0,
             target_window_id=target_window_id,
             snapshot_timestamp=snapshot.timestamp,
-            target_platform_id=target_platform_id,
-            target_x=clamped_target_x,
+            target_surface_id=target_surface_id,
+            target_anchor_t=clamped_target_t,
         )
 
-    def build_navigation_mesh(self, pet: Pet, snapshot: EnvironmentSnapshot, physics: PhysicsConfig) -> NavigationMesh:
-        nodes: dict[str, NavNode] = {}
-        adjacency: dict[str, list[NavEdge]] = {}
-        mesh = NavigationMesh(nodes, adjacency)
-        platforms = snapshot.platforms
-        walkable = [platform for platform in platforms if platform.walkable]
-        climbable = [platform for platform in platforms if platform.climbable]
+    def build_surface_graph(self, pet: Pet, snapshot: EnvironmentSnapshot, physics: PhysicsConfig) -> SurfaceGraph:
+        surfaces = {
+            platform.id: Surface.from_platform(platform)
+            for platform in snapshot.platforms
+            if platform.walkable or platform.climbable
+        }
+        graph = SurfaceGraph(surfaces=surfaces)
+        horizontals = [surface for surface in surfaces.values() if surface.is_horizontal]
+        verticals = [surface for surface in surfaces.values() if surface.is_vertical]
         reachability = ReachabilityPolicy(physics, physics.edge_snap_distance)
         max_jump_h = reachability.max_jump_height()
         max_jump_d = reachability.max_jump_distance()
 
-        for side in climbable:
-            node = NavNode(
-                id=f"{side.id}:climb_contact",
-                platform_id=side.id,
-                x=side.rect.center_x - pet.width / 2,
-                y=side.rect.bottom - pet.height,
-                kind=NavNodeKind.CLIMB_CONTACT,
-            )
-            nodes[node.id] = node
-            adjacency[node.id] = []
-
-        for side in climbable:
-            top = snapshot.platform_by_id(PlatformTopology.top_id_for_side(side))
-            if top is None or not top.walkable:
+        for side in verticals:
+            top = surfaces.get(SurfaceTopology.top_id_for_side(side))
+            if top is None or not top.is_horizontal:
                 continue
-            # Only create climb endpoints on the same window's top platform.
             if side.source_id is None or top.source_id is None or side.source_id != top.source_id:
                 continue
-            contact = nodes.get(f"{side.id}:climb_contact")
-            if contact is None:
+            side_node = self._ensure_node(graph, side, pet, top.rect.top, NavNodeKind.TRANSFORM_POINT, physics)
+            top_node = self._ensure_node(
+                graph,
+                top,
+                pet,
+                self._clamp_anchor(top, side.rect.center_x - pet.width / 2, pet),
+                NavNodeKind.TRANSFORM_POINT,
+                physics,
+            )
+            if side_node is None or top_node is None:
                 continue
-            endpoint = self._ensure_climb_endpoint_node(mesh, top, side, pet, contact.x, physics)
-            if endpoint is None:
-                continue
-            climb_distance = max(0.0, side.rect.bottom - top.rect.top)
-            adjacency[contact.id].append(
-                NavEdge(contact.id, endpoint.id, PathAction.CLIMB, climb_distance / max(physics.climb_speed, 1.0), side_platform_id=side.id)
+            graph.adjacency[side_node.id].append(
+                NavEdge(side_node.id, top_node.id, TraversalAction.TRANSFORM, 0.0, contact_surface_id=side.id)
+            )
+            graph.adjacency[top_node.id].append(
+                NavEdge(top_node.id, side_node.id, TraversalAction.TRANSFORM, 0.0, contact_surface_id=side.id)
             )
 
-        for source in walkable:
-            for side in ("left", "right"):
-                if not self._is_drop_side_valid(source, side, snapshot, pet):
+        for source in horizontals:
+            for side_name in ("left", "right"):
+                if not self._is_drop_side_valid(source, side_name, snapshot, pet):
                     continue
-                drop_x = source.rect.left - pet.width if side == "left" else source.rect.right
-                landing = self._first_platform_hit_below(source, drop_x, walkable, pet)
+                drop_t = source.rect.left - pet.width if side_name == "left" else source.rect.right
+                landing = self._first_horizontal_hit_below(source, drop_t, horizontals, pet)
                 if landing is None:
                     continue
-                drop_node = self._ensure_drop_node(mesh, source, pet, drop_x, side, physics)
-                landing_anchor = self._ensure_drop_landing_node(mesh, landing, pet, drop_x, source.id, side, physics)
-                if drop_node is None or landing_anchor is None:
+                drop_node = self._ensure_node(graph, source, pet, drop_t, NavNodeKind.DROP_POINT, physics, clamp=False)
+                landing_node = self._ensure_node(graph, landing, pet, drop_t, NavNodeKind.DROP_POINT, physics, clamp=False)
+                if drop_node is None or landing_node is None:
                     continue
-                vertical = landing.rect.top - source.rect.top
-                adjacency[drop_node.id].append(
-                    NavEdge(drop_node.id, landing_anchor.id, PathAction.WALK, vertical / 200.0 + 3.0, meta={"drop": "1"})
-                )
-
-            for target in walkable:
-                if target.id == source.id:
-                    continue
-                launch_x = self._jump_launch_x_for_platform_target(source, target, pet)
-                landing_x = self._jump_landing_x_for_platform_target(source, target, pet)
-                launch_x = self._clamp_jump_x(source, launch_x, pet)
-                if not self._jump_reachable(source, launch_x, target, landing_x, max_jump_h, max_jump_d, physics.edge_snap_distance):
-                    continue
-                jump_node = self._ensure_jump_node(mesh, source, pet, launch_x, physics)
-                target_anchor = self._ensure_jump_node(mesh, target, pet, landing_x, physics)
-                if jump_node is None or target_anchor is None:
-                    continue
-                horizontal = abs(landing_x - launch_x)
-                vertical = abs(target.rect.top - source.rect.top)
-                air_time = 2.0 * abs(physics.jump_speed_y) / max(physics.gravity, 1.0)
-                adjacency[jump_node.id].append(
+                vertical = max(0.0, landing.rect.top - source.rect.top)
+                graph.adjacency[drop_node.id].append(
                     NavEdge(
-                        jump_node.id,
-                        target_anchor.id,
-                        PathAction.JUMP,
-                        air_time + horizontal / max(physics.jump_speed_x, 1.0) + vertical / 400.0 + 2.0,
-                        meta={"target_x": landing_x},
+                        drop_node.id,
+                        landing_node.id,
+                        TraversalAction.FALL,
+                        self._fall_cost(vertical, physics),
+                        meta={"drop": "1"},
                     )
                 )
 
-            for side in climbable:
-                top = snapshot.platform_by_id(PlatformTopology.top_id_for_side(side))
-                if top is None or not top.walkable:
-                    continue
-                if source.source_id is not None and side.source_id is not None and source.source_id == side.source_id:
-                    continue
-                contact = nodes.get(f"{side.id}:climb_contact")
-                if contact is None:
-                    continue
-                launch_x = self._clamp_jump_x(source, self._jump_launch_x_for_contact_target(source, side, contact, pet), pet)
-                if not self._jump_reachable_to_contact(source, launch_x, side, contact.x, max_jump_h, max_jump_d):
-                    continue
-                jump_node = self._ensure_jump_node(mesh, source, pet, launch_x, physics)
-                if jump_node is None:
-                    continue
-                horizontal = abs(contact.x - launch_x)
-                adjacency[jump_node.id].append(
-                    NavEdge(jump_node.id, contact.id, PathAction.JUMP, 2.0 + horizontal / max(physics.jump_speed_x, 1.0))
-                )
-
-        for source in walkable:
-            for target in walkable:
+        surface_list = list(surfaces.values())
+        for source in surface_list:
+            for target in surface_list:
                 if source.id == target.id:
                     continue
-                if abs(source.rect.top - target.rect.top) > physics.edge_snap_distance:
+                if source.source_id is not None and target.source_id is not None and source.source_id == target.source_id:
                     continue
-                if self._platform_horizontal_gap(source, target) > physics.edge_snap_distance:
+                if source.is_horizontal and target.is_horizontal and self._can_move_between_horizontals(source, target, physics):
+                    source_t = self._clamp_anchor(source, target.rect.center_x - pet.width / 2, pet)
+                    target_t = self._clamp_anchor(target, source.rect.center_x - pet.width / 2, pet)
+                    source_node = self._ensure_node(graph, source, pet, source_t, NavNodeKind.JUMP_POINT, physics)
+                    target_node = self._ensure_node(graph, target, pet, target_t, NavNodeKind.JUMP_POINT, physics)
+                    if source_node is None or target_node is None:
+                        continue
+                    graph.adjacency[source_node.id].append(
+                        NavEdge(
+                            source_node.id,
+                            target_node.id,
+                            TraversalAction.TRANSFORM,
+                            abs(target_node.x - source_node.x) / max(physics.walk_speed, 1.0),
+                        )
+                    )
                     continue
-                source_node = self._ensure_jump_node(mesh, source, pet, target.rect.center_x - pet.width / 2, physics)
-                target_node = self._ensure_jump_node(mesh, target, pet, source.rect.center_x - pet.width / 2, physics)
+
+                if source.is_vertical:
+                    continue
+
+                jump = self._jump_candidate(source, target, pet)
+                if jump is None:
+                    continue
+                launch_t, land_t = jump
+                if not self._jump_reachable(source, launch_t, target, land_t, max_jump_h, max_jump_d, physics.edge_snap_distance, pet):
+                    continue
+                source_node = self._ensure_node(graph, source, pet, launch_t, NavNodeKind.JUMP_POINT, physics)
+                target_node = self._ensure_node(graph, target, pet, land_t, NavNodeKind.JUMP_POINT, physics)
                 if source_node is None or target_node is None:
                     continue
-                cost = abs(target_node.x - source_node.x) / max(physics.walk_speed, 1.0)
-                adjacency[source_node.id].append(NavEdge(source_node.id, target_node.id, PathAction.WALK, cost))
+                graph.adjacency[source_node.id].append(
+                    NavEdge(
+                        source_node.id,
+                        target_node.id,
+                        TraversalAction.JUMP,
+                        self._jump_cost(source_node, target_node, physics),
+                        meta={"target_t": target_node.anchor_t},
+                    )
+                )
 
-        return mesh
+        return graph
 
-    def build_navigation_graph(self, pet: Pet, snapshot: EnvironmentSnapshot, physics: PhysicsConfig) -> dict[str, list[PathEdge]]:
-        mesh = self.build_navigation_mesh(pet, snapshot, physics)
-        grouped: dict[str, list[PathEdge]] = {}
-        for edge in mesh.edges:
-            mapped = self._to_path_edge(edge, mesh)
+    def build_navigation_mesh(self, pet: Pet, snapshot: EnvironmentSnapshot, physics: PhysicsConfig) -> SurfaceGraph:
+        return self.build_surface_graph(pet, snapshot, physics)
+
+    def build_navigation_graph(self, pet: Pet, snapshot: EnvironmentSnapshot, physics: PhysicsConfig) -> dict[str, list[PathStep]]:
+        graph = self.build_surface_graph(pet, snapshot, physics)
+        grouped: dict[str, list[PathStep]] = {}
+        for edge in graph.edges:
+            mapped = self._to_path_step(edge, graph)
             if mapped is None:
                 continue
-            grouped.setdefault(mapped.from_platform_id, []).append(mapped)
+            grouped.setdefault(mapped.from_surface_id, []).append(mapped)
         return grouped
 
-    def _ensure_drop_node(
+    def _ensure_node(
         self,
-        mesh: NavigationMesh,
-        platform: Platform,
+        graph: SurfaceGraph,
+        surface: Surface | None,
         pet: Pet,
-        x: float,
-        side: str,
+        anchor_t: float,
+        role: NavNodeKind,
         physics: PhysicsConfig,
+        *,
+        clamp: bool = True,
     ) -> NavNode | None:
-        node_id = f"{platform.id}:drop:{side}"
-        node = mesh.nodes.get(node_id)
-        if node is None:
-            node = NavNode(node_id, platform.id, x, platform.rect.top - pet.height, NavNodeKind.DROP_POINT)
-            mesh.nodes[node_id] = node
-            mesh.adjacency.setdefault(node_id, [])
-            self._rewire_platform_walk(mesh, platform.id, physics)
-        return node
-
-    def _ensure_drop_landing_node(
-        self,
-        mesh: NavigationMesh,
-        platform: Platform,
-        pet: Pet,
-        x: float,
-        source_platform_id: str,
-        side: str,
-        physics: PhysicsConfig,
-    ) -> NavNode | None:
-        # clamped = self._clamp_jump_x(platform, x, pet)
-        clamped=x
-        node_id = f"{platform.id}:drop_target:{source_platform_id}:{side}:{round(clamped,1)}"
-        node = mesh.nodes.get(node_id)
-        if node is None:
-            node = NavNode(node_id, platform.id, clamped, platform.rect.top - pet.height, NavNodeKind.DROP_POINT)
-            mesh.nodes[node_id] = node
-            mesh.adjacency.setdefault(node_id, [])
-            self._rewire_platform_walk(mesh, platform.id, physics)
-        return node
-
-    def _ensure_jump_node(self, mesh: NavigationMesh, platform: Platform | None, pet: Pet, x: float, physics: PhysicsConfig) -> NavNode | None:
-        if platform is None or not platform.walkable:
+        if surface is None:
             return None
-        clamped = self._clamp_jump_x(platform, x, pet)
-        node_id = f"{platform.id}:jump:{round(clamped,1)}"
-        node = mesh.nodes.get(node_id)
+        if SurfaceCapability.MOVE not in surface.capabilities:
+            return None
+        clamped = self._clamp_anchor(surface, anchor_t, pet) if clamp else anchor_t
+        node_id = f"{surface.id}:{role}:{round(clamped, 1)}"
+        node = graph.nodes.get(node_id)
         if node is None:
-            node = NavNode(node_id, platform.id, clamped, platform.rect.top - pet.height, NavNodeKind.JUMP_POINT)
-            mesh.nodes[node_id] = node
-            mesh.adjacency.setdefault(node_id, [])
-            self._rewire_platform_walk(mesh, platform.id, physics)
+            x, y = self._point_for_anchor(surface, clamped, pet)
+            node = NavNode(node_id, surface.id, clamped, role, x, y)
+            graph.nodes[node_id] = node
+            graph.adjacency.setdefault(node_id, [])
+            self._rewire_surface_move(graph, surface.id, physics)
         return node
 
-    def _ensure_climb_endpoint_node(
-        self,
-        mesh: NavigationMesh,
-        platform: Platform,
-        side: Platform,
-        pet: Pet,
-        x: float,
-        physics: PhysicsConfig,
-    ) -> NavNode | None:
-        clamped = self._clamp_jump_x(platform, x, pet)
-        node_id = f"{platform.id}:climb_endpoint:{side.id}:{round(clamped,1)}"
-        node = mesh.nodes.get(node_id)
-        if node is None:
-            node = NavNode(node_id, platform.id, clamped, platform.rect.top - pet.height, NavNodeKind.CLIMB_ENDPOINT)
-            mesh.nodes[node_id] = node
-            mesh.adjacency.setdefault(node_id, [])
-            self._rewire_platform_walk(mesh, platform.id, physics)
-        return node
-
-    def _rewire_platform_walk(self, mesh: NavigationMesh, platform_id: str, physics: PhysicsConfig) -> None:
-        nodes = [node for node in mesh.nodes.values() if node.platform_id == platform_id and node.kind != NavNodeKind.CLIMB_CONTACT]
+    def _rewire_surface_move(self, graph: SurfaceGraph, surface_id: str, physics: PhysicsConfig) -> None:
+        surface = graph.surfaces.get(surface_id)
+        if surface is None:
+            return
+        nodes = [node for node in graph.nodes.values() if node.surface_id == surface_id]
         node_ids = {node.id for node in nodes}
         for node in nodes:
-            mesh.adjacency.setdefault(node.id, [])
-            mesh.adjacency[node.id] = [edge for edge in mesh.adjacency[node.id] if not (edge.action == PathAction.WALK and edge.to_node_id in node_ids)]
-        nodes.sort(key=lambda node: node.x)
-        for i in range(len(nodes) - 1):
-            left = nodes[i]
-            right = nodes[i + 1]
-            cost = abs(right.x - left.x) / max(physics.walk_speed, 1.0)
-            mesh.adjacency[left.id].append(NavEdge(left.id, right.id, PathAction.WALK, cost))
-            mesh.adjacency[right.id].append(NavEdge(right.id, left.id, PathAction.WALK, cost))
+            graph.adjacency.setdefault(node.id, [])
+            graph.adjacency[node.id] = [
+                edge
+                for edge in graph.adjacency[node.id]
+                if not (edge.action == TraversalAction.MOVE and edge.to_node_id in node_ids)
+            ]
+        nodes.sort(key=lambda node: node.anchor_t)
+        for index in range(len(nodes) - 1):
+            left = nodes[index]
+            right = nodes[index + 1]
+            cost = self._move_cost(surface, left.anchor_t, right.anchor_t, physics)
+            graph.adjacency[left.id].append(NavEdge(left.id, right.id, TraversalAction.MOVE, cost))
+            graph.adjacency[right.id].append(NavEdge(right.id, left.id, TraversalAction.MOVE, cost))
 
-    def _search(self, mesh: NavigationMesh, start: str, target: str) -> list[NavEdge]:
-        previous = self.planner.shortest_path_tree(mesh.adjacency, start, target)
+    def _search(self, graph: SurfaceGraph, start: str, target: str) -> list[NavEdge]:
+        previous = self.planner.shortest_path_tree(graph.adjacency, start, target)
         if previous is None:
             return []
         edges: list[NavEdge] = []
@@ -394,194 +593,243 @@ class PathFinder:
         edges.reverse()
         return edges
 
-    def _map_edges(self, edges: list[NavEdge], mesh: NavigationMesh) -> list[PathEdge]:
-        raw: list[PathEdge] = []
+    def _map_edges(self, edges: list[NavEdge], graph: SurfaceGraph) -> list[PathStep]:
+        raw: list[PathStep] = []
         for edge in edges:
-            mapped = self._to_path_edge(edge, mesh)
+            mapped = self._to_path_step(edge, graph)
             if mapped is not None:
                 raw.append(mapped)
         return raw
 
-    def _to_path_edge(self, edge: NavEdge, mesh: NavigationMesh) -> PathEdge | None:
-        source = mesh.nodes.get(edge.from_node_id)
-        target = mesh.nodes.get(edge.to_node_id)
+    def _collapse_vertical_move_transforms(self, steps: list[PathStep], graph: SurfaceGraph) -> list[PathStep]:
+        collapsed: list[PathStep] = []
+        index = 0
+        while index < len(steps):
+            current = steps[index]
+            nxt = steps[index + 1] if index + 1 < len(steps) else None
+            surface = graph.surfaces.get(current.from_surface_id)
+            if (
+                nxt is not None
+                and surface is not None
+                and surface.is_vertical
+                and current.action == TraversalAction.MOVE
+                and current.from_surface_id == current.to_surface_id
+                and nxt.action == TraversalAction.TRANSFORM
+                and nxt.from_surface_id == current.to_surface_id
+            ):
+                collapsed.append(
+                    PathStep(
+                        TraversalAction.TRANSFORM,
+                        current.from_surface_id,
+                        nxt.to_surface_id,
+                        current.target_t,
+                        current.cost + nxt.cost,
+                        current.from_surface_id,
+                        nxt.land_t,
+                        approach_point=current.approach_point,
+                        land_point=nxt.land_point,
+                    )
+                )
+                index += 2
+                continue
+            collapsed.append(current)
+            index += 1
+        return collapsed
+
+    def _to_path_step(self, edge: NavEdge, graph: SurfaceGraph) -> PathStep | None:
+        source = graph.nodes.get(edge.from_node_id)
+        target = graph.nodes.get(edge.to_node_id)
         if source is None or target is None:
             return None
-        approach_x = target.x
-        land_x: float | None = target.x
-        if edge.meta.get("drop") == "1":
-            approach_x = source.x
-            land_x = source.x
-        if edge.action == PathAction.JUMP and "target_x" in edge.meta:
-            land_x = float(edge.meta["target_x"])
-            approach_x = source.x
-        if edge.action == PathAction.CLIMB:
-            approach_x = source.x
-            land_x = target.x
-        if edge.action == PathAction.WALK and edge.from_node_id != edge.to_node_id and edge.meta.get("drop") != "1":
-            # For normal WALK transfers, approach/land are the same walk destination.
-            land_x = approach_x
-        return PathEdge(edge.action, source.platform_id, target.platform_id, approach_x, edge.cost, edge.side_platform_id, land_x=land_x)
-
-    def _point_walk_edge(self, platform: Platform, target_x: float, physics: PhysicsConfig, pet: Pet) -> PathEdge:
-        return PathEdge(
-            PathAction.WALK,
-            platform.id,
-            platform.id,
-            target_x,
-            abs(target_x - pet.position.x) / max(physics.walk_speed, 1.0),
-            land_x=target_x,
+        target_t = target.anchor_t
+        land_t: float | None = target.anchor_t
+        approach_point = (target.x, target.y)
+        land_point = (target.x, target.y)
+        if edge.action in {TraversalAction.JUMP, TraversalAction.FALL, TraversalAction.TRANSFORM}:
+            target_t = source.anchor_t
+            land_t = target.anchor_t
+            approach_point = (source.x, source.y)
+        if "target_t" in edge.meta:
+            land_t = float(edge.meta["target_t"])
+        return PathStep(
+            edge.action,
+            source.surface_id,
+            target.surface_id,
+            target_t,
+            edge.cost,
+            edge.contact_surface_id,
+            land_t,
+            approach_point=approach_point,
+            land_point=land_point,
         )
 
-    def _trim_platform_walk_transitions(self, edges: list[PathEdge]) -> list[PathEdge]:
-        if len(edges) <= 1:
-            return edges
-        trimmed = list(edges)
-        while (
-            len(trimmed) > 1
-            and trimmed[0].action == PathAction.WALK
-            and trimmed[0].from_platform_id == trimmed[0].to_platform_id
-            and trimmed[1].action in {PathAction.CLIMB, PathAction.JUMP}
-            and trimmed[1].from_platform_id == trimmed[0].from_platform_id
-        ):
-            trimmed.pop(0)
-        while (
-            len(trimmed) > 1
-            and trimmed[-1].action == PathAction.WALK
-            and trimmed[-1].from_platform_id == trimmed[-1].to_platform_id
-            and trimmed[-2].to_platform_id == trimmed[-1].from_platform_id
-        ):
-            trimmed.pop()
-        return trimmed
+    def _point_move_step(self, surface: Surface, target_t: float, physics: PhysicsConfig, pet: Pet) -> PathStep:
+        return PathStep(
+            TraversalAction.MOVE,
+            surface.id,
+            surface.id,
+            target_t,
+            abs(target_t - self._pet_anchor_t(surface, pet)) / max(self._move_speed(surface, physics), 1.0),
+            land_t=target_t,
+            approach_point=self._point_for_anchor(surface, target_t, pet),
+            land_point=self._point_for_anchor(surface, target_t, pet),
+        )
 
-    def _merge_consecutive_same_platform_walk_edges(self, edges: list[PathEdge]) -> list[PathEdge]:
-        if len(edges) <= 1:
-            return edges
-        merged: list[PathEdge] = []
-        i = 0
-        while i < len(edges):
-            cur = edges[i]
-            if not (cur.action == PathAction.WALK and cur.from_platform_id == cur.to_platform_id):
-                merged.append(cur)
-                i += 1
+    def _merge_consecutive_same_surface_move_steps(self, steps: list[PathStep]) -> list[PathStep]:
+        if len(steps) <= 1:
+            return steps
+        merged: list[PathStep] = []
+        index = 0
+        while index < len(steps):
+            current = steps[index]
+            if not (current.action == TraversalAction.MOVE and current.from_surface_id == current.to_surface_id):
+                merged.append(current)
+                index += 1
                 continue
 
-            total_cost = cur.cost
-            last = cur
-            j = i + 1
-            while j < len(edges):
-                nxt = edges[j]
+            total_cost = current.cost
+            last = current
+            scan = index + 1
+            while scan < len(steps):
+                nxt = steps[scan]
                 if not (
-                    nxt.action == PathAction.WALK
-                    and nxt.from_platform_id == nxt.to_platform_id
-                    and nxt.from_platform_id == cur.from_platform_id
+                    nxt.action == TraversalAction.MOVE
+                    and nxt.from_surface_id == nxt.to_surface_id
+                    and nxt.from_surface_id == current.from_surface_id
                 ):
                     break
                 total_cost += nxt.cost
                 last = nxt
-                j += 1
-
+                scan += 1
             merged.append(
-                PathEdge(
-                    action=PathAction.WALK,
-                    from_platform_id=cur.from_platform_id,
-                    to_platform_id=cur.to_platform_id,
-                    target_x=last.target_x,
-                    cost=total_cost,
-                    side_platform_id=None,
-                    land_x=last.land_x if last.land_x is not None else last.target_x,
+                PathStep(
+                    TraversalAction.MOVE,
+                    current.from_surface_id,
+                    current.to_surface_id,
+                    last.target_t,
+                    total_cost,
+                    land_t=last.land_t if last.land_t is not None else last.target_t,
+                    approach_point=last.approach_point,
+                    land_point=last.land_point,
                 )
             )
-            i = j
+            index = scan
         return merged
 
-    def _first_platform_hit_below(
+    def _first_horizontal_hit_below(
         self,
-        source: Platform,
-        drop_x: float,
-        platforms: list[Platform],
+        source: Surface,
+        drop_t: float,
+        surfaces: list[Surface],
         pet: Pet,
-    ) -> Platform | None:
+    ) -> Surface | None:
         candidates = [
             target
-            for target in platforms
+            for target in surfaces
             if target.id != source.id
             and target.rect.top > source.rect.top
-            and target.rect.left-pet.width <= drop_x <= target.rect.right
+            and target.rect.left - pet.width <= drop_t <= target.rect.right
         ]
         if not candidates:
             return None
-        return min(candidates, key=lambda platform: platform.rect.top)
+        return min(candidates, key=lambda surface: surface.rect.top)
 
     def _is_drop_side_valid(
         self,
-        platform: Platform,
+        surface: Surface,
         side: str,
         snapshot: EnvironmentSnapshot,
         pet: Pet,
     ) -> bool:
         bounds = snapshot.screen_rect
         if side == "left":
-            gap = platform.rect.left - bounds.left
+            gap = surface.rect.left - bounds.left
             return gap >= pet.width
-        gap = bounds.right - platform.rect.right
+        gap = bounds.right - surface.rect.right
         return gap >= pet.width
+
+    def _jump_candidate(self, source: Surface, target: Surface, pet: Pet) -> tuple[float, float] | None:
+        if source.is_horizontal:
+            if target.is_vertical:
+                launch_t = target.rect.center_x - pet.width / 2
+            else:
+                launch_t = source.rect.right - pet.width / 2 if target.rect.center_x >= source.rect.center_x else source.rect.left - pet.width / 2
+        else:
+            launch_t = source.rect.top if target.rect.center_y <= source.rect.center_y else source.rect.bottom
+        if target.is_horizontal:
+            land_t = target.rect.left - pet.width / 2 if target.rect.center_x >= source.rect.center_x else target.rect.right - pet.width / 2
+        else:
+            land_t = target.rect.bottom
+        return self._clamp_anchor(source, launch_t, pet), self._clamp_anchor(target, land_t, pet)
 
     def _jump_reachable(
         self,
-        source_platform: Platform,
-        source_x: float,
-        target_platform: Platform,
-        target_x: float,
+        source: Surface,
+        source_t: float,
+        target: Surface,
+        target_t: float,
         max_jump_h: float,
         max_jump_d: float,
         edge_snap: float,
+        pet: Pet,
     ) -> bool:
-        if target_platform.rect.top > source_platform.rect.top + edge_snap:
+        source_x, source_y = self._point_for_anchor(source, source_t, pet)
+        target_x, target_y = self._point_for_anchor(target, target_t, pet)
+        if target.is_horizontal and target_y > source_y + edge_snap:
             return False
-        same_level = abs(target_platform.rect.top - source_platform.rect.top) <= edge_snap
-        if same_level:
-            if source_platform.rect.overlaps_x(target_platform.rect):
-                return False
-            gap = self._platform_horizontal_gap(source_platform, target_platform)
-            if gap <= edge_snap:
-                return False
-        vertical_up = max(0.0, source_platform.rect.top - target_platform.rect.top)
+        if source.is_horizontal and target.is_horizontal:
+            same_level = abs(source.rect.top - target.rect.top) <= edge_snap
+            if same_level:
+                if source.rect.overlaps_x(target.rect):
+                    return False
+                if self._horizontal_gap(source, target) <= edge_snap:
+                    return False
+        vertical_up = max(0.0, source_y - target_y)
         if vertical_up > max_jump_h:
             return False
         return abs(target_x - source_x) <= max_jump_d
 
-    def _jump_reachable_to_contact(
-        self,
-        source_platform: Platform,
-        source_x: float,
-        side: Platform,
-        contact_x: float,
-        max_jump_h: float,
-        max_jump_d: float,
-    ) -> bool:
-        vertical_up = max(0.0, source_platform.rect.top - side.rect.bottom)
-        if vertical_up > max_jump_h:
+    def _can_move_between_horizontals(self, source: Surface, target: Surface, physics: PhysicsConfig) -> bool:
+        if abs(source.rect.top - target.rect.top) > physics.edge_snap_distance:
             return False
-        return abs(contact_x - source_x) <= max_jump_d
+        return self._horizontal_gap(source, target) <= physics.edge_snap_distance
 
-    def _jump_launch_x_for_platform_target(self, source: Platform, target: Platform, pet: Pet) -> float:
-        return source.rect.right - pet.width / 2 if target.rect.center_x >= source.rect.center_x else source.rect.left - pet.width / 2
-
-    def _jump_landing_x_for_platform_target(self, source: Platform, target: Platform, pet: Pet) -> float:
-        return target.rect.left - pet.width / 2 if target.rect.center_x >= source.rect.center_x else target.rect.right - pet.width / 2
-
-    def _jump_launch_x_for_contact_target(self, source: Platform, side: Platform, contact: NavNode, pet: Pet) -> float:
-        if side.rect.center_x >= source.rect.center_x:
-            return min(source.rect.right - pet.width / 2, contact.x)
-        return max(source.rect.left - pet.width / 2, contact.x)
-
-    def _clamp_jump_x(self, platform: Platform, x: float, pet: Pet) -> float:
-        return min(max(x, platform.rect.left - pet.width / 2), platform.rect.right - pet.width / 2)
-
-    def _platform_horizontal_gap(self, source: Platform, target: Platform) -> float:
+    def _horizontal_gap(self, source: Surface, target: Surface) -> float:
         if source.rect.overlaps_x(target.rect):
             return 0.0
         if source.rect.right < target.rect.left:
             return target.rect.left - source.rect.right
         return source.rect.left - target.rect.right
+
+    def _clamp_anchor(self, surface: Surface, anchor_t: float, pet: Pet) -> float:
+        if surface.is_horizontal:
+            return min(max(anchor_t, surface.rect.left - pet.width / 2), surface.rect.right - pet.width / 2)
+        return min(max(anchor_t, surface.rect.top), surface.rect.bottom)
+
+    def _pet_anchor_t(self, surface: Surface, pet: Pet) -> float:
+        if surface.is_horizontal:
+            return pet.position.x
+        return pet.bottom
+
+    def _point_for_anchor(self, surface: Surface, anchor_t: float, pet: Pet) -> tuple[float, float]:
+        if surface.is_horizontal:
+            return anchor_t, surface.rect.top - pet.height
+        return surface.rect.center_x - pet.width / 2, anchor_t - pet.height
+
+    def _move_speed(self, surface: Surface, physics: PhysicsConfig) -> float:
+        if surface.is_vertical:
+            return physics.climb_speed
+        return physics.walk_speed
+
+    def _move_cost(self, surface: Surface, from_t: float, to_t: float, physics: PhysicsConfig) -> float:
+        return abs(to_t - from_t) / max(self._move_speed(surface, physics), 1.0)
+
+    def _jump_cost(self, source: NavNode, target: NavNode, physics: PhysicsConfig) -> float:
+        horizontal = abs(target.x - source.x)
+        vertical = abs(target.y - source.y)
+        air_time = 2.0 * abs(physics.jump_speed_y) / max(physics.gravity, 1.0)
+        return air_time + horizontal / max(physics.jump_speed_x, 1.0) + vertical / 400.0 + 2.0
+
+    def _fall_cost(self, vertical: float, physics: PhysicsConfig) -> float:
+        gravity = max(physics.gravity, 1.0)
+        return (2.0 * max(vertical, 0.0) / gravity) ** 0.5

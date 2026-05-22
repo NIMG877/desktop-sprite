@@ -1,4 +1,6 @@
-from desktop_sprite.core.pathfinding import PathAction, PathFinder
+import pytest
+
+from desktop_sprite.core.pathfinding import PathAction, PathFinder, Surface, SurfaceOrientation, TraversalAction
 from desktop_sprite.environment.environment_snapshot import EnvironmentSnapshot
 from desktop_sprite.models.geometry import Rect, Vec2
 from desktop_sprite.models.platform import Platform, PlatformType
@@ -55,7 +57,7 @@ def ground() -> Platform:
     return platform("ground:work_area", PlatformType.GROUND, Rect.from_xywh(0, 650, 900, 4))
 
 
-def test_same_level_overlapping_platforms_generate_walk_not_jump():
+def test_same_level_overlapping_platforms_generate_transform_not_jump():
     pet = make_pet()
     pet.support_platform_id = "taskbar:main"
     taskbar = platform("taskbar:main", PlatformType.TASKBAR, Rect.from_xywh(0, 650, 900, 4))
@@ -64,7 +66,7 @@ def test_same_level_overlapping_platforms_generate_walk_not_jump():
     graph = PathFinder().build_navigation_graph(pet, snapshot, make_physics())
 
     edge = next(edge for edge in graph["taskbar:main"] if edge.to_platform_id == "ground:work_area")
-    assert edge.action == PathAction.WALK
+    assert edge.action == PathAction.TRANSFORM
 
 
 def test_path_to_point_on_current_platform_generates_walk_edge():
@@ -112,7 +114,7 @@ def test_drop_edge_is_created_when_vertical_ray_hits_platform():
 
     edges = [edge for edge in graph["window:1:top"] if edge.to_platform_id == "window:2:top"]
     assert edges
-    assert all(edge.action == PathAction.WALK for edge in edges)
+    assert all(edge.action == PathAction.FALL for edge in edges)
     assert any(edge.target_x == source_top.rect.right for edge in edges)
 
 
@@ -187,4 +189,106 @@ def test_high_window_without_intermediate_path_is_unreachable():
     plan = PathFinder().find_path(pet, snapshot, target_window_id=1, physics=make_physics())
 
     assert plan is None
+
+
+def test_platforms_are_adapted_to_surfaces():
+    top = platform("window:1:top", PlatformType.WINDOW_TOP, Rect(160, 430, 320, 438), source_id=1)
+    side = platform("window:1:left", PlatformType.WINDOW_LEFT, Rect(152, 430, 166, 620), source_id=1)
+
+    top_surface = Surface.from_platform(top)
+    side_surface = Surface.from_platform(side)
+
+    assert top_surface.orientation == SurfaceOrientation.HORIZONTAL
+    assert side_surface.orientation == SurfaceOrientation.VERTICAL
+
+
+def test_surface_graph_uses_fall_edges_for_vertical_ray_hits():
+    pet = make_pet()
+    pet.support_platform_id = "window:1:top"
+    source_top = platform("window:1:top", PlatformType.WINDOW_TOP, Rect(160, 430, 320, 438), source_id=1)
+    lower_top = platform("window:2:top", PlatformType.WINDOW_TOP, Rect(260, 520, 420, 528), source_id=2)
+    snapshot = make_snapshot([ground(), source_top, lower_top])
+
+    graph = PathFinder().build_surface_graph(pet, snapshot, make_physics())
+
+    fall_edges = [edge for edge in graph.edges if edge.action == TraversalAction.FALL]
+    assert fall_edges
+    assert any(graph.nodes[edge.from_node_id].anchor_t == source_top.rect.right for edge in fall_edges)
+
+
+def test_vertical_surface_move_edges_use_climb_speed():
+    pet = make_pet()
+    snapshot = make_snapshot([ground(), *window_platforms(1, 160, 430, 320, 620)])
+    physics = make_physics()
+
+    graph = PathFinder().build_surface_graph(pet, snapshot, physics)
+
+    edge = next(
+        edge
+        for edge in graph.edges
+        if edge.action == TraversalAction.MOVE
+        and graph.nodes[edge.from_node_id].surface_id == "window:1:left"
+        and graph.nodes[edge.to_node_id].surface_id == "window:1:left"
+    )
+    source = graph.nodes[edge.from_node_id]
+    target = graph.nodes[edge.to_node_id]
+    assert edge.cost == pytest.approx(abs(target.anchor_t - source.anchor_t) / physics.climb_speed)
+
+
+def test_transform_edges_only_connect_matching_window_side_and_top():
+    pet = make_pet()
+    snapshot = make_snapshot(
+        [
+            ground(),
+            *window_platforms(1, 160, 430, 320, 620),
+            *window_platforms(2, 360, 430, 520, 620),
+        ]
+    )
+
+    graph = PathFinder().build_surface_graph(pet, snapshot, make_physics())
+
+    transform_pairs = {
+        (graph.nodes[edge.from_node_id].surface_id, graph.nodes[edge.to_node_id].surface_id)
+        for edge in graph.edges
+        if edge.action == TraversalAction.TRANSFORM
+    }
+    assert ("window:1:left", "window:1:top") in transform_pairs
+    assert ("window:1:left", "window:2:top") not in transform_pairs
+
+
+def test_surface_graph_generates_cross_surface_jumps_but_not_same_window_jumps():
+    pet = make_pet()
+    snapshot = make_snapshot(
+        [
+            ground(),
+            *window_platforms(1, 160, 430, 320, 620),
+            *window_platforms(2, 300, 430, 460, 620),
+        ]
+    )
+
+    graph = PathFinder().build_surface_graph(pet, snapshot, make_physics())
+    jump_pairs = {
+        (graph.nodes[edge.from_node_id].surface_id, graph.nodes[edge.to_node_id].surface_id)
+        for edge in graph.edges
+        if edge.action == TraversalAction.JUMP
+    }
+
+    assert any(source == "ground:work_area" and target == "window:1:left" for source, target in jump_pairs)
+    assert any(source == "window:1:top" and target.startswith("window:2:") for source, target in jump_pairs)
+    assert not any(source.startswith("window:1:") and target.startswith("window:1:") for source, target in jump_pairs)
+    assert not any(source.endswith(":left") or source.endswith(":right") for source, _target in jump_pairs)
+
+
+def test_jump_to_vertical_surface_uses_world_x_for_landing():
+    pet = make_pet()
+    snapshot = make_snapshot([ground(), *window_platforms(1, 160, 430, 320, 620)])
+
+    plan = PathFinder().find_path(pet, snapshot, target_window_id=1, physics=make_physics())
+
+    assert plan is not None
+    jump = next(edge for edge in plan.edges if edge.action == PathAction.JUMP and edge.to_platform_id == "window:1:left")
+    side = snapshot.platform_by_id("window:1:left")
+    assert side is not None
+    assert jump.land_t == side.rect.bottom
+    assert jump.land_x == side.rect.center_x - pet.width / 2
 

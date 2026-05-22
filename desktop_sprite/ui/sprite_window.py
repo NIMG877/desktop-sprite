@@ -308,10 +308,10 @@ class DebugOverlayWindow(QWidget):
         debug_state = self.character.debug_state()
         pet = self.character.render_state().body
         graph_edges = len(mesh.edges)
-        walk_edges = sum(1 for edge in mesh.edges if edge.action == PathAction.WALK and edge.meta.get("drop") != "1")
-        drop_edges = sum(1 for edge in mesh.edges if edge.meta.get("drop") == "1")
+        move_edges = sum(1 for edge in mesh.edges if edge.action == PathAction.MOVE)
+        fall_edges = sum(1 for edge in mesh.edges if edge.action == PathAction.FALL)
         jump_edges = sum(1 for edge in mesh.edges if edge.action == PathAction.JUMP)
-        climb_edges = sum(1 for edge in mesh.edges if edge.action == PathAction.CLIMB)
+        transform_edges = sum(1 for edge in mesh.edges if edge.action == PathAction.TRANSFORM)
         if pet is None:
             payload = self.character.render_state().payload or {}
             lines = [
@@ -327,7 +327,7 @@ class DebugOverlayWindow(QWidget):
             climbable = sum(1 for platform in debug_state.snapshot.platforms if platform.climbable)
             lines.append(f"map platform={walkable} climb={climbable}")
             lines.append(f"mesh nodes={len(mesh.nodes)} edges={graph_edges}")
-            lines.append(f"edge walk={walk_edges} drop={drop_edges} jump={jump_edges} climb={climb_edges}")
+            lines.append(f"edge move={move_edges} fall={fall_edges} jump={jump_edges} transform={transform_edges}")
             lines.append("path=-")
             return lines
         floor_y = debug_state.snapshot.work_area_rect.bottom
@@ -479,20 +479,23 @@ class DebugOverlayWindow(QWidget):
         return [QPointF(land_x + pet.width / 2, target.rect.top - pet.height / 2)]
 
     def _edge_debug_steps(self, edge: PathEdge) -> list[str]:
-        if edge.action == PathAction.WALK:
-            return [f"walk x={edge.approach_x:.0f} -> {edge.to_platform_id}"]
-        if edge.action == PathAction.CLIMB:
+        if edge.action == PathAction.MOVE:
+            return [f"move t={edge.approach_x:.0f} -> {edge.to_platform_id}"]
+        if edge.action == PathAction.TRANSFORM:
             side = edge.side_platform_id or "-"
             return [
-                f"walk x={edge.approach_x:.0f} -> {side}",
-                f"climb -> {edge.to_platform_id}",
+                f"contact t={edge.approach_x:.0f} -> {side}",
+                f"transform -> {edge.to_platform_id}",
             ]
         if edge.action == PathAction.JUMP:
             land_x = edge.land_x if edge.land_x is not None else edge.approach_x
             return [
-                f"approach x={edge.approach_x:.0f}",
-                f"jump land x={land_x:.0f} -> {edge.to_platform_id}",
+                f"approach t={edge.approach_x:.0f}",
+                f"jump land t={land_x:.0f} -> {edge.to_platform_id}",
             ]
+        if edge.action == PathAction.FALL:
+            land_x = edge.land_x if edge.land_x is not None else edge.approach_x
+            return [f"fall t={land_x:.0f} -> {edge.to_platform_id}"]
         return [f"{edge.action} -> {edge.to_platform_id}"]
 
     def _support_window_title(self) -> str:
@@ -578,16 +581,20 @@ class DebugOverlayWindow(QWidget):
         return math.hypot(end.x() - start.x(), end.y() - start.y())
 
     def _graph_edge_color(self, action: PathAction) -> QColor:
-        if action == PathAction.WALK:
+        if action == PathAction.MOVE:
             return QColor(35, 125, 220, 85)
-        if action == PathAction.CLIMB:
+        if action == PathAction.TRANSFORM:
             return QColor(30, 160, 90, 95)
+        if action == PathAction.FALL:
+            return QColor(90, 110, 220, 95)
         return QColor(230, 180, 40, 95)
 
     def _path_color(self, action: PathAction, current: bool) -> QColor:
         alpha = 230 if current else 165
-        if action == PathAction.WALK:
+        if action == PathAction.MOVE:
             return QColor(40, 130, 230, alpha)
-        if action == PathAction.CLIMB:
+        if action == PathAction.TRANSFORM:
             return QColor(30, 160, 90, alpha)
+        if action == PathAction.FALL:
+            return QColor(90, 110, 220, alpha)
         return QColor(255, 145, 35, alpha)

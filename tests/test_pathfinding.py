@@ -90,7 +90,7 @@ def test_path_to_point_on_current_platform_generates_walk_edge():
     assert plan.edges[0].to_platform_id == "ground:work_area"
 
 
-def test_lower_platform_transfer_requires_vertical_hit_below_drop_point():
+def test_lower_platform_transfer_with_vertical_overlap_does_not_generate_jump():
     pet = make_pet()
     pet.support_platform_id = "window:1:top"
     source_top = platform("window:1:top", PlatformType.WINDOW_TOP, Rect(160, 430, 320, 438), source_id=1)
@@ -100,7 +100,7 @@ def test_lower_platform_transfer_requires_vertical_hit_below_drop_point():
     graph = PathFinder().build_navigation_graph(pet, snapshot, make_physics())
 
     edges = [edge for edge in graph["window:1:top"] if edge.to_platform_id == "window:2:top"]
-    assert not edges
+    assert not any(edge.action == PathAction.JUMP for edge in edges)
 
 
 def test_drop_edge_is_created_when_vertical_ray_hits_platform():
@@ -114,7 +114,7 @@ def test_drop_edge_is_created_when_vertical_ray_hits_platform():
 
     edges = [edge for edge in graph["window:1:top"] if edge.to_platform_id == "window:2:top"]
     assert edges
-    assert all(edge.action == PathAction.FALL for edge in edges)
+    assert any(edge.action == PathAction.FALL for edge in edges)
     assert any(edge.target_x == source_top.rect.right for edge in edges)
 
 
@@ -256,13 +256,34 @@ def test_transform_edges_only_connect_matching_window_side_and_top():
     assert ("window:1:left", "window:2:top") not in transform_pairs
 
 
+def test_intersecting_wall_and_platform_generate_transform_not_jump():
+    pet = make_pet()
+    platform_top = platform("window:1:top", PlatformType.WINDOW_TOP, Rect(160, 430, 320, 438), source_id=1)
+    intersecting_side = platform("window:2:left", PlatformType.WINDOW_LEFT, Rect(220, 400, 232, 500), source_id=2)
+    snapshot = make_snapshot([ground(), platform_top, intersecting_side])
+
+    graph = PathFinder().build_surface_graph(pet, snapshot, make_physics())
+    pairs_by_action = {
+        action: {
+            (graph.nodes[edge.from_node_id].surface_id, graph.nodes[edge.to_node_id].surface_id)
+            for edge in graph.edges
+            if edge.action == action
+        }
+        for action in (TraversalAction.TRANSFORM, TraversalAction.JUMP)
+    }
+
+    assert (platform_top.id, intersecting_side.id) in pairs_by_action[TraversalAction.TRANSFORM]
+    assert (intersecting_side.id, platform_top.id) in pairs_by_action[TraversalAction.TRANSFORM]
+    assert (platform_top.id, intersecting_side.id) not in pairs_by_action[TraversalAction.JUMP]
+
+
 def test_surface_graph_generates_cross_surface_jumps_but_not_same_window_jumps():
     pet = make_pet()
     snapshot = make_snapshot(
         [
             ground(),
             *window_platforms(1, 160, 430, 320, 620),
-            *window_platforms(2, 300, 430, 460, 620),
+            *window_platforms(2, 340, 300, 500, 500),
         ]
     )
 
@@ -279,7 +300,7 @@ def test_surface_graph_generates_cross_surface_jumps_but_not_same_window_jumps()
     assert not any(source.endswith(":left") or source.endswith(":right") for source, _target in jump_pairs)
 
 
-def test_jump_to_vertical_surface_uses_world_x_for_landing():
+def test_ground_jump_to_low_vertical_surface_keeps_wall_bottom_landing():
     pet = make_pet()
     snapshot = make_snapshot([ground(), *window_platforms(1, 160, 430, 320, 620)])
 
@@ -291,4 +312,58 @@ def test_jump_to_vertical_surface_uses_world_x_for_landing():
     assert side is not None
     assert jump.land_t == side.rect.bottom
     assert jump.land_x == side.rect.center_x - pet.width / 2
+
+
+def test_jump_to_vertical_surface_chooses_nearest_wall_contact():
+    pet = make_pet()
+    pet.support_platform_id = "window:1:top"
+    source_top = platform("window:1:top", PlatformType.WINDOW_TOP, Rect(160, 430, 320, 438), source_id=1)
+    target_side = platform("window:2:left", PlatformType.WINDOW_LEFT, Rect(360, 430, 374, 620), source_id=2)
+    snapshot = make_snapshot([ground(), source_top, target_side])
+
+    graph = PathFinder().build_surface_graph(pet, snapshot, make_physics())
+    jump = next(
+        edge
+        for edge in graph.edges
+        if edge.action == TraversalAction.JUMP
+        and graph.nodes[edge.from_node_id].surface_id == source_top.id
+        and graph.nodes[edge.to_node_id].surface_id == target_side.id
+    )
+    target_node = graph.nodes[jump.to_node_id]
+
+    assert target_node.anchor_t == target_side.rect.top
+    assert target_node.anchor_t != target_side.rect.bottom
+    assert target_node.x == target_side.rect.center_x - pet.width / 2
+
+
+def test_jump_reachability_uses_projectile_velocity_limits():
+    pet = make_pet()
+    source = platform("window:1:top", PlatformType.WINDOW_TOP, Rect(160, 430, 320, 438), source_id=1)
+    reachable = platform("window:2:top", PlatformType.WINDOW_TOP, Rect(260, 520, 420, 528), source_id=2)
+    too_high = platform("window:3:top", PlatformType.WINDOW_TOP, Rect(260, 20, 420, 28), source_id=3)
+    physics = make_physics()
+    pathfinder = PathFinder()
+
+    assert pathfinder._jump_reachable(
+        Surface.from_platform(source),
+        240,
+        Surface.from_platform(reachable),
+        300,
+        abs(physics.jump_speed_x),
+        abs(physics.jump_speed_y),
+        physics.gravity,
+        physics.edge_snap_distance,
+        pet,
+    )
+    assert not pathfinder._jump_reachable(
+        Surface.from_platform(source),
+        240,
+        Surface.from_platform(too_high),
+        300,
+        abs(physics.jump_speed_x),
+        abs(physics.jump_speed_y),
+        physics.gravity,
+        physics.edge_snap_distance,
+        pet,
+    )
 

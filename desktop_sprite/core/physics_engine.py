@@ -58,7 +58,10 @@ class PhysicsEngine:
             self._clamp_to_work_area(pet, snapshot, events)
             return events
         if pet.state == PetState.CLIMB:
-            self._update_climb(pet, snapshot, dt, events)
+            self._validate_climb_support(pet, snapshot, events)
+            if not events.support_lost:
+                pet.position.x += pet.velocity.x * dt
+                pet.position.y += pet.velocity.y * dt
             self._clamp_to_work_area(pet, snapshot, events)
             self._clamp_to_screen(pet, snapshot, events)
             return events
@@ -83,36 +86,22 @@ class PhysicsEngine:
         self._clamp_to_screen(pet, snapshot, events)
         return events
 
-    def _update_climb(self, pet: Pet, snapshot: EnvironmentSnapshot, dt: float, events: MotionEvents) -> None:
-        side = snapshot.platform_by_id(pet.target_platform_id)
+    def _validate_climb_support(self, pet: Pet, snapshot: EnvironmentSnapshot, events: MotionEvents) -> None:
+        side = snapshot.platform_by_id(pet.support_platform_id or pet.target_platform_id)
         if side is None:
             events.support_lost = True
             if self.apply_state_transitions:
                 pet.state = PetState.FALL
             pet.target_platform_id = None
             return
-
-        top_id = self._top_platform_id_for(side)
-        top = snapshot.platform_by_id(top_id)
-        if top is None:
+        if not side.climbable:
             events.support_lost = True
             if self.apply_state_transitions:
                 pet.state = PetState.FALL
             pet.target_platform_id = None
             return
-
-        pet.velocity.x = 0.0
-        pet.velocity.y = -self.config.climb_speed
-        pet.position.y += pet.velocity.y * dt
-
-        if pet.bottom <= top.rect.top + 3:
-            pet.position.y = top.rect.top - pet.height
-            pet.support_platform_id = top.id
-            pet.target_platform_id = None
-            pet.velocity.y = 0.0
-            pet.velocity.x = 0.0
-            events.climb_completed = True
-            events.landed_on = top.id
+        pet.support_platform_id = side.id
+        pet.target_platform_id = side.id
 
     def _resolve_platform_landing(
         self,
@@ -199,6 +188,17 @@ class PhysicsEngine:
         floor_y = snapshot.work_area_rect.bottom
         if pet.bottom < floor_y:
             return
+
+        if pet.state == PetState.CLIMB:
+            side = snapshot.platform_by_id(pet.support_platform_id or pet.target_platform_id)
+            if side is not None and side.climbable:
+                pet.position.y = floor_y - pet.height
+                if pet.velocity.y > 0:
+                    pet.velocity.y = 0.0
+                pet.support_platform_id = side.id
+                pet.target_platform_id = side.id
+                events.clamped_to_ground = True
+                return
 
         pet.position.y = floor_y - pet.height
         pet.velocity.y = 0.0

@@ -223,7 +223,7 @@ def test_jumping_pet_lands_like_falling_pet():
     assert pet.state == PetState.IDLE
 
 
-def test_climb_completion_does_not_change_state_to_walk_or_idle():
+def test_climb_state_does_not_auto_move_or_complete():
     physics = make_physics()
     pet = Pet(
         position=Vec2(100, 50),
@@ -255,8 +255,72 @@ def test_climb_completion_does_not_change_state_to_walk_or_idle():
 
     physics.update(pet, snapshot, 0.1)
 
-    assert pet.support_platform_id == "window:123:top"
-    assert pet.target_platform_id is None
+    assert pet.position.y == 50
+    assert pet.support_platform_id == "window:123:left"
+    assert pet.target_platform_id == "window:123:left"
     assert pet.velocity.x == 0
     assert pet.velocity.y == 0
+    assert pet.state == PetState.CLIMB
+
+
+def test_climb_state_keeps_wall_support_at_floor_boundary():
+    physics = make_physics()
+    pet = Pet(
+        position=Vec2(100, 140),
+        velocity=Vec2(0, 25),
+        width=40,
+        height=60,
+        state=PetState.CLIMB,
+        support_platform_id="window:123:left",
+        target_platform_id="window:123:left",
+    )
+    side = Platform(
+        id="window:123:left",
+        type=PlatformType.WINDOW_LEFT,
+        rect=Rect.from_xywh(100, 100, 8, 120),
+        walkable=False,
+        climbable=True,
+        dynamic=True,
+        source_id=123,
+    )
+    snapshot = make_snapshot([side])
+
+    events = physics.update(pet, snapshot, 0.1)
+
+    assert pet.position.y == 140
+    assert pet.support_platform_id == "window:123:left"
+    assert pet.target_platform_id == "window:123:left"
+    assert pet.velocity.y == 0
+    assert pet.state == PetState.CLIMB
+    assert events.landed_on is None
+
+
+def test_climb_state_moves_by_velocity_without_auto_completing():
+    physics = make_physics()
+    pet = Pet(
+        position=Vec2(100, 140),
+        velocity=Vec2(0, -80),
+        width=40,
+        height=60,
+        state=PetState.CLIMB,
+        support_platform_id="window:123:left",
+        target_platform_id="window:123:left",
+    )
+    side = Platform(
+        id="window:123:left",
+        type=PlatformType.WINDOW_LEFT,
+        rect=Rect.from_xywh(100, 80, 8, 120),
+        walkable=False,
+        climbable=True,
+        dynamic=True,
+        source_id=123,
+    )
+    snapshot = make_snapshot([side])
+
+    physics.update(pet, snapshot, 0.1)
+
+    assert pet.position.y == 132
+    assert pet.support_platform_id == "window:123:left"
+    assert pet.target_platform_id == "window:123:left"
+    assert pet.velocity.y == -80
     assert pet.state == PetState.CLIMB

@@ -199,6 +199,38 @@ def test_controller_executes_same_platform_walk_plan():
     assert controller.pet.state == PetState.WALK
 
 
+def test_controller_executes_vertical_move_plan():
+    controller, side = make_controller(window_top_y=120)
+    controller.pet.state = PetState.CLIMB
+    controller.state_machine = BehaviorStateMachine(PetState.CLIMB)
+    controller.pet.position.x = side.rect.center_x - controller.pet.width / 2
+    controller.pet.position.y = side.rect.bottom - controller.pet.height
+    controller.pet.support_platform_id = side.id
+    controller.pet.target_platform_id = side.id
+    controller.path_plan = PathPlan(
+        edges=[
+            PathEdge(
+                action=PathAction.MOVE,
+                from_platform_id=side.id,
+                to_platform_id=side.id,
+                target_t=side.rect.top,
+                cost=1,
+            )
+        ],
+        current_index=0,
+        target_window_id=side.source_id,
+        snapshot_timestamp=1.0,
+    )
+
+    handled = controller._execute_path_plan()
+
+    assert handled
+    assert controller.path_plan is not None
+    assert controller.pet.velocity.y < 0
+    assert controller.pet.velocity.x == 0
+    assert controller.pet.state == PetState.CLIMB
+
+
 def test_same_platform_walk_plan_is_not_advanced_before_moving():
     controller, _side = make_controller(window_top_y=120)
     controller.pet.position.x = 100
@@ -486,6 +518,46 @@ def test_landing_tick_preserves_existing_path_plan():
 
     assert controller.path_plan is not None
     assert controller.path_plan.current_index == 0
+
+
+def test_jump_grab_uses_planned_wall_contact_point():
+    controller, side = make_controller(window_top_y=120)
+    controller.pet.state = PetState.JUMP
+    controller.pet.support_platform_id = None
+    controller.pet.target_platform_id = side.id
+    controller.pet.position.x = side.rect.center_x - controller.pet.width / 2
+    controller.pet.position.y = side.rect.top - controller.pet.height
+    controller.path_plan = PathPlan(
+        edges=[
+            PathEdge(
+                action=PathAction.JUMP,
+                from_platform_id="ground:work_area",
+                to_platform_id=side.id,
+                target_x=controller.pet.position.x,
+                cost=1,
+                land_t=side.rect.top,
+                land_point=(controller.pet.position.x, side.rect.top - controller.pet.height),
+            ),
+            PathEdge(
+                action=PathAction.TRANSFORM,
+                from_platform_id=side.id,
+                to_platform_id="window:123:top",
+                target_x=controller.pet.position.x,
+                cost=1,
+                side_platform_id=side.id,
+            ),
+        ],
+        current_index=0,
+        target_window_id=side.source_id,
+        snapshot_timestamp=1.0,
+    )
+
+    controller._maybe_grab_climb_side_while_jumping()
+
+    assert controller.pet.state == PetState.CLIMB
+    assert controller.pet.target_platform_id == side.id
+    assert controller.path_plan is not None
+    assert controller.path_plan.current_index == 1
 
 
 def test_landing_tick_does_not_start_new_path(monkeypatch):

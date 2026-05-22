@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from enum import StrEnum
 
 from desktop_sprite.core.planner import GraphPlanner
-from desktop_sprite.core.reachability_policy import ReachabilityPolicy
 from desktop_sprite.environment.environment_snapshot import EnvironmentSnapshot
 from desktop_sprite.models.platform import Platform, PlatformType
 from desktop_sprite.models.platform_topology import PlatformTopology
@@ -397,7 +397,6 @@ class PathFinder:
         steps = self._map_edges(nav_edges, graph)
         if not steps:
             return None
-        steps = self._collapse_vertical_move_transforms(steps, graph)
         steps = self._merge_consecutive_same_surface_move_steps(steps)
         return PathPlan(
             steps=steps,
@@ -416,34 +415,6 @@ class PathFinder:
         }
         graph = SurfaceGraph(surfaces=surfaces)
         horizontals = [surface for surface in surfaces.values() if surface.is_horizontal]
-        verticals = [surface for surface in surfaces.values() if surface.is_vertical]
-        reachability = ReachabilityPolicy(physics, physics.edge_snap_distance)
-        max_jump_h = reachability.max_jump_height()
-        max_jump_d = reachability.max_jump_distance()
-
-        for side in verticals:
-            top = surfaces.get(SurfaceTopology.top_id_for_side(side))
-            if top is None or not top.is_horizontal:
-                continue
-            if side.source_id is None or top.source_id is None or side.source_id != top.source_id:
-                continue
-            side_node = self._ensure_node(graph, side, pet, top.rect.top, NavNodeKind.TRANSFORM_POINT, physics)
-            top_node = self._ensure_node(
-                graph,
-                top,
-                pet,
-                self._clamp_anchor(top, side.rect.center_x - pet.width / 2, pet),
-                NavNodeKind.TRANSFORM_POINT,
-                physics,
-            )
-            if side_node is None or top_node is None:
-                continue
-            graph.adjacency[side_node.id].append(
-                NavEdge(side_node.id, top_node.id, TraversalAction.TRANSFORM, 0.0, contact_surface_id=side.id)
-            )
-            graph.adjacency[top_node.id].append(
-                NavEdge(top_node.id, side_node.id, TraversalAction.TRANSFORM, 0.0, contact_surface_id=side.id)
-            )
 
         for source in horizontals:
             for side_name in ("left", "right"):
@@ -473,6 +444,22 @@ class PathFinder:
             for target in surface_list:
                 if source.id == target.id:
                     continue
+                if self._can_transform_between_surfaces(source, target):
+                    source_t, target_t = self._transform_anchors(source, target, pet)
+                    source_node = self._ensure_node(graph, source, pet, source_t, NavNodeKind.TRANSFORM_POINT, physics)
+                    target_node = self._ensure_node(graph, target, pet, target_t, NavNodeKind.TRANSFORM_POINT, physics)
+                    if source_node is not None and target_node is not None:
+                        contact = source.id if source.is_vertical else target.id
+                        graph.adjacency[source_node.id].append(
+                            NavEdge(
+                                source_node.id,
+                                target_node.id,
+                                TraversalAction.TRANSFORM,
+                                0.0,
+                                contact_surface_id=contact,
+                            )
+                        )
+                    continue
                 if source.source_id is not None and target.source_id is not None and source.source_id == target.source_id:
                     continue
                 if source.is_horizontal and target.is_horizontal and self._can_move_between_horizontals(source, target, physics):
@@ -499,7 +486,17 @@ class PathFinder:
                 if jump is None:
                     continue
                 launch_t, land_t = jump
-                if not self._jump_reachable(source, launch_t, target, land_t, max_jump_h, max_jump_d, physics.edge_snap_distance, pet):
+                if not self._jump_reachable(
+                    source,
+                    launch_t,
+                    target,
+                    land_t,
+                    abs(physics.jump_speed_x),
+                    abs(physics.jump_speed_y),
+                    physics.gravity,
+                    physics.edge_snap_distance,
+                    pet,
+                ):
                     continue
                 source_node = self._ensure_node(graph, source, pet, launch_t, NavNodeKind.JUMP_POINT, physics)
                 target_node = self._ensure_node(graph, target, pet, land_t, NavNodeKind.JUMP_POINT, physics)
@@ -600,41 +597,6 @@ class PathFinder:
             if mapped is not None:
                 raw.append(mapped)
         return raw
-
-    def _collapse_vertical_move_transforms(self, steps: list[PathStep], graph: SurfaceGraph) -> list[PathStep]:
-        collapsed: list[PathStep] = []
-        index = 0
-        while index < len(steps):
-            current = steps[index]
-            nxt = steps[index + 1] if index + 1 < len(steps) else None
-            surface = graph.surfaces.get(current.from_surface_id)
-            if (
-                nxt is not None
-                and surface is not None
-                and surface.is_vertical
-                and current.action == TraversalAction.MOVE
-                and current.from_surface_id == current.to_surface_id
-                and nxt.action == TraversalAction.TRANSFORM
-                and nxt.from_surface_id == current.to_surface_id
-            ):
-                collapsed.append(
-                    PathStep(
-                        TraversalAction.TRANSFORM,
-                        current.from_surface_id,
-                        nxt.to_surface_id,
-                        current.target_t,
-                        current.cost + nxt.cost,
-                        current.from_surface_id,
-                        nxt.land_t,
-                        approach_point=current.approach_point,
-                        land_point=nxt.land_point,
-                    )
-                )
-                index += 2
-                continue
-            collapsed.append(current)
-            index += 1
-        return collapsed
 
     def _to_path_step(self, edge: NavEdge, graph: SurfaceGraph) -> PathStep | None:
         source = graph.nodes.get(edge.from_node_id)
@@ -749,18 +711,22 @@ class PathFinder:
         return gap >= pet.width
 
     def _jump_candidate(self, source: Surface, target: Surface, pet: Pet) -> tuple[float, float] | None:
-        if source.is_horizontal:
-            if target.is_vertical:
-                launch_t = target.rect.center_x - pet.width / 2
-            else:
-                launch_t = source.rect.right - pet.width / 2 if target.rect.center_x >= source.rect.center_x else source.rect.left - pet.width / 2
-        else:
-            launch_t = source.rect.top if target.rect.center_y <= source.rect.center_y else source.rect.bottom
+        if source.is_vertical:
+            return None
+
+        source_min, source_max = self._anchor_interval(source, pet)
         if target.is_horizontal:
-            land_t = target.rect.left - pet.width / 2 if target.rect.center_x >= source.rect.center_x else target.rect.right - pet.width / 2
-        else:
-            land_t = target.rect.bottom
-        return self._clamp_anchor(source, launch_t, pet), self._clamp_anchor(target, land_t, pet)
+            if self._can_fall_between_horizontals(source, target, pet):
+                return None
+            target_min, target_max = self._anchor_interval(target, pet)
+            launch_t, land_t = self._closest_values_between_intervals(source_min, source_max, target_min, target_max)
+            return self._clamp_anchor(source, launch_t, pet), self._clamp_anchor(target, land_t, pet)
+
+        target_x = target.rect.center_x - pet.width / 2
+        launch_t = self._clamp_value(target_x, source_min, source_max)
+        source_y = source.rect.top - pet.height
+        target_t = self._clamp_value(source_y + pet.height, target.rect.top, target.rect.bottom)
+        return self._clamp_anchor(source, launch_t, pet), self._clamp_anchor(target, target_t, pet)
 
     def _jump_reachable(
         self,
@@ -768,15 +734,14 @@ class PathFinder:
         source_t: float,
         target: Surface,
         target_t: float,
-        max_jump_h: float,
-        max_jump_d: float,
+        max_horizontal_speed: float,
+        max_vertical_speed: float,
+        gravity: float,
         edge_snap: float,
         pet: Pet,
     ) -> bool:
         source_x, source_y = self._point_for_anchor(source, source_t, pet)
         target_x, target_y = self._point_for_anchor(target, target_t, pet)
-        if target.is_horizontal and target_y > source_y + edge_snap:
-            return False
         if source.is_horizontal and target.is_horizontal:
             same_level = abs(source.rect.top - target.rect.top) <= edge_snap
             if same_level:
@@ -784,15 +749,54 @@ class PathFinder:
                     return False
                 if self._horizontal_gap(source, target) <= edge_snap:
                     return False
-        vertical_up = max(0.0, source_y - target_y)
-        if vertical_up > max_jump_h:
+
+        dx = abs(target_x - source_x)
+        dy = target_y - source_y
+        max_vx = max(max_horizontal_speed, 1.0)
+        max_up_vy = max(max_vertical_speed, 1.0)
+        g = max(gravity, 1.0)
+        t = max(dx / max_vx, 0.18)
+        required_vy = (dy - 0.5 * g * t * t) / t
+        if required_vy > -1.0:
+            required_vy = -max_up_vy
+            disc = required_vy * required_vy + 2.0 * g * max(dy, 0.0)
+            t = max((math.sqrt(max(disc, 0.0)) - required_vy) / g, 0.18)
+        required_vx = dx / max(t, 1e-3)
+        if required_vx > max_vx:
             return False
-        return abs(target_x - source_x) <= max_jump_d
+        if required_vy < -max_up_vy:
+            return False
+        return True
 
     def _can_move_between_horizontals(self, source: Surface, target: Surface, physics: PhysicsConfig) -> bool:
         if abs(source.rect.top - target.rect.top) > physics.edge_snap_distance:
             return False
         return self._horizontal_gap(source, target) <= physics.edge_snap_distance
+
+    def _can_transform_between_surfaces(self, source: Surface, target: Surface) -> bool:
+        if source.is_horizontal == target.is_horizontal:
+            return False
+        return source.rect.intersects(target.rect)
+
+    def _transform_anchors(self, source: Surface, target: Surface, pet: Pet) -> tuple[float, float]:
+        if source.is_horizontal:
+            horizontal = source
+            vertical = target
+        else:
+            horizontal = target
+            vertical = source
+        horizontal_t = self._clamp_anchor(horizontal, vertical.rect.center_x - pet.width / 2, pet)
+        vertical_t = self._clamp_anchor(vertical, horizontal.rect.top, pet)
+        if source.is_horizontal:
+            return horizontal_t, vertical_t
+        return vertical_t, horizontal_t
+
+    def _can_fall_between_horizontals(self, source: Surface, target: Surface, pet: Pet) -> bool:
+        if not source.is_horizontal or not target.is_horizontal:
+            return False
+        if target.rect.top <= source.rect.top:
+            return False
+        return source.rect.left - pet.width <= target.rect.right and source.rect.right >= target.rect.left - pet.width
 
     def _horizontal_gap(self, source: Surface, target: Surface) -> float:
         if source.rect.overlaps_x(target.rect):
@@ -800,6 +804,30 @@ class PathFinder:
         if source.rect.right < target.rect.left:
             return target.rect.left - source.rect.right
         return source.rect.left - target.rect.right
+
+    def _anchor_interval(self, surface: Surface, pet: Pet) -> tuple[float, float]:
+        if surface.is_horizontal:
+            return surface.rect.left - pet.width / 2, surface.rect.right - pet.width / 2
+        return surface.rect.top, surface.rect.bottom
+
+    def _closest_values_between_intervals(
+        self,
+        source_min: float,
+        source_max: float,
+        target_min: float,
+        target_max: float,
+    ) -> tuple[float, float]:
+        overlap_min = max(source_min, target_min)
+        overlap_max = min(source_max, target_max)
+        if overlap_min <= overlap_max:
+            value = (overlap_min + overlap_max) / 2
+            return value, value
+        if source_max < target_min:
+            return source_max, target_min
+        return source_min, target_max
+
+    def _clamp_value(self, value: float, minimum: float, maximum: float) -> float:
+        return min(max(value, minimum), maximum)
 
     def _clamp_anchor(self, surface: Surface, anchor_t: float, pet: Pet) -> float:
         if surface.is_horizontal:

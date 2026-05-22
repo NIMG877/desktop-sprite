@@ -3,7 +3,6 @@ from __future__ import annotations
 import math
 
 from desktop_sprite.core.pathfinding import PathAction, PathEdge
-from desktop_sprite.models.platform import PlatformType
 from desktop_sprite.models.state import Facing, PetState
 
 
@@ -23,13 +22,13 @@ class PathExecutor:
             controller.path_plan = None
             return False
 
-        if controller.pet.support_platform_id == edge.to_platform_id and not (
-            edge.action == PathAction.WALK and edge.from_platform_id == edge.to_platform_id
-        ):
+        if controller.pet.support_platform_id == edge.to_platform_id and edge.action != PathAction.MOVE:
             controller.path_plan.advance()
             if controller.path_plan.is_complete:
-                controller._finish_path_plan()
-            return True
+                target = controller.snapshot.platform_by_id(edge.to_platform_id)
+                controller._finish_path_plan(finish_climb=bool(target and target.walkable))
+                return True
+            return self.execute_path_plan()
 
         if controller.pet.support_platform_id != edge.from_platform_id:
             controller.path_plan = None
@@ -42,37 +41,38 @@ class PathExecutor:
             return True
 
         if edge.action == PathAction.MOVE:
-            if self.walk_toward_x(edge.approach_x):
-                target = controller.snapshot.platform_by_id(edge.to_platform_id)
-                source = controller.snapshot.platform_by_id(edge.from_platform_id)
-                if target is None or source is None:
-                    controller.path_plan = None
-                    return True
-                if target.rect.top > source.rect.top + controller.config.physics.edge_snap_distance:
-                    controller.pet.support_platform_id = None
-                    controller._transition(PetState.FALL)
-                else:
-                    controller.pet.support_platform_id = edge.to_platform_id
-                    controller.path_plan.advance()
-                    if controller.path_plan.is_complete:
-                        controller._finish_path_plan()
+            if self.execute_move_edge(edge):
+                controller.path_plan.advance()
+                if controller.path_plan.is_complete:
+                    controller._finish_path_plan()
             return True
 
         if edge.action == PathAction.FALL:
-            if self.walk_toward_x(edge.approach_x):
+            source = controller.snapshot.platform_by_id(edge.from_platform_id)
+            if source is None:
+                controller.path_plan = None
+                return False
+            if self.move_along_surface(source, edge.target_t):
                 controller.pet.support_platform_id = None
                 controller.pet.target_platform_id = edge.to_platform_id
                 controller._transition(PetState.FALL)
             return True
 
         if edge.action == PathAction.JUMP:
-            if self.walk_toward_x(edge.approach_x):
+            source = controller.snapshot.platform_by_id(edge.from_platform_id)
+            if source is None:
+                controller.path_plan = None
+                return False
+            if self.move_along_surface(source, edge.target_t):
                 self.start_jump_toward_platform(edge)
             return True
 
         return False
 
     def walk_toward_x(self, target_x: float) -> bool:
+        support = self.controller.snapshot.platform_by_id(self.controller.pet.support_platform_id)
+        if support is not None and support.walkable:
+            return self.move_along_surface(support, target_x)
         controller = self.controller
         distance = target_x - controller.pet.position.x
         passed_target = (controller.pet.velocity.x > 0 and controller.pet.position.x >= target_x) or (
@@ -87,6 +87,64 @@ class PathExecutor:
         controller.pet.facing = Facing.RIGHT if direction > 0 else Facing.LEFT
         controller._transition(PetState.WALK)
         return False
+
+    def move_along_surface(self, surface, target_t: float) -> bool:
+        if surface.climbable:
+            return self._move_along_axis(
+                target_t - self.controller.pet.height,
+                axis="y",
+                speed=self.controller.config.physics.climb_speed,
+                state=PetState.CLIMB,
+                surface_id=surface.id,
+            )
+        return self._move_along_axis(
+            target_t,
+            axis="x",
+            speed=self.controller.config.physics.walk_speed,
+            state=PetState.WALK,
+            surface_id=surface.id,
+        )
+
+    def _move_along_axis(self, target_value: float, *, axis: str, speed: float, state: PetState, surface_id: str) -> bool:
+        controller = self.controller
+        current = controller.pet.position.y if axis == "y" else controller.pet.position.x
+        velocity = controller.pet.velocity.y if axis == "y" else controller.pet.velocity.x
+        distance = target_value - current
+        passed_target = (velocity > 0 and current >= target_value) or (
+            velocity < 0 and current <= target_value
+        )
+        if abs(distance) <= controller.WALK_TARGET_ARRIVAL_DISTANCE or passed_target:
+            if axis == "y":
+                controller.pet.position.y = target_value
+                controller.pet.velocity.y = 0.0
+            else:
+                controller.pet.position.x = target_value
+                controller.pet.velocity.x = 0.0
+            return True
+        direction = 1 if distance > 0 else -1
+        if axis == "y":
+            controller.pet.velocity.x = 0.0
+            controller.pet.velocity.y = direction * speed
+            controller.pet.support_platform_id = surface_id
+            controller.pet.target_platform_id = surface_id
+        else:
+            controller.pet.velocity.x = direction * speed
+            controller.pet.velocity.y = 0.0
+            controller.pet.facing = Facing.RIGHT if direction > 0 else Facing.LEFT
+        controller._transition(state)
+        return False
+
+    def execute_move_edge(self, edge: PathEdge) -> bool:
+        controller = self.controller
+        target = controller.snapshot.platform_by_id(edge.to_platform_id)
+        if target is None:
+            controller.path_plan = None
+            return True
+        reached = self.move_along_surface(target, edge.target_t)
+        if reached:
+            controller.pet.support_platform_id = target.id
+            controller.pet.target_platform_id = target.id if target.climbable else None
+        return reached
 
     def start_jump_toward_platform(self, edge: PathEdge) -> None:
         controller = self.controller
@@ -120,18 +178,30 @@ class PathExecutor:
         target = controller.snapshot.platform_by_id(edge.to_platform_id)
         if source is None or target is None:
             return False
-        if edge.side_platform_id is not None:
-            return self.execute_climb_edge(edge)
-
-        if source.walkable and target.walkable:
-            if self.walk_toward_x(edge.approach_x):
-                controller.pet.support_platform_id = target.id
-                controller.path_plan.advance()
-                if controller.path_plan.is_complete:
-                    controller._finish_path_plan()
-            return True
-
-        return False
+        if target.climbable:
+            target_x = edge.land_x if edge.land_x is not None else target.rect.center_x - controller.pet.width / 2
+            target_y = edge.land_y if edge.land_y is not None else controller.pet.position.y
+            controller.pet.position.x = target_x
+            controller.pet.position.y = target_y
+            controller.pet.support_platform_id = target.id
+            controller.pet.target_platform_id = target.id
+            controller.pet.velocity.x = 0.0
+            controller.pet.velocity.y = 0.0
+            controller._transition(PetState.CLIMB)
+        else:
+            target_x = edge.land_x if edge.land_x is not None else edge.approach_x
+            target_y = edge.land_y if edge.land_y is not None else target.rect.top - controller.pet.height
+            controller.pet.position.x = target_x
+            controller.pet.position.y = target_y
+            controller.pet.support_platform_id = target.id
+            controller.pet.target_platform_id = None
+            controller.pet.velocity.x = 0.0
+            controller.pet.velocity.y = 0.0
+            controller._transition(PetState.WALK)
+        controller.path_plan.advance()
+        if controller.path_plan.is_complete:
+            controller._finish_path_plan(finish_climb=source.climbable or target.climbable)
+        return True
 
     def compute_jump_velocity_to(self, target_x: float, target_y: float) -> tuple[float, float]:
         controller = self.controller
@@ -154,33 +224,3 @@ class PathExecutor:
         vx = dx / max(t, 1e-3)
         return vx, vy
 
-    def execute_climb_edge(self, edge: PathEdge) -> bool:
-        controller = self.controller
-        side = controller.snapshot.platform_by_id(edge.side_platform_id)
-        source = controller.snapshot.platform_by_id(edge.from_platform_id)
-        if side is None or source is None or not side.climbable:
-            return False
-
-        launch_x = edge.approach_x
-        distance = launch_x - controller.pet.position.x
-        if abs(distance) > controller.config.physics.edge_snap_distance:
-            direction = 1 if distance > 0 else -1
-            controller.pet.velocity.x = direction * controller.config.physics.walk_speed
-            controller.pet.facing = Facing.RIGHT if direction > 0 else Facing.LEFT
-            controller._transition(PetState.WALK)
-            return True
-
-        controller.pet.position.x = launch_x
-        controller.pet.velocity.x = 0.0
-        controller.pet.target_platform_id = side.id
-        controller.pet.target_window_id = side.source_id
-        if source.rect.top - side.rect.bottom > controller.config.physics.edge_snap_distance:
-            side_align_x = side.rect.center_x - controller.pet.width / 2
-            controller._start_jump_toward_climb_side(side, side_align_x - controller.pet.position.x)
-            return True
-
-        controller.pet.position.x = side.rect.center_x - controller.pet.width / 2
-        controller.pet.facing = Facing.RIGHT if side.type == PlatformType.WINDOW_LEFT else Facing.LEFT
-        controller.pet.support_platform_id = None
-        controller._transition(PetState.CLIMB)
-        return True

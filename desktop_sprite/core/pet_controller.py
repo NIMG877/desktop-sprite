@@ -146,9 +146,9 @@ class PetController:
             return
 
         if self.pet.state == PetState.CLIMB:
-            if self._advance_completed_climb_edge():
-                return
             self._snap_to_climb_side()
+            if self._execute_path_plan():
+                return
             return
 
         self._advance_path_if_reached()
@@ -178,7 +178,7 @@ class PetController:
         if edge is None:
             self.path_plan = None
             return
-        if edge.action == PathAction.WALK and edge.from_platform_id == edge.to_platform_id:
+        if edge.action == PathAction.MOVE and edge.from_platform_id == edge.to_platform_id:
             return
         if self.pet.support_platform_id != edge.to_platform_id:
             return
@@ -213,27 +213,10 @@ class PetController:
             return False
         if edge.side_platform_id and self.snapshot.platform_by_id(edge.side_platform_id) is None:
             return False
-        if edge.action == PathAction.CLIMB:
-            side = self.snapshot.platform_by_id(edge.side_platform_id)
-            return bool(side and side.climbable and self._top_platform_for_side(side) is not None)
-        return True
-
-    def _advance_completed_climb_edge(self) -> bool:
-        edge = self.path_plan.current_edge if self.path_plan else None
-        if edge is None or edge.action != PathAction.CLIMB:
-            return False
-        if self.pet.support_platform_id != edge.to_platform_id or self.pet.target_platform_id is not None:
-            return False
-
-        self.path_plan.advance()
-        if self.path_plan.is_complete:
-            self._finish_path_plan(finish_climb=True)
-            return True
-        self._execute_path_plan()
         return True
 
     def _execute_climb_edge(self, edge: PathEdge) -> bool:
-        return self._executor().execute_climb_edge(edge)
+        return self._executor().execute_transform_edge(edge)
 
     def _executor(self) -> PathExecutor:
         executor = getattr(self, "path_executor", None)
@@ -310,8 +293,16 @@ class PetController:
             return
 
         target_x = side.rect.center_x - self.pet.width / 2
+        target_bottom = side.rect.bottom
+        if edge and edge.action == PathAction.JUMP and edge.to_platform_id == side.id:
+            if edge.land_x is not None:
+                target_x = edge.land_x
+            if edge.land_t is not None:
+                target_bottom = edge.land_t
+            elif edge.land_y is not None:
+                target_bottom = edge.land_y + self.pet.height
         horizontal_close = abs(target_x - self.pet.position.x) <= self.config.physics.edge_snap_distance * 2
-        bottom_gap = self.pet.bottom - side.rect.bottom
+        bottom_gap = self.pet.bottom - target_bottom
         can_touch_now = abs(bottom_gap) <= self.config.physics.edge_snap_distance * 3
         if not horizontal_close or not can_touch_now:
             return

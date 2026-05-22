@@ -50,8 +50,8 @@ class PlatformMapper:
     def _window_platforms(self, window: WindowInfo, screen_rect: Rect) -> list[Platform]:
         rect = window.rect
         top_rect = Rect(rect.left, rect.top, rect.right, rect.top + 8)
-        left_rect = Rect(rect.left - 8, rect.top, rect.left + 6, rect.bottom)
-        right_rect = Rect(rect.right - 6, rect.top, rect.right + 8, rect.bottom)
+        left_rect = Rect(rect.left, rect.top, rect.left + 6, rect.bottom)
+        right_rect = Rect(rect.right - 6, rect.top, rect.right, rect.bottom)
         top_walkable = (rect.top - screen_rect.top) >= self.pet_height
 
         return [

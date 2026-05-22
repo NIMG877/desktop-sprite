@@ -113,7 +113,7 @@ def test_drop_edge_is_created_when_vertical_ray_hits_platform():
     edges = [edge for edge in graph["window:1:top"] if edge.to_platform_id == "window:2:top"]
     assert edges
     assert all(edge.action == PathAction.WALK for edge in edges)
-    assert any(edge.target_x == source_top.rect.right - 7.0 for edge in edges)
+    assert any(edge.target_x == source_top.rect.right for edge in edges)
 
 
 def test_low_window_path_climbs_from_ground_to_window_top():

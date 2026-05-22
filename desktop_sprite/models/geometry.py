@@ -42,11 +42,11 @@ class Rect:
     def moved_by(self, dx: float, dy: float) -> "Rect":
         return Rect(self.left + dx, self.top + dy, self.right + dx, self.bottom + dy)
 
-    def overlaps_x(self, other: "Rect", padding: float = 0.0) -> bool:
-        return self.right > other.left + padding and self.left < other.right - padding
+    def overlaps_x(self, other: "Rect") -> bool:
+        return self.right > other.left and self.left < other.right
 
-    def overlaps_y(self, other: "Rect", padding: float = 0.0) -> bool:
-        return self.bottom > other.top + padding and self.top < other.bottom - padding
+    def overlaps_y(self, other: "Rect") -> bool:
+        return self.bottom > other.top and self.top < other.bottom
 
     def intersects(self, other: "Rect") -> bool:
         return self.overlaps_x(other) and self.overlaps_y(other)

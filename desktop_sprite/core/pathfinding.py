@@ -208,7 +208,7 @@ class PathFinder:
             for side in ("left", "right"):
                 if not self._is_drop_side_valid(source, side, snapshot, pet):
                     continue
-                drop_x = source.rect.left - pet.width + 7.0 if side == "left" else source.rect.right - 7.0
+                drop_x = source.rect.left - pet.width if side == "left" else source.rect.right
                 landing = self._first_platform_hit_below(source, drop_x, walkable, pet)
                 if landing is None:
                     continue
@@ -321,7 +321,8 @@ class PathFinder:
         side: str,
         physics: PhysicsConfig,
     ) -> NavNode | None:
-        clamped = self._clamp_jump_x(platform, x, pet)
+        # clamped = self._clamp_jump_x(platform, x, pet)
+        clamped=x
         node_id = f"{platform.id}:drop_target:{source_platform_id}:{side}:{round(clamped,1)}"
         node = mesh.nodes.get(node_id)
         if node is None:
@@ -506,7 +507,7 @@ class PathFinder:
             for target in platforms
             if target.id != source.id
             and target.rect.top > source.rect.top
-            and target.rect.left <= drop_x <= target.rect.right - pet.width
+            and target.rect.left-pet.width <= drop_x <= target.rect.right
         ]
         if not candidates:
             return None

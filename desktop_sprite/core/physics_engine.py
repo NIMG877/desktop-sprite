@@ -45,7 +45,7 @@ class PhysicsEngine:
         dy = current.rect.top - previous.rect.top
         if dy >= 0:
             return
-        if not pet.rect.overlaps_x(current.rect, padding=8):
+        if not pet.rect.overlaps_x(current.rect):
             return
 
         pet.position.y += dy
@@ -127,7 +127,7 @@ class PhysicsEngine:
         candidates = [
             platform
             for platform in snapshot.platforms
-            if platform.walkable and old_bottom <= platform.rect.top <= pet.bottom and pet.rect.overlaps_x(platform.rect, padding=8)
+            if platform.walkable and old_bottom <= platform.rect.top <= pet.bottom and pet.rect.overlaps_x(platform.rect)
         ]
         if not candidates:
             if pet.support_platform_id and snapshot.platform_by_id(pet.support_platform_id) is None:
@@ -172,7 +172,7 @@ class PhysicsEngine:
 
         vertical_tolerance = 3.0
         is_on_top = abs(pet.bottom - platform.rect.top) <= vertical_tolerance
-        overlaps = pet.rect.overlaps_x(platform.rect, padding=8)
+        overlaps = pet.rect.overlaps_x(platform.rect)
         if is_on_top and overlaps:
             return
 

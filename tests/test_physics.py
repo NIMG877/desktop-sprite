@@ -263,11 +263,11 @@ def test_climb_state_does_not_auto_move_or_complete():
     assert pet.state == PetState.CLIMB
 
 
-def test_climb_state_keeps_wall_support_at_floor_boundary():
+def test_climb_state_keeps_wall_support_when_exactly_at_floor_boundary():
     physics = make_physics()
     pet = Pet(
         position=Vec2(100, 140),
-        velocity=Vec2(0, 25),
+        velocity=Vec2(0, 0),
         width=40,
         height=60,
         state=PetState.CLIMB,

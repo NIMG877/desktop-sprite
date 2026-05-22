@@ -186,19 +186,8 @@ class PhysicsEngine:
 
     def _resolve_floor_boundary(self, pet: Pet, snapshot: EnvironmentSnapshot, events: MotionEvents) -> None:
         floor_y = snapshot.work_area_rect.bottom
-        if pet.bottom < floor_y:
+        if pet.bottom <= floor_y:
             return
-
-        if pet.state == PetState.CLIMB:
-            side = snapshot.platform_by_id(pet.support_platform_id or pet.target_platform_id)
-            if side is not None and side.climbable:
-                pet.position.y = floor_y - pet.height
-                if pet.velocity.y > 0:
-                    pet.velocity.y = 0.0
-                pet.support_platform_id = side.id
-                pet.target_platform_id = side.id
-                events.clamped_to_ground = True
-                return
 
         pet.position.y = floor_y - pet.height
         pet.velocity.y = 0.0

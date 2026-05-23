@@ -1,6 +1,6 @@
 import pytest
 
-from desktop_sprite.core.pathfinding import PathAction, PathFinder, Surface, SurfaceOrientation, TraversalAction
+from desktop_sprite.core.pathfinding import PathFinder, Surface, SurfaceOrientation, TraversalAction
 from desktop_sprite.environment.environment_snapshot import EnvironmentSnapshot
 from desktop_sprite.models.geometry import Rect, Vec2
 from desktop_sprite.models.platform import Platform, PlatformType
@@ -63,31 +63,36 @@ def test_same_level_overlapping_platforms_generate_transform_not_jump():
     taskbar = platform("taskbar:main", PlatformType.TASKBAR, Rect.from_xywh(0, 650, 900, 4))
     snapshot = make_snapshot([ground(), taskbar])
 
-    graph = PathFinder().build_navigation_graph(pet, snapshot, make_physics())
+    graph = PathFinder().build_surface_graph(pet, snapshot, make_physics())
 
-    edge = next(edge for edge in graph["taskbar:main"] if edge.to_platform_id == "ground:work_area")
-    assert edge.action == PathAction.TRANSFORM
+    edge = next(
+        edge
+        for edge in graph.edges
+        if graph.nodes[edge.from_node_id].surface_id == "taskbar:main"
+        and graph.nodes[edge.to_node_id].surface_id == "ground:work_area"
+    )
+    assert edge.action == TraversalAction.TRANSFORM
 
 
 def test_path_to_point_on_current_platform_generates_walk_edge():
     pet = make_pet()
     snapshot = make_snapshot([ground()])
 
-    plan = PathFinder().find_path_to_point(
+    plan = PathFinder().find_path_to_surface_point(
         pet=pet,
         snapshot=snapshot,
-        target_platform_id="ground:work_area",
-        target_x=300,
+        target_surface_id="ground:work_area",
+        target_anchor_t=300,
         physics=make_physics(),
     )
 
     assert plan is not None
-    assert plan.target_platform_id == "ground:work_area"
-    assert plan.target_x == 300
-    assert len(plan.edges) == 1
-    assert plan.edges[0].action == PathAction.WALK
-    assert plan.edges[0].from_platform_id == "ground:work_area"
-    assert plan.edges[0].to_platform_id == "ground:work_area"
+    assert plan.target_surface_id == "ground:work_area"
+    assert plan.target_anchor_t == 300
+    assert len(plan.steps) == 1
+    assert plan.steps[0].action == TraversalAction.MOVE
+    assert plan.steps[0].from_surface_id == "ground:work_area"
+    assert plan.steps[0].to_surface_id == "ground:work_area"
 
 
 def test_lower_platform_transfer_with_vertical_overlap_does_not_generate_jump():
@@ -97,10 +102,15 @@ def test_lower_platform_transfer_with_vertical_overlap_does_not_generate_jump():
     lower_top = platform("window:2:top", PlatformType.WINDOW_TOP, Rect(170, 520, 310, 528), source_id=2)
     snapshot = make_snapshot([ground(), source_top, lower_top])
 
-    graph = PathFinder().build_navigation_graph(pet, snapshot, make_physics())
+    graph = PathFinder().build_surface_graph(pet, snapshot, make_physics())
 
-    edges = [edge for edge in graph["window:1:top"] if edge.to_platform_id == "window:2:top"]
-    assert not any(edge.action == PathAction.JUMP for edge in edges)
+    edges = [
+        edge
+        for edge in graph.edges
+        if graph.nodes[edge.from_node_id].surface_id == "window:1:top"
+        and graph.nodes[edge.to_node_id].surface_id == "window:2:top"
+    ]
+    assert not any(edge.action == TraversalAction.JUMP for edge in edges)
 
 
 def test_drop_edge_is_created_when_vertical_ray_hits_platform():
@@ -110,12 +120,17 @@ def test_drop_edge_is_created_when_vertical_ray_hits_platform():
     lower_top = platform("window:2:top", PlatformType.WINDOW_TOP, Rect(260, 520, 420, 528), source_id=2)
     snapshot = make_snapshot([ground(), source_top, lower_top])
 
-    graph = PathFinder().build_navigation_graph(pet, snapshot, make_physics())
+    graph = PathFinder().build_surface_graph(pet, snapshot, make_physics())
 
-    edges = [edge for edge in graph["window:1:top"] if edge.to_platform_id == "window:2:top"]
+    edges = [
+        edge
+        for edge in graph.edges
+        if graph.nodes[edge.from_node_id].surface_id == "window:1:top"
+        and graph.nodes[edge.to_node_id].surface_id == "window:2:top"
+    ]
     assert edges
-    assert any(edge.action == PathAction.FALL for edge in edges)
-    assert any(edge.target_x == source_top.rect.right for edge in edges)
+    assert any(edge.action == TraversalAction.FALL for edge in edges)
+    assert any(graph.nodes[edge.from_node_id].anchor_t == source_top.rect.right for edge in edges)
 
 
 def test_low_window_path_climbs_from_ground_to_window_top():
@@ -125,8 +140,8 @@ def test_low_window_path_climbs_from_ground_to_window_top():
     plan = PathFinder().find_path(pet, snapshot, target_window_id=1, physics=make_physics())
 
     assert plan is not None
-    assert any(edge.action == PathAction.CLIMB for edge in plan.edges)
-    assert plan.edges[-1].to_platform_id == "window:1:top"
+    assert any(step.action == TraversalAction.TRANSFORM for step in plan.steps)
+    assert plan.steps[-1].to_surface_id == "window:1:top"
 
 
 def test_high_window_can_be_reached_through_lower_window():
@@ -142,9 +157,9 @@ def test_high_window_can_be_reached_through_lower_window():
     plan = PathFinder().find_path(pet, snapshot, target_window_id=2, physics=make_physics())
 
     assert plan is not None
-    assert len(plan.edges) >= 2
-    assert any(edge.to_platform_id == "window:1:top" for edge in plan.edges)
-    assert plan.edges[-1].to_platform_id == "window:2:top"
+    assert len(plan.steps) >= 2
+    assert any(step.to_surface_id == "window:1:top" for step in plan.steps)
+    assert plan.steps[-1].to_surface_id == "window:2:top"
 
 
 def test_gap_between_platforms_generates_jump_edge_when_in_range():
@@ -155,7 +170,7 @@ def test_gap_between_platforms_generates_jump_edge_when_in_range():
     plan = PathFinder().find_path(pet, snapshot, target_window_id=2, physics=make_physics())
 
     assert plan is not None
-    assert any(edge.action == PathAction.JUMP for edge in plan.edges)
+    assert any(step.action == TraversalAction.JUMP for step in plan.steps)
 
 
 def test_jump_to_platform_on_right_targets_near_edge():
@@ -168,8 +183,9 @@ def test_jump_to_platform_on_right_targets_near_edge():
     plan = PathFinder().find_path(pet, snapshot, target_window_id=2, physics=make_physics())
 
     assert plan is not None
-    jump = next(edge for edge in plan.edges if edge.action == PathAction.JUMP)
-    assert jump.land_x == target_top.rect.left - pet.width / 2
+    jump = next(step for step in plan.steps if step.action == TraversalAction.JUMP)
+    assert jump.land_point is not None
+    assert jump.land_point[0] == target_top.rect.left - pet.width / 2
 
 
 def test_gap_beyond_jump_distance_has_no_path():
@@ -307,11 +323,12 @@ def test_ground_jump_to_low_vertical_surface_keeps_wall_bottom_landing():
     plan = PathFinder().find_path(pet, snapshot, target_window_id=1, physics=make_physics())
 
     assert plan is not None
-    jump = next(edge for edge in plan.edges if edge.action == PathAction.JUMP and edge.to_platform_id == "window:1:left")
+    jump = next(step for step in plan.steps if step.action == TraversalAction.JUMP and step.to_surface_id == "window:1:left")
     side = snapshot.platform_by_id("window:1:left")
     assert side is not None
     assert jump.land_t == side.rect.bottom
-    assert jump.land_x == side.rect.center_x - pet.width / 2
+    assert jump.land_point is not None
+    assert jump.land_point[0] == side.rect.center_x - pet.width / 2
 
 
 def test_jump_to_vertical_surface_chooses_nearest_wall_contact():

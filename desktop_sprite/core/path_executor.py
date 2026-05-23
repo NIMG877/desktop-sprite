@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 
-from desktop_sprite.core.pathfinding import PathAction, PathEdge
+from desktop_sprite.core.pathfinding import PathStep, TraversalAction
 from desktop_sprite.models.state import Facing, PetState
 
 
@@ -15,56 +15,56 @@ class PathExecutor:
         if controller.path_plan is None or controller.path_plan.is_complete:
             return False
 
-        edge = controller.path_plan.current_edge
-        if edge is None:
+        step = controller.path_plan.current_step
+        if step is None:
             return False
-        if not controller._is_path_edge_present(edge):
+        if not controller._is_path_step_present(step):
             controller.path_plan = None
             return False
 
-        if controller.pet.support_platform_id == edge.to_platform_id and edge.action != PathAction.MOVE:
+        if controller.pet.support_platform_id == step.to_surface_id and step.action != TraversalAction.MOVE:
             controller.path_plan.advance()
             if controller.path_plan.is_complete:
-                target = controller.snapshot.platform_by_id(edge.to_platform_id)
+                target = controller.snapshot.platform_by_id(step.to_surface_id)
                 controller._finish_path_plan(finish_climb=bool(target and target.walkable))
                 return True
             return self.execute_path_plan()
 
-        if controller.pet.support_platform_id != edge.from_platform_id:
+        if controller.pet.support_platform_id != step.from_surface_id:
             controller.path_plan = None
             return False
 
-        if edge.action == PathAction.TRANSFORM:
-            if not self.execute_transform_edge(edge):
+        if step.action == TraversalAction.TRANSFORM:
+            if not self.execute_transform_step(step):
                 controller.path_plan = None
                 return False
             return True
 
-        if edge.action == PathAction.MOVE:
-            if self.execute_move_edge(edge):
+        if step.action == TraversalAction.MOVE:
+            if self.execute_move_step(step):
                 controller.path_plan.advance()
                 if controller.path_plan.is_complete:
                     controller._finish_path_plan()
             return True
 
-        if edge.action == PathAction.FALL:
-            source = controller.snapshot.platform_by_id(edge.from_platform_id)
+        if step.action == TraversalAction.FALL:
+            source = controller.snapshot.platform_by_id(step.from_surface_id)
             if source is None:
                 controller.path_plan = None
                 return False
-            if self.move_along_surface(source, edge.target_t):
+            if self.move_along_surface(source, step.target_t):
                 controller.pet.support_platform_id = None
-                controller.pet.target_platform_id = edge.to_platform_id
+                controller.pet.target_platform_id = step.to_surface_id
                 controller._transition(PetState.FALL)
             return True
 
-        if edge.action == PathAction.JUMP:
-            source = controller.snapshot.platform_by_id(edge.from_platform_id)
+        if step.action == TraversalAction.JUMP:
+            source = controller.snapshot.platform_by_id(step.from_surface_id)
             if source is None:
                 controller.path_plan = None
                 return False
-            if self.move_along_surface(source, edge.target_t):
-                self.start_jump_toward_platform(edge)
+            if self.move_along_surface(source, step.target_t):
+                self.start_jump_toward_surface(step)
             return True
 
         return False
@@ -134,37 +134,40 @@ class PathExecutor:
         controller._transition(state)
         return False
 
-    def execute_move_edge(self, edge: PathEdge) -> bool:
+    def execute_move_step(self, step: PathStep) -> bool:
         controller = self.controller
-        target = controller.snapshot.platform_by_id(edge.to_platform_id)
+        target = controller.snapshot.platform_by_id(step.to_surface_id)
         if target is None:
             controller.path_plan = None
             return True
-        reached = self.move_along_surface(target, edge.target_t)
+        reached = self.move_along_surface(target, step.target_t)
         if reached:
             controller.pet.support_platform_id = target.id
             controller.pet.target_platform_id = target.id if target.climbable else None
         return reached
 
-    def start_jump_toward_platform(self, edge: PathEdge) -> None:
+    def start_jump_toward_surface(self, step: PathStep) -> None:
         controller = self.controller
-        target = controller.snapshot.platform_by_id(edge.to_platform_id)
+        target = controller.snapshot.platform_by_id(step.to_surface_id)
         if target is None:
             controller.path_plan = None
             return
-        raw_land_x = edge.land_x if edge.land_x is not None else edge.approach_x
+        land_point = step.land_point or step.approach_point
+        if land_point is None:
+            controller.path_plan = None
+            return
         if target.climbable:
-            target_x = raw_land_x
-            target_y = edge.land_y if edge.land_y is not None else target.rect.bottom - controller.pet.height
+            target_x, target_y = land_point
         else:
+            raw_land_x, raw_land_y = land_point
             target_x = min(
                 max(raw_land_x, target.rect.left - controller.pet.width / 2),
                 target.rect.right - controller.pet.width / 2,
             )
-            target_y = edge.land_y if edge.land_y is not None else target.rect.top - controller.pet.height
+            target_y = raw_land_y
         vx, vy = self.compute_jump_velocity_to(target_x, target_y)
         direction = 0 if abs(vx) <= 1e-6 else (1 if vx > 0 else -1)
-        controller.pet.target_platform_id = edge.to_platform_id
+        controller.pet.target_platform_id = step.to_surface_id
         controller.pet.support_platform_id = None
         controller.pet.velocity.x = vx
         controller.pet.velocity.y = vy
@@ -172,15 +175,18 @@ class PathExecutor:
             controller.pet.facing = Facing.RIGHT if direction > 0 else Facing.LEFT
         controller._transition(PetState.JUMP)
 
-    def execute_transform_edge(self, edge: PathEdge) -> bool:
+    def execute_transform_step(self, step: PathStep) -> bool:
         controller = self.controller
-        source = controller.snapshot.platform_by_id(edge.from_platform_id)
-        target = controller.snapshot.platform_by_id(edge.to_platform_id)
+        source = controller.snapshot.platform_by_id(step.from_surface_id)
+        target = controller.snapshot.platform_by_id(step.to_surface_id)
         if source is None or target is None:
             return False
+        land_point = step.land_point
         if target.climbable:
-            target_x = edge.land_x if edge.land_x is not None else target.rect.center_x - controller.pet.width / 2
-            target_y = edge.land_y if edge.land_y is not None else controller.pet.position.y
+            target_x, target_y = land_point if land_point is not None else (
+                target.rect.center_x - controller.pet.width / 2,
+                controller.pet.position.y,
+            )
             controller.pet.position.x = target_x
             controller.pet.position.y = target_y
             controller.pet.support_platform_id = target.id
@@ -189,8 +195,10 @@ class PathExecutor:
             controller.pet.velocity.y = 0.0
             controller._transition(PetState.CLIMB)
         else:
-            target_x = edge.land_x if edge.land_x is not None else edge.approach_x
-            target_y = edge.land_y if edge.land_y is not None else target.rect.top - controller.pet.height
+            target_x, target_y = land_point if land_point is not None else (
+                step.target_t,
+                target.rect.top - controller.pet.height,
+            )
             controller.pet.position.x = target_x
             controller.pet.position.y = target_y
             controller.pet.support_platform_id = target.id

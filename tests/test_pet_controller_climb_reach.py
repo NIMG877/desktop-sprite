@@ -1,5 +1,5 @@
 from desktop_sprite.core.behavior_state_machine import BehaviorStateMachine
-from desktop_sprite.core.pathfinding import PathAction, PathEdge, PathFinder, PathPlan
+from desktop_sprite.core.pathfinding import PathFinder, PathPlan, PathStep, TraversalAction
 from desktop_sprite.core.pet_controller import PetController
 from desktop_sprite.environment.environment_snapshot import EnvironmentSnapshot
 from desktop_sprite.models.geometry import Rect, Vec2
@@ -175,20 +175,14 @@ def test_controller_executes_same_platform_walk_plan():
     controller, _side = make_controller(window_top_y=120)
     controller.pet.position.x = 100
     controller.path_plan = PathPlan(
-        edges=[
-            PathEdge(
-                action=PathAction.WALK,
-                from_platform_id="ground:work_area",
-                to_platform_id="ground:work_area",
-                target_x=140,
-                cost=1,
-            )
+        steps=[
+            PathStep(TraversalAction.MOVE, "ground:work_area", "ground:work_area", 140, 1)
         ],
         current_index=0,
         target_window_id=None,
         snapshot_timestamp=1.0,
-        target_platform_id="ground:work_area",
-        target_x=140,
+        target_surface_id="ground:work_area",
+        target_anchor_t=140,
     )
 
     handled = controller._execute_path_plan()
@@ -208,14 +202,8 @@ def test_controller_executes_vertical_move_plan():
     controller.pet.support_platform_id = side.id
     controller.pet.target_platform_id = side.id
     controller.path_plan = PathPlan(
-        edges=[
-            PathEdge(
-                action=PathAction.MOVE,
-                from_platform_id=side.id,
-                to_platform_id=side.id,
-                target_t=side.rect.top,
-                cost=1,
-            )
+        steps=[
+            PathStep(TraversalAction.MOVE, side.id, side.id, side.rect.top, 1)
         ],
         current_index=0,
         target_window_id=side.source_id,
@@ -235,20 +223,14 @@ def test_same_platform_walk_plan_is_not_advanced_before_moving():
     controller, _side = make_controller(window_top_y=120)
     controller.pet.position.x = 100
     controller.path_plan = PathPlan(
-        edges=[
-            PathEdge(
-                action=PathAction.WALK,
-                from_platform_id="ground:work_area",
-                to_platform_id="ground:work_area",
-                target_x=140,
-                cost=1,
-            )
+        steps=[
+            PathStep(TraversalAction.MOVE, "ground:work_area", "ground:work_area", 140, 1)
         ],
         current_index=0,
         target_window_id=None,
         snapshot_timestamp=1.0,
-        target_platform_id="ground:work_area",
-        target_x=140,
+        target_surface_id="ground:work_area",
+        target_anchor_t=140,
     )
 
     controller._advance_path_if_reached()
@@ -262,14 +244,8 @@ def test_controller_executes_fall_step_from_surface_edge():
     controller, _side = make_controller(window_top_y=120)
     controller.pet.position.x = 100
     controller.path_plan = PathPlan(
-        edges=[
-            PathEdge(
-                action=PathAction.FALL,
-                from_platform_id="ground:work_area",
-                to_platform_id="window:123:top",
-                target_x=100,
-                cost=1,
-            )
+        steps=[
+            PathStep(TraversalAction.FALL, "ground:work_area", "window:123:top", 100, 1)
         ],
         current_index=0,
         target_window_id=123,
@@ -293,11 +269,11 @@ def test_random_wander_prefers_current_platform_via_path_plan(monkeypatch):
     controller._start_random_wander(support)
 
     assert controller.path_plan is not None
-    assert controller.path_plan.target_platform_id == support.id
-    assert controller.path_plan.current_edge is not None
-    assert controller.path_plan.current_edge.action == PathAction.WALK
-    assert controller.path_plan.current_edge.from_platform_id == support.id
-    assert controller.path_plan.current_edge.to_platform_id == support.id
+    assert controller.path_plan.target_surface_id == support.id
+    assert controller.path_plan.current_step is not None
+    assert controller.path_plan.current_step.action == TraversalAction.MOVE
+    assert controller.path_plan.current_step.from_surface_id == support.id
+    assert controller.path_plan.current_step.to_surface_id == support.id
 
 
 def window_platforms(hwnd: int, left: float, top: float, right: float, bottom: float) -> list[Platform]:
@@ -335,14 +311,8 @@ def window_platforms(hwnd: int, left: float, top: float, right: float, bottom: f
 def test_controller_clears_path_when_next_platform_disappears():
     controller, _side = make_controller(window_top_y=120)
     controller.path_plan = PathPlan(
-        edges=[
-            PathEdge(
-                action=PathAction.JUMP,
-                from_platform_id="ground:work_area",
-                to_platform_id="missing:platform",
-                target_x=100,
-                cost=1,
-            )
+        steps=[
+            PathStep(TraversalAction.JUMP, "ground:work_area", "missing:platform", 100, 1)
         ],
         current_index=0,
         target_window_id=99,
@@ -357,15 +327,8 @@ def test_controller_clears_path_when_next_platform_disappears():
 def test_dragging_preserves_existing_path_plan_for_debug():
     controller, _side = make_controller(window_top_y=120)
     controller.path_plan = PathPlan(
-        edges=[
-            PathEdge(
-                action=PathAction.CLIMB,
-                from_platform_id="ground:work_area",
-                to_platform_id="window:123:top",
-                target_x=100,
-                cost=1,
-                side_platform_id="window:123:left",
-            )
+        steps=[
+            PathStep(TraversalAction.TRANSFORM, "ground:work_area", "window:123:top", 100, 1, "window:123:left")
         ],
         current_index=0,
         target_window_id=123,
@@ -383,15 +346,8 @@ def test_validate_keeps_active_climb_path_even_when_current_position_no_longer_r
     controller.pet.target_platform_id = side.id
     controller.pet.position.y = -20
     controller.path_plan = PathPlan(
-        edges=[
-            PathEdge(
-                action=PathAction.CLIMB,
-                from_platform_id="ground:work_area",
-                to_platform_id="window:123:top",
-                target_x=side.rect.center_x - controller.pet.width / 2,
-                cost=1,
-                side_platform_id=side.id,
-            )
+        steps=[
+            PathStep(TraversalAction.TRANSFORM, "ground:work_area", "window:123:top", side.rect.center_x - controller.pet.width / 2, 1, side.id)
         ],
         current_index=0,
         target_window_id=123,
@@ -407,15 +363,8 @@ def test_validate_keeps_planned_climb_path_without_rechecking_reachability():
     controller, side = make_controller_with_side(window_top_y=25, window_bottom_y=140)
     controller.pet.state = PetState.WALK
     controller.path_plan = PathPlan(
-        edges=[
-            PathEdge(
-                action=PathAction.CLIMB,
-                from_platform_id="ground:work_area",
-                to_platform_id="window:123:top",
-                target_x=side.rect.center_x - controller.pet.width / 2,
-                cost=1,
-                side_platform_id=side.id,
-            )
+        steps=[
+            PathStep(TraversalAction.TRANSFORM, "ground:work_area", "window:123:top", side.rect.center_x - controller.pet.width / 2, 1, side.id)
         ],
         current_index=0,
         target_window_id=123,
@@ -435,22 +384,9 @@ def test_completed_climb_continues_with_next_path_edge():
     controller.pet.target_platform_id = None
     controller.pet.position.x = side.rect.center_x - controller.pet.width / 2
     controller.path_plan = PathPlan(
-        edges=[
-            PathEdge(
-                action=PathAction.CLIMB,
-                from_platform_id="ground:work_area",
-                to_platform_id="window:123:top",
-                target_x=side.rect.center_x - controller.pet.width / 2,
-                cost=1,
-                side_platform_id=side.id,
-            ),
-            PathEdge(
-                action=PathAction.WALK,
-                from_platform_id="window:123:top",
-                to_platform_id="window:123:top",
-                target_x=controller.pet.position.x + 30,
-                cost=1,
-            ),
+        steps=[
+            PathStep(TraversalAction.TRANSFORM, "ground:work_area", "window:123:top", side.rect.center_x - controller.pet.width / 2, 1, side.id),
+            PathStep(TraversalAction.MOVE, "window:123:top", "window:123:top", controller.pet.position.x + 30, 1),
         ],
         current_index=0,
         target_window_id=123,
@@ -472,15 +408,8 @@ def test_completed_final_climb_finishes_path_on_top_platform():
     controller.pet.support_platform_id = "window:123:top"
     controller.pet.target_platform_id = None
     controller.path_plan = PathPlan(
-        edges=[
-            PathEdge(
-                action=PathAction.CLIMB,
-                from_platform_id="ground:work_area",
-                to_platform_id="window:123:top",
-                target_x=side.rect.center_x - controller.pet.width / 2,
-                cost=1,
-                side_platform_id=side.id,
-            )
+        steps=[
+            PathStep(TraversalAction.TRANSFORM, "ground:work_area", "window:123:top", side.rect.center_x - controller.pet.width / 2, 1, side.id)
         ],
         current_index=0,
         target_window_id=123,
@@ -500,14 +429,8 @@ def test_landing_tick_preserves_existing_path_plan():
     controller.pet.support_platform_id = "window:123:top"
     controller._landed_on_platform_last_tick = True
     controller.path_plan = PathPlan(
-        edges=[
-            PathEdge(
-                action=PathAction.JUMP,
-                from_platform_id="ground:work_area",
-                to_platform_id="window:123:top",
-                target_x=100,
-                cost=1,
-            )
+        steps=[
+            PathStep(TraversalAction.JUMP, "ground:work_area", "window:123:top", 100, 1)
         ],
         current_index=0,
         target_window_id=123,
@@ -528,23 +451,23 @@ def test_jump_grab_uses_planned_wall_contact_point():
     controller.pet.position.x = side.rect.center_x - controller.pet.width / 2
     controller.pet.position.y = side.rect.top - controller.pet.height
     controller.path_plan = PathPlan(
-        edges=[
-            PathEdge(
-                action=PathAction.JUMP,
-                from_platform_id="ground:work_area",
-                to_platform_id=side.id,
-                target_x=controller.pet.position.x,
-                cost=1,
+        steps=[
+            PathStep(
+                TraversalAction.JUMP,
+                "ground:work_area",
+                side.id,
+                controller.pet.position.x,
+                1,
                 land_t=side.rect.top,
                 land_point=(controller.pet.position.x, side.rect.top - controller.pet.height),
             ),
-            PathEdge(
-                action=PathAction.TRANSFORM,
-                from_platform_id=side.id,
-                to_platform_id="window:123:top",
-                target_x=controller.pet.position.x,
-                cost=1,
-                side_platform_id=side.id,
+            PathStep(
+                TraversalAction.TRANSFORM,
+                side.id,
+                "window:123:top",
+                controller.pet.position.x,
+                1,
+                side.id,
             ),
         ],
         current_index=0,

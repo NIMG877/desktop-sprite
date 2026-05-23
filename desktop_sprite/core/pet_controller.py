@@ -6,7 +6,7 @@ import time
 from desktop_sprite.core.animation_player import AnimationPlayer
 from desktop_sprite.core.behavior_state_machine import BehaviorStateMachine
 from desktop_sprite.core.character import CharacterDebugState, CharacterRenderState
-from desktop_sprite.core.pathfinding import PathAction, PathEdge, PathFinder, PathPlan
+from desktop_sprite.core.pathfinding import PathFinder, PathPlan, PathStep, TraversalAction
 from desktop_sprite.core.path_executor import PathExecutor
 from desktop_sprite.core.physics_engine import PhysicsEngine
 from desktop_sprite.core.reachability_policy import ReachabilityPolicy
@@ -134,13 +134,10 @@ class PetController:
             return
 
         if self.pet.state == PetState.JUMP:
-            edge = self.path_plan.current_edge if self.path_plan else None
-            if edge and (
-                edge.action == PathAction.CLIMB
-                or (
-                    edge.action == PathAction.JUMP
-                    and bool((side := self.snapshot.platform_by_id(edge.to_platform_id)) and side.climbable)
-                )
+            step = self.path_plan.current_step if self.path_plan else None
+            if step and (
+                step.action == TraversalAction.JUMP
+                and bool((side := self.snapshot.platform_by_id(step.to_surface_id)) and side.climbable)
             ):
                 self._maybe_grab_climb_side_while_jumping()
             return
@@ -168,19 +165,16 @@ class PetController:
     def _walk_toward_x(self, target_x: float) -> bool:
         return self._executor().walk_toward_x(target_x)
 
-    def _start_jump_toward_platform(self, edge: PathEdge) -> None:
-        self._executor().start_jump_toward_platform(edge)
-
     def _advance_path_if_reached(self) -> None:
         if self.path_plan is None:
             return
-        edge = self.path_plan.current_edge
-        if edge is None:
+        step = self.path_plan.current_step
+        if step is None:
             self.path_plan = None
             return
-        if edge.action == PathAction.MOVE and edge.from_platform_id == edge.to_platform_id:
+        if step.action == TraversalAction.MOVE and step.from_surface_id == step.to_surface_id:
             return
-        if self.pet.support_platform_id != edge.to_platform_id:
+        if self.pet.support_platform_id != step.to_surface_id:
             return
         self.path_plan.advance()
         if self.path_plan.is_complete:
@@ -199,24 +193,21 @@ class PetController:
     def _validate_path_plan(self) -> None:
         if self.path_plan is None:
             return
-        edge = self.path_plan.current_edge
-        if edge is None:
+        step = self.path_plan.current_step
+        if step is None:
             self.path_plan = None
             return
-        if not self._is_path_edge_present(edge):
+        if not self._is_path_step_present(step):
             self.path_plan = None
 
-    def _is_path_edge_present(self, edge: PathEdge) -> bool:
-        if self.snapshot.platform_by_id(edge.from_platform_id) is None:
+    def _is_path_step_present(self, step: PathStep) -> bool:
+        if self.snapshot.platform_by_id(step.from_surface_id) is None:
             return False
-        if self.snapshot.platform_by_id(edge.to_platform_id) is None:
+        if self.snapshot.platform_by_id(step.to_surface_id) is None:
             return False
-        if edge.side_platform_id and self.snapshot.platform_by_id(edge.side_platform_id) is None:
+        if step.contact_surface_id and self.snapshot.platform_by_id(step.contact_surface_id) is None:
             return False
         return True
-
-    def _execute_climb_edge(self, edge: PathEdge) -> bool:
-        return self._executor().execute_transform_edge(edge)
 
     def _executor(self) -> PathExecutor:
         executor = getattr(self, "path_executor", None)
@@ -280,12 +271,12 @@ class PetController:
         self._transition(PetState.JUMP)
 
     def _maybe_grab_climb_side_while_jumping(self) -> None:
-        edge = self.path_plan.current_edge if self.path_plan else None
+        step = self.path_plan.current_step if self.path_plan else None
         side_id = self.pet.target_platform_id
-        if edge and edge.action == PathAction.JUMP:
-            candidate = self.snapshot.platform_by_id(edge.to_platform_id)
+        if step and step.action == TraversalAction.JUMP:
+            candidate = self.snapshot.platform_by_id(step.to_surface_id)
             if candidate and candidate.climbable:
-                side_id = edge.to_platform_id
+                side_id = step.to_surface_id
 
         side = self.snapshot.platform_by_id(side_id)
         if side is None or not side.climbable:
@@ -294,13 +285,12 @@ class PetController:
 
         target_x = side.rect.center_x - self.pet.width / 2
         target_bottom = side.rect.bottom
-        if edge and edge.action == PathAction.JUMP and edge.to_platform_id == side.id:
-            if edge.land_x is not None:
-                target_x = edge.land_x
-            if edge.land_t is not None:
-                target_bottom = edge.land_t
-            elif edge.land_y is not None:
-                target_bottom = edge.land_y + self.pet.height
+        if step and step.action == TraversalAction.JUMP and step.to_surface_id == side.id:
+            if step.land_point is not None:
+                target_x = step.land_point[0]
+                target_bottom = step.land_point[1] + self.pet.height
+            elif step.land_t is not None:
+                target_bottom = step.land_t
         horizontal_close = abs(target_x - self.pet.position.x) <= self.config.physics.edge_snap_distance * 2
         bottom_gap = self.pet.bottom - target_bottom
         can_touch_now = abs(bottom_gap) <= self.config.physics.edge_snap_distance * 3
@@ -313,7 +303,7 @@ class PetController:
         self.pet.support_platform_id = None
         self.pet.target_platform_id = side.id
         self.pet.facing = Facing.RIGHT if side.type == PlatformType.WINDOW_LEFT else Facing.LEFT
-        if edge and edge.action == PathAction.JUMP and edge.to_platform_id == side.id:
+        if step and step.action == TraversalAction.JUMP and step.to_surface_id == side.id:
             self.path_plan.advance()
             if self.path_plan.is_complete:
                 self._finish_path_plan(finish_climb=True)
@@ -398,8 +388,8 @@ class PetController:
         return True
 
     def _random_reachable_platform_plan(self, support: Platform) -> PathPlan | None:
-        graph = self.pathfinder.build_navigation_graph(self.pet, self.snapshot, self.config.physics)
-        reachable = self._reachable_platform_ids(support.id, graph)
+        graph = self.pathfinder.build_surface_graph(self.pet, self.snapshot, self.config.physics)
+        reachable = self._reachable_surface_ids(support.id, graph)
         candidates = [
             platform
             for platform in self.snapshot.platforms
@@ -419,26 +409,32 @@ class PetController:
         target_x = self._random_x_on_platform(platform)
         if target_x is None:
             return None
-        return self.pathfinder.find_path_to_point(
+        return self.pathfinder.find_path_to_surface_point(
             pet=self.pet,
             snapshot=self.snapshot,
-            target_platform_id=platform.id,
-            target_x=target_x,
+            target_surface_id=platform.id,
+            target_anchor_t=target_x,
             physics=self.config.physics,
             target_window_id=platform.source_id,
         )
 
-    def _reachable_platform_ids(self, start_id: str, graph: dict[str, list[PathEdge]]) -> set[str]:
-        seen = {start_id}
-        stack = [start_id]
+    def _reachable_surface_ids(self, start_surface_id: str, graph) -> set[str]:
+        start_node_ids = [node.id for node in graph.nodes.values() if node.surface_id == start_surface_id]
+        seen_nodes = set(start_node_ids)
+        seen_surfaces = {start_surface_id}
+        stack = list(start_node_ids)
         while stack:
-            platform_id = stack.pop()
-            for edge in graph.get(platform_id, []):
-                if edge.to_platform_id in seen:
+            node_id = stack.pop()
+            for edge in graph.adjacency.get(node_id, []):
+                target_node = graph.nodes.get(edge.to_node_id)
+                if target_node is None:
                     continue
-                seen.add(edge.to_platform_id)
-                stack.append(edge.to_platform_id)
-        return seen
+                seen_surfaces.add(target_node.surface_id)
+                if target_node.id in seen_nodes:
+                    continue
+                seen_nodes.add(target_node.id)
+                stack.append(target_node.id)
+        return seen_surfaces
 
     def _random_x_on_platform(self, platform: Platform) -> float | None:
         left = platform.rect.left

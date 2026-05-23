@@ -8,7 +8,7 @@ from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import QApplication, QWidget
 
 from desktop_sprite.core.character import CharacterDebugState, DesktopCharacter
-from desktop_sprite.core.pathfinding import NavNodeKind, NavigationMesh, PathAction, PathEdge
+from desktop_sprite.core.pathfinding import NavNodeKind, PathStep, SurfaceGraph, TraversalAction
 from desktop_sprite.models.platform import Platform, PlatformType
 from desktop_sprite.ui.pet_renderer import PetRenderer
 from desktop_sprite.ui.render_pose import PoseBuilder
@@ -164,12 +164,12 @@ class DebugOverlayWindow(QWidget):
         self._draw_debug(painter)
 
     def _draw_debug(self, painter: QPainter) -> None:
-        mesh = self._navigation_mesh()
+        graph = self._surface_graph()
         self._draw_navigation_map(painter)
-        self._draw_navigation_graph(painter, mesh)
+        self._draw_surface_graph(painter, graph)
         self._draw_collision_box(painter)
         self._draw_complete_path(painter)
-        self._draw_debug_info(painter, mesh)
+        self._draw_debug_info(painter, graph)
 
     def _draw_navigation_map(self, painter: QPainter) -> None:
         snapshot = self.character.debug_state().snapshot
@@ -242,21 +242,21 @@ class DebugOverlayWindow(QWidget):
             )
         )
 
-    def _draw_navigation_graph(self, painter: QPainter, mesh: NavigationMesh) -> None:
-        if not mesh.adjacency:
+    def _draw_surface_graph(self, painter: QPainter, graph: SurfaceGraph) -> None:
+        if not graph.adjacency:
             return
 
-        for node in mesh.nodes.values():
+        for node in graph.nodes.values():
             self._draw_nav_node_marker(painter, node)
 
-        for edges in mesh.adjacency.values():
+        for edges in graph.adjacency.values():
             for edge in edges:
                 color = self._graph_edge_color(edge.action)
                 pen = QPen(color, 1)
                 pen.setStyle(Qt.PenStyle.DotLine)
                 painter.setPen(pen)
                 painter.setBrush(Qt.BrushStyle.NoBrush)
-                for start, end in self._graph_edge_segments(edge, mesh):
+                for start, end in self._graph_edge_segments(edge, graph):
                     painter.drawLine(start, end)
                     if self._distance(start, end) >= 24:
                         self._draw_arrowhead(painter, start, end, color, 5)
@@ -285,9 +285,9 @@ class DebugOverlayWindow(QWidget):
             return
         painter.drawRect(QRectF(pet.position.x, pet.position.y, pet.width, pet.height))
 
-    def _draw_debug_info(self, painter: QPainter, mesh: NavigationMesh) -> None:
+    def _draw_debug_info(self, painter: QPainter, graph: SurfaceGraph) -> None:
         pet = self.character.render_state().body
-        lines = self._debug_lines(mesh)
+        lines = self._debug_lines(graph)
 
         painter.setFont(QFont("Consolas", 8))
         metrics = painter.fontMetrics()
@@ -304,14 +304,14 @@ class DebugOverlayWindow(QWidget):
         painter.setPen(QPen(QColor(20, 20, 20), 1))
         painter.drawText(rect.adjusted(6, 5, -6, -5), Qt.AlignmentFlag.AlignLeft, "\n".join(lines))
 
-    def _debug_lines(self, mesh: NavigationMesh) -> list[str]:
+    def _debug_lines(self, graph: SurfaceGraph) -> list[str]:
         debug_state = self.character.debug_state()
         pet = self.character.render_state().body
-        graph_edges = len(mesh.edges)
-        move_edges = sum(1 for edge in mesh.edges if edge.action == PathAction.MOVE)
-        fall_edges = sum(1 for edge in mesh.edges if edge.action == PathAction.FALL)
-        jump_edges = sum(1 for edge in mesh.edges if edge.action == PathAction.JUMP)
-        transform_edges = sum(1 for edge in mesh.edges if edge.action == PathAction.TRANSFORM)
+        graph_edges = len(graph.edges)
+        move_edges = sum(1 for edge in graph.edges if edge.action == TraversalAction.MOVE)
+        fall_edges = sum(1 for edge in graph.edges if edge.action == TraversalAction.FALL)
+        jump_edges = sum(1 for edge in graph.edges if edge.action == TraversalAction.JUMP)
+        transform_edges = sum(1 for edge in graph.edges if edge.action == TraversalAction.TRANSFORM)
         if pet is None:
             payload = self.character.render_state().payload or {}
             lines = [
@@ -323,10 +323,10 @@ class DebugOverlayWindow(QWidget):
                 f"contacts={payload.get('contacts', 0)}",
                 f"area_err={payload.get('area_error_ratio', 0.0):+.3f}",
             ]
-            walkable = sum(1 for platform in debug_state.snapshot.platforms if platform.walkable)
-            climbable = sum(1 for platform in debug_state.snapshot.platforms if platform.climbable)
-            lines.append(f"map platform={walkable} climb={climbable}")
-            lines.append(f"mesh nodes={len(mesh.nodes)} edges={graph_edges}")
+            horizontal = sum(1 for surface in graph.surfaces.values() if surface.is_horizontal)
+            vertical = sum(1 for surface in graph.surfaces.values() if surface.is_vertical)
+            lines.append(f"surfaces h={horizontal} v={vertical}")
+            lines.append(f"graph nodes={len(graph.nodes)} edges={graph_edges}")
             lines.append(f"edge move={move_edges} fall={fall_edges} jump={jump_edges} transform={transform_edges}")
             lines.append("path=-")
             return lines
@@ -356,12 +356,12 @@ class DebugOverlayWindow(QWidget):
             lines.append("path=-")
             return lines
 
-        lines.append(f"path={path_plan.current_index + 1}/{len(path_plan.edges)}")
-        for index, edge in enumerate(path_plan.edges, start=1):
+        lines.append(f"path={path_plan.current_index + 1}/{len(path_plan.steps)}")
+        for index, step in enumerate(path_plan.steps, start=1):
             marker = ">" if index - 1 == path_plan.current_index else " "
-            lines.append(f"{marker}{index}:{edge.action}->{edge.to_platform_id}")
+            lines.append(f"{marker}{index}:{step.action}->{step.to_surface_id}")
             if index - 1 >= path_plan.current_index:
-                lines.extend(f"  {step}" for step in self._edge_debug_steps(edge))
+                lines.extend(f"  {line}" for line in self._step_debug_lines(step))
         return lines
 
     def _debug_info_rect(self, width: int, height: int) -> QRectF:
@@ -417,16 +417,16 @@ class DebugOverlayWindow(QWidget):
 
         self._draw_path_labels(painter, segments)
 
-    def _navigation_mesh(self) -> NavigationMesh:
+    def _surface_graph(self) -> SurfaceGraph:
         debug_state: CharacterDebugState = self.character.debug_state()
         body = self.character.render_state().body
         if body is None:
-            return NavigationMesh(nodes={}, adjacency={})
-        return debug_state.pathfinder.build_navigation_mesh(body, debug_state.snapshot, debug_state.physics)
+            return SurfaceGraph(nodes={}, adjacency={})
+        return debug_state.pathfinder.build_surface_graph(body, debug_state.snapshot, debug_state.physics)
 
-    def _graph_edge_segments(self, edge, mesh: NavigationMesh) -> list[tuple[QPointF, QPointF]]:
-        source = mesh.nodes.get(edge.from_node_id)
-        target = mesh.nodes.get(edge.to_node_id)
+    def _graph_edge_segments(self, edge, graph: SurfaceGraph) -> list[tuple[QPointF, QPointF]]:
+        source = graph.nodes.get(edge.from_node_id)
+        target = graph.nodes.get(edge.to_node_id)
         if source is None or target is None:
             return []
         pet = self.character.render_state().body
@@ -436,7 +436,7 @@ class DebugOverlayWindow(QWidget):
         end = QPointF(target.x + half_w, target.y + half_h)
         return [(start, end)]
 
-    def _path_segments(self) -> list[tuple[QPointF, QPointF, int, PathAction]]:
+    def _path_segments(self) -> list[tuple[QPointF, QPointF, int, TraversalAction]]:
         path_plan = self.character.debug_state().path_plan
         if path_plan is None or path_plan.is_complete:
             return []
@@ -445,37 +445,37 @@ class DebugOverlayWindow(QWidget):
         if pet is None:
             return []
         current = QPointF(pet.center_x, pet.position.y + pet.height / 2)
-        segments: list[tuple[QPointF, QPointF, int, PathAction]] = []
-        for edge_index in range(path_plan.current_index, len(path_plan.edges)):
-            edge = path_plan.edges[edge_index]
-            for waypoint in self._edge_waypoints(edge):
+        segments: list[tuple[QPointF, QPointF, int, TraversalAction]] = []
+        for step_index in range(path_plan.current_index, len(path_plan.steps)):
+            step = path_plan.steps[step_index]
+            for waypoint in self._step_waypoints(step):
                 if self._distance(current, waypoint) >= 1:
-                    segments.append((current, waypoint, edge_index, edge.action))
+                    segments.append((current, waypoint, step_index, step.action))
                 current = waypoint
         return segments
 
-    def _edge_waypoints(self, edge: PathEdge) -> list[QPointF]:
+    def _step_waypoints(self, step: PathStep) -> list[QPointF]:
         pet = self.character.render_state().body
         if pet is None:
             return []
         snapshot = self.character.debug_state().snapshot
-        target = snapshot.platform_by_id(edge.to_platform_id)
+        target = snapshot.platform_by_id(step.to_surface_id)
         if target is None:
             return []
 
         points: list[QPointF] = []
-        if edge.action in {PathAction.JUMP, PathAction.FALL, PathAction.TRANSFORM}:
-            if edge.approach_point is not None:
-                points.append(self._body_center_point(edge.approach_point, pet))
-            if edge.land_point is not None:
-                points.append(self._body_center_point(edge.land_point, pet))
-            elif edge.land_t is not None:
-                points.append(self._body_center_point(self._surface_body_point(target, edge.land_t, pet), pet))
+        if step.action in {TraversalAction.JUMP, TraversalAction.FALL, TraversalAction.TRANSFORM}:
+            if step.approach_point is not None:
+                points.append(self._body_center_point(step.approach_point, pet))
+            if step.land_point is not None:
+                points.append(self._body_center_point(step.land_point, pet))
+            elif step.land_t is not None:
+                points.append(self._body_center_point(self._surface_body_point(target, step.land_t, pet), pet))
             return points
 
-        if edge.land_point is not None:
-            return [self._body_center_point(edge.land_point, pet)]
-        return [self._body_center_point(self._surface_body_point(target, edge.target_t, pet), pet)]
+        if step.land_point is not None:
+            return [self._body_center_point(step.land_point, pet)]
+        return [self._body_center_point(self._surface_body_point(target, step.target_t, pet), pet)]
 
     def _body_center_point(self, body_point: tuple[float, float], pet) -> QPointF:
         return QPointF(body_point[0] + pet.width / 2, body_point[1] + pet.height / 2)
@@ -485,33 +485,32 @@ class DebugOverlayWindow(QWidget):
             return platform.rect.center_x - pet.width / 2, anchor_t - pet.height
         return anchor_t, platform.rect.top - pet.height
 
-    def _edge_debug_steps(self, edge: PathEdge) -> list[str]:
+    def _step_debug_lines(self, step: PathStep) -> list[str]:
         snapshot = self.character.debug_state().snapshot
-        source = snapshot.platform_by_id(edge.from_platform_id)
-        target = snapshot.platform_by_id(edge.to_platform_id)
-        target_label = self._anchor_label(target, edge.target_t)
-        land_label = self._anchor_label(target, edge.land_t)
-        approach_label = self._point_label(edge.approach_point)
-        land_point_label = self._point_label(edge.land_point)
-        if edge.action == PathAction.MOVE:
-            return [f"move {target_label} -> {edge.to_platform_id}"]
-        if edge.action == PathAction.TRANSFORM:
-            side = edge.side_platform_id or "-"
+        target = snapshot.platform_by_id(step.to_surface_id)
+        target_label = self._anchor_label(target, step.target_t)
+        land_label = self._anchor_label(target, step.land_t)
+        approach_label = self._point_label(step.approach_point)
+        land_point_label = self._point_label(step.land_point)
+        if step.action == TraversalAction.MOVE:
+            return [f"move {target_label} -> {step.to_surface_id}"]
+        if step.action == TraversalAction.TRANSFORM:
+            contact = step.contact_surface_id or "-"
             return [
-                f"contact {approach_label} via {side}",
-                f"transform land {land_label} {land_point_label} -> {edge.to_platform_id}",
+                f"contact {approach_label} via {contact}",
+                f"transform land {land_label} {land_point_label} -> {step.to_surface_id}",
             ]
-        if edge.action == PathAction.JUMP:
+        if step.action == TraversalAction.JUMP:
             return [
                 f"approach {approach_label}",
-                f"jump land {land_label} {land_point_label} -> {edge.to_platform_id}",
+                f"jump land {land_label} {land_point_label} -> {step.to_surface_id}",
             ]
-        if edge.action == PathAction.FALL:
+        if step.action == TraversalAction.FALL:
             return [
                 f"drop {approach_label}",
-                f"fall land {land_label} {land_point_label} -> {edge.to_platform_id}",
+                f"fall land {land_label} {land_point_label} -> {step.to_surface_id}",
             ]
-        return [f"{edge.action} -> {edge.to_platform_id}"]
+        return [f"{step.action} -> {step.to_surface_id}"]
 
     def _anchor_label(self, platform: Platform | None, anchor_t: float | None) -> str:
         if anchor_t is None:
@@ -555,11 +554,11 @@ class DebugOverlayWindow(QWidget):
             return
 
         platform_ids: set[str] = set()
-        for edge in path_plan.edges[path_plan.current_index :]:
-            platform_ids.add(edge.from_platform_id)
-            platform_ids.add(edge.to_platform_id)
-            if edge.side_platform_id is not None:
-                platform_ids.add(edge.side_platform_id)
+        for step in path_plan.steps[path_plan.current_index :]:
+            platform_ids.add(step.from_surface_id)
+            platform_ids.add(step.to_surface_id)
+            if step.contact_surface_id is not None:
+                platform_ids.add(step.contact_surface_id)
 
         painter.setBrush(Qt.BrushStyle.NoBrush)
         for platform_id in platform_ids:
@@ -570,7 +569,7 @@ class DebugOverlayWindow(QWidget):
             painter.setPen(QPen(color, 1, Qt.PenStyle.DashLine))
             painter.drawRect(QRectF(platform.rect.left, platform.rect.top, platform.rect.width, platform.rect.height))
 
-    def _draw_path_labels(self, painter: QPainter, segments: list[tuple[QPointF, QPointF, int, PathAction]]) -> None:
+    def _draw_path_labels(self, painter: QPainter, segments: list[tuple[QPointF, QPointF, int, TraversalAction]]) -> None:
         seen: set[int] = set()
         painter.setFont(QFont("Consolas", 8))
         for _start, end, edge_index, action in segments:
@@ -607,21 +606,21 @@ class DebugOverlayWindow(QWidget):
     def _distance(self, start: QPointF, end: QPointF) -> float:
         return math.hypot(end.x() - start.x(), end.y() - start.y())
 
-    def _graph_edge_color(self, action: PathAction) -> QColor:
-        if action == PathAction.MOVE:
+    def _graph_edge_color(self, action: TraversalAction) -> QColor:
+        if action == TraversalAction.MOVE:
             return QColor(35, 125, 220, 85)
-        if action == PathAction.TRANSFORM:
+        if action == TraversalAction.TRANSFORM:
             return QColor(30, 160, 90, 95)
-        if action == PathAction.FALL:
+        if action == TraversalAction.FALL:
             return QColor(90, 110, 220, 95)
         return QColor(230, 180, 40, 95)
 
-    def _path_color(self, action: PathAction, current: bool) -> QColor:
+    def _path_color(self, action: TraversalAction, current: bool) -> QColor:
         alpha = 230 if current else 165
-        if action == PathAction.MOVE:
+        if action == TraversalAction.MOVE:
             return QColor(40, 130, 230, alpha)
-        if action == PathAction.TRANSFORM:
+        if action == TraversalAction.TRANSFORM:
             return QColor(30, 160, 90, alpha)
-        if action == PathAction.FALL:
+        if action == TraversalAction.FALL:
             return QColor(90, 110, 220, alpha)
         return QColor(255, 145, 35, alpha)

@@ -23,13 +23,6 @@ class TraversalAction(StrEnum):
     TRANSFORM = "transform"
     FALL = "fall"
 
-    # Compatibility aliases for the old platform vocabulary.
-    WALK = "move"
-    CLIMB = "transform"
-
-
-PathAction = TraversalAction
-
 
 class SurfaceCapability(StrEnum):
     MOVE = "move"
@@ -128,10 +121,6 @@ class NavNode:
     y: float
 
     @property
-    def platform_id(self) -> str:
-        return self.surface_id
-
-    @property
     def kind(self) -> NavNodeKind:
         return self.role
 
@@ -145,10 +134,6 @@ class NavEdge:
     contact_surface_id: str | None = None
     meta: dict[str, float | str] = field(default_factory=dict)
 
-    @property
-    def side_platform_id(self) -> str | None:
-        return self.contact_surface_id
-
 
 @dataclass(slots=True)
 class SurfaceGraph:
@@ -161,139 +146,27 @@ class SurfaceGraph:
         return [edge for edges in self.adjacency.values() for edge in edges]
 
 
-NavigationMesh = SurfaceGraph
-
-
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class PathStep:
     action: TraversalAction
     from_surface_id: str
     to_surface_id: str
     target_t: float
     cost: float
-    contact_surface_id: str | None
-    land_t: float | None
-    approach_point: tuple[float, float] | None
-    land_point: tuple[float, float] | None
-
-    def __init__(
-        self,
-        action: TraversalAction,
-        from_surface_id: str | None = None,
-        to_surface_id: str | None = None,
-        target_t: float | None = None,
-        cost: float = 0.0,
-        contact_surface_id: str | None = None,
-        land_t: float | None = None,
-        approach_point: tuple[float, float] | None = None,
-        land_point: tuple[float, float] | None = None,
-        *,
-        from_platform_id: str | None = None,
-        to_platform_id: str | None = None,
-        target_x: float | None = None,
-        side_platform_id: str | None = None,
-        land_x: float | None = None,
-    ) -> None:
-        object.__setattr__(self, "action", action)
-        object.__setattr__(self, "from_surface_id", from_surface_id or from_platform_id or "")
-        object.__setattr__(self, "to_surface_id", to_surface_id or to_platform_id or "")
-        object.__setattr__(self, "target_t", target_t if target_t is not None else (target_x if target_x is not None else 0.0))
-        object.__setattr__(self, "cost", cost)
-        object.__setattr__(self, "contact_surface_id", contact_surface_id or side_platform_id)
-        object.__setattr__(self, "land_t", land_t if land_t is not None else land_x)
-        fallback_x = target_t if target_t is not None else target_x
-        fallback_land_x = land_x if land_x is not None else fallback_x
-        object.__setattr__(self, "approach_point", approach_point or ((fallback_x, 0.0) if fallback_x is not None else None))
-        object.__setattr__(self, "land_point", land_point or ((fallback_land_x, 0.0) if fallback_land_x is not None else None))
-
-    @property
-    def from_platform_id(self) -> str:
-        return self.from_surface_id
-
-    @property
-    def to_platform_id(self) -> str:
-        return self.to_surface_id
-
-    @property
-    def side_platform_id(self) -> str | None:
-        return self.contact_surface_id
-
-    @property
-    def target_x(self) -> float:
-        return self.target_t
-
-    @property
-    def approach_x(self) -> float:
-        if self.approach_point is not None:
-            return self.approach_point[0]
-        return self.target_t
-
-    @property
-    def land_x(self) -> float | None:
-        if self.land_point is not None:
-            return self.land_point[0]
-        return self.land_t
-
-    @property
-    def approach_y(self) -> float | None:
-        if self.approach_point is None:
-            return None
-        return self.approach_point[1]
-
-    @property
-    def land_y(self) -> float | None:
-        if self.land_point is None:
-            return None
-        return self.land_point[1]
+    contact_surface_id: str | None = None
+    land_t: float | None = None
+    approach_point: tuple[float, float] | None = None
+    land_point: tuple[float, float] | None = None
 
 
-PathEdge = PathStep
-
-
-@dataclass(slots=True, init=False)
+@dataclass(slots=True)
 class PathPlan:
     steps: list[PathStep]
-    current_index: int
-    target_window_id: int | None
-    snapshot_timestamp: float
-    target_surface_id: str | None
-    target_anchor_t: float | None
-
-    def __init__(
-        self,
-        steps: list[PathStep] | None = None,
-        current_index: int = 0,
-        target_window_id: int | None = None,
-        snapshot_timestamp: float = 0.0,
-        target_surface_id: str | None = None,
-        target_anchor_t: float | None = None,
-        *,
-        edges: list[PathStep] | None = None,
-        target_platform_id: str | None = None,
-        target_x: float | None = None,
-    ) -> None:
-        self.steps = steps if steps is not None else (edges or [])
-        self.current_index = current_index
-        self.target_window_id = target_window_id
-        self.snapshot_timestamp = snapshot_timestamp
-        self.target_surface_id = target_surface_id or target_platform_id
-        self.target_anchor_t = target_anchor_t if target_anchor_t is not None else target_x
-
-    @property
-    def edges(self) -> list[PathStep]:
-        return self.steps
-
-    @property
-    def target_platform_id(self) -> str | None:
-        return self.target_surface_id
-
-    @property
-    def target_x(self) -> float | None:
-        return self.target_anchor_t
-
-    @property
-    def current_edge(self) -> PathStep | None:
-        return self.current_step
+    current_index: int = 0
+    target_window_id: int | None = None
+    snapshot_timestamp: float = 0.0
+    target_surface_id: str | None = None
+    target_anchor_t: float | None = None
 
     @property
     def current_step(self) -> PathStep | None:
@@ -324,34 +197,11 @@ class PathFinder:
         target_surface = snapshot.platform_by_id(target_surface_id)
         if target_surface is None:
             return None
-        return self.find_path_to_point(
-            pet=pet,
-            snapshot=snapshot,
-            target_platform_id=target_surface_id,
-            target_x=target_surface.rect.center_x - pet.width / 2,
-            physics=physics,
-            target_window_id=target_window_id,
-        )
-
-    def find_path_to_point(
-        self,
-        pet: Pet,
-        snapshot: EnvironmentSnapshot,
-        target_platform_id: str,
-        target_x: float,
-        physics: PhysicsConfig,
-        target_window_id: int | None = None,
-    ) -> PathPlan | None:
-        target_platform = snapshot.platform_by_id(target_platform_id)
-        if target_platform is None:
-            return None
-        target_surface = Surface.from_platform(target_platform)
-        target_anchor_t = self._clamp_anchor(target_surface, target_x, pet)
         return self.find_path_to_surface_point(
             pet=pet,
             snapshot=snapshot,
-            target_surface_id=target_platform_id,
-            target_anchor_t=target_anchor_t,
+            target_surface_id=target_surface_id,
+            target_anchor_t=target_surface.rect.center_x - pet.width / 2,
             physics=physics,
             target_window_id=target_window_id,
         )
@@ -513,19 +363,6 @@ class PathFinder:
                 )
 
         return graph
-
-    def build_navigation_mesh(self, pet: Pet, snapshot: EnvironmentSnapshot, physics: PhysicsConfig) -> SurfaceGraph:
-        return self.build_surface_graph(pet, snapshot, physics)
-
-    def build_navigation_graph(self, pet: Pet, snapshot: EnvironmentSnapshot, physics: PhysicsConfig) -> dict[str, list[PathStep]]:
-        graph = self.build_surface_graph(pet, snapshot, physics)
-        grouped: dict[str, list[PathStep]] = {}
-        for edge in graph.edges:
-            mapped = self._to_path_step(edge, graph)
-            if mapped is None:
-                continue
-            grouped.setdefault(mapped.from_surface_id, []).append(mapped)
-        return grouped
 
     def _ensure_node(
         self,

@@ -263,15 +263,12 @@ class DebugOverlayWindow(QWidget):
 
     def _draw_nav_node_marker(self, painter: QPainter, node) -> None:
         point = QPointF(node.x + self.character.render_state().width / 2, node.y + self.character.render_state().height / 2)
-        if node.kind == NavNodeKind.CLIMB_CONTACT:
-            self._draw_climb_marker(painter, point)
-            return
         color = QColor(55, 135, 255, 160)
         if node.kind == NavNodeKind.DROP_POINT:
             color = QColor(70, 110, 220, 135)
         elif node.kind == NavNodeKind.JUMP_POINT:
             color = QColor(235, 185, 45, 165)
-        elif node.kind == NavNodeKind.CLIMB_ENDPOINT:
+        elif node.kind == NavNodeKind.TRANSFORM_POINT:
             color = QColor(30, 160, 90, 180)
         self._draw_node_marker(painter, point, color)
 
@@ -341,7 +338,7 @@ class DebugOverlayWindow(QWidget):
             # f"floor={floor_y:.0f} over={overflow:.0f}",
             f"scale={scale:.1f}",
             f"v=({pet.velocity.x:.0f},{pet.velocity.y:.0f})",
-            f"p={pet.support_platform_id or '-'}",
+            f"p={pet.support_surface_id or '-'}",
             # f"p_name={self._support_window_title()}",
         ]
         # walkable = sum(1 for platform in debug_state.snapshot.platforms if platform.walkable)
@@ -529,7 +526,7 @@ class DebugOverlayWindow(QWidget):
         pet = self.character.render_state().body
         if pet is None:
             return "-"
-        platform = debug_state.snapshot.platform_by_id(pet.support_platform_id)
+        platform = debug_state.snapshot.platform_by_id(pet.support_surface_id)
         if platform is None or platform.source_id is None:
             return "-"
         window = next(

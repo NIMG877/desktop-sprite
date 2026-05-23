@@ -52,7 +52,7 @@ def test_falling_pet_lands_on_platform():
 
     physics.update(pet, snapshot, 0.1)
 
-    assert pet.support_platform_id == "ground:test"
+    assert pet.support_surface_id == "ground:test"
     assert pet.position.y == 60
     assert pet.velocity.y == 0
     assert pet.state == PetState.IDLE
@@ -78,7 +78,7 @@ def test_falling_pet_lands_idle_even_with_horizontal_velocity():
 
     physics.update(pet, snapshot, 0.1)
 
-    assert pet.support_platform_id == "ground:test"
+    assert pet.support_surface_id == "ground:test"
     assert pet.velocity.x == 0
     assert pet.state == PetState.IDLE
 
@@ -91,7 +91,7 @@ def test_supported_pet_falls_when_platform_moves_out_from_under_it():
         width=40,
         height=60,
         state=PetState.IDLE,
-        support_platform_id="window:123:top",
+        support_surface_id="window:123:top",
     )
     moved_platform = Platform(
         id="window:123:top",
@@ -106,7 +106,7 @@ def test_supported_pet_falls_when_platform_moves_out_from_under_it():
 
     physics.update(pet, snapshot, 0.1)
 
-    assert pet.support_platform_id is None
+    assert pet.support_surface_id is None
     assert pet.state == PetState.FALL
     assert pet.velocity.y > 0
 
@@ -119,7 +119,7 @@ def test_supported_pet_is_lifted_when_dynamic_platform_moves_up():
         width=40,
         height=60,
         state=PetState.IDLE,
-        support_platform_id="window:123:top",
+        support_surface_id="window:123:top",
     )
     previous = make_snapshot(
         [
@@ -151,7 +151,7 @@ def test_supported_pet_is_lifted_when_dynamic_platform_moves_up():
     physics.reconcile_platform_motion(pet, previous, current)
     physics.update(pet, current, 0.1)
 
-    assert pet.support_platform_id == "window:123:top"
+    assert pet.support_surface_id == "window:123:top"
     assert pet.position.y == 30
     assert pet.velocity.y == 0
 
@@ -164,7 +164,7 @@ def test_supported_pet_is_not_carried_down_when_dynamic_platform_moves_down():
         width=40,
         height=60,
         state=PetState.IDLE,
-        support_platform_id="window:123:top",
+        support_surface_id="window:123:top",
     )
     previous = make_snapshot(
         [
@@ -218,7 +218,7 @@ def test_jumping_pet_lands_like_falling_pet():
 
     physics.update(pet, snapshot, 0.1)
 
-    assert pet.support_platform_id == "ground:test"
+    assert pet.support_surface_id == "ground:test"
     assert pet.position.y == 60
     assert pet.state == PetState.IDLE
 
@@ -231,7 +231,7 @@ def test_climb_state_does_not_auto_move_or_complete():
         width=40,
         height=60,
         state=PetState.CLIMB,
-        target_platform_id="window:123:left",
+        target_surface_id="window:123:left",
     )
     top = Platform(
         id="window:123:top",
@@ -256,8 +256,8 @@ def test_climb_state_does_not_auto_move_or_complete():
     physics.update(pet, snapshot, 0.1)
 
     assert pet.position.y == 50
-    assert pet.support_platform_id == "window:123:left"
-    assert pet.target_platform_id == "window:123:left"
+    assert pet.support_surface_id == "window:123:left"
+    assert pet.target_surface_id == "window:123:left"
     assert pet.velocity.x == 0
     assert pet.velocity.y == 0
     assert pet.state == PetState.CLIMB
@@ -271,8 +271,8 @@ def test_climb_state_keeps_wall_support_when_exactly_at_floor_boundary():
         width=40,
         height=60,
         state=PetState.CLIMB,
-        support_platform_id="window:123:left",
-        target_platform_id="window:123:left",
+        support_surface_id="window:123:left",
+        target_surface_id="window:123:left",
     )
     side = Platform(
         id="window:123:left",
@@ -288,8 +288,8 @@ def test_climb_state_keeps_wall_support_when_exactly_at_floor_boundary():
     events = physics.update(pet, snapshot, 0.1)
 
     assert pet.position.y == 140
-    assert pet.support_platform_id == "window:123:left"
-    assert pet.target_platform_id == "window:123:left"
+    assert pet.support_surface_id == "window:123:left"
+    assert pet.target_surface_id == "window:123:left"
     assert pet.velocity.y == 0
     assert pet.state == PetState.CLIMB
     assert events.landed_on is None
@@ -303,8 +303,8 @@ def test_climb_state_moves_by_velocity_without_auto_completing():
         width=40,
         height=60,
         state=PetState.CLIMB,
-        support_platform_id="window:123:left",
-        target_platform_id="window:123:left",
+        support_surface_id="window:123:left",
+        target_surface_id="window:123:left",
     )
     side = Platform(
         id="window:123:left",
@@ -320,7 +320,7 @@ def test_climb_state_moves_by_velocity_without_auto_completing():
     physics.update(pet, snapshot, 0.1)
 
     assert pet.position.y == 132
-    assert pet.support_platform_id == "window:123:left"
-    assert pet.target_platform_id == "window:123:left"
+    assert pet.support_surface_id == "window:123:left"
+    assert pet.target_surface_id == "window:123:left"
     assert pet.velocity.y == -80
     assert pet.state == PetState.CLIMB

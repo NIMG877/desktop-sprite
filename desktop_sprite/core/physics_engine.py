@@ -34,11 +34,11 @@ class PhysicsEngine:
         previous_snapshot: EnvironmentSnapshot,
         current_snapshot: EnvironmentSnapshot,
     ) -> None:
-        if pet.state == PetState.DRAGGED or pet.support_platform_id is None:
+        if pet.state == PetState.DRAGGED or pet.support_surface_id is None:
             return
 
-        previous = previous_snapshot.platform_by_id(pet.support_platform_id)
-        current = current_snapshot.platform_by_id(pet.support_platform_id)
+        previous = previous_snapshot.platform_by_id(pet.support_surface_id)
+        current = current_snapshot.platform_by_id(pet.support_surface_id)
         if previous is None or current is None or not current.dynamic or not current.walkable:
             return
 
@@ -69,7 +69,7 @@ class PhysicsEngine:
         self._validate_support(pet, snapshot, events)
         old_bottom = pet.bottom
 
-        if pet.support_platform_id is None:
+        if pet.support_surface_id is None:
             pet.velocity.y = min(
                 pet.velocity.y + self.config.gravity * dt,
                 self.config.max_fall_speed,
@@ -87,21 +87,21 @@ class PhysicsEngine:
         return events
 
     def _validate_climb_support(self, pet: Pet, snapshot: EnvironmentSnapshot, events: MotionEvents) -> None:
-        side = snapshot.platform_by_id(pet.support_platform_id or pet.target_platform_id)
+        side = snapshot.platform_by_id(pet.support_surface_id or pet.target_surface_id)
         if side is None:
             events.support_lost = True
             if self.apply_state_transitions:
                 pet.state = PetState.FALL
-            pet.target_platform_id = None
+            pet.target_surface_id = None
             return
         if not side.climbable:
             events.support_lost = True
             if self.apply_state_transitions:
                 pet.state = PetState.FALL
-            pet.target_platform_id = None
+            pet.target_surface_id = None
             return
-        pet.support_platform_id = side.id
-        pet.target_platform_id = side.id
+        pet.support_surface_id = side.id
+        pet.target_surface_id = side.id
 
     def _resolve_platform_landing(
         self,
@@ -119,8 +119,8 @@ class PhysicsEngine:
             if platform.walkable and old_bottom <= platform.rect.top <= pet.bottom and pet.rect.overlaps_x(platform.rect)
         ]
         if not candidates:
-            if pet.support_platform_id and snapshot.platform_by_id(pet.support_platform_id) is None:
-                pet.support_platform_id = None
+            if pet.support_surface_id and snapshot.platform_by_id(pet.support_surface_id) is None:
+                pet.support_surface_id = None
                 events.support_lost = True
                 if self.apply_state_transitions:
                     pet.state = PetState.FALL
@@ -129,7 +129,7 @@ class PhysicsEngine:
         platform = min(candidates, key=lambda item: item.rect.top)
         pet.position.y = platform.rect.top - pet.height
         pet.velocity.y = 0.0
-        pet.support_platform_id = platform.id
+        pet.support_surface_id = platform.id
         events.landed_on = platform.id
         if pet.state in {PetState.FALL, PetState.JUMP}:
             pet.velocity.x = 0.0
@@ -148,12 +148,12 @@ class PhysicsEngine:
             pet.facing = Facing.LEFT
 
     def _validate_support(self, pet: Pet, snapshot: EnvironmentSnapshot, events: MotionEvents) -> None:
-        if pet.support_platform_id is None:
+        if pet.support_surface_id is None:
             return
 
-        platform = snapshot.platform_by_id(pet.support_platform_id)
+        platform = snapshot.platform_by_id(pet.support_surface_id)
         if platform is None or not platform.walkable:
-            pet.support_platform_id = None
+            pet.support_surface_id = None
             events.support_lost = True
             if self.apply_state_transitions:
                 pet.state = PetState.FALL
@@ -165,7 +165,7 @@ class PhysicsEngine:
         if is_on_top and overlaps:
             return
 
-        pet.support_platform_id = None
+        pet.support_surface_id = None
         events.support_lost = True
         if self.apply_state_transitions:
             pet.state = PetState.FALL
@@ -191,7 +191,7 @@ class PhysicsEngine:
 
         pet.position.y = floor_y - pet.height
         pet.velocity.y = 0.0
-        pet.support_platform_id = "ground:work_area"
+        pet.support_surface_id = "ground:work_area"
         events.clamped_to_ground = True
         events.landed_on = "ground:work_area"
         if pet.state in {PetState.FALL, PetState.JUMP}:
@@ -204,7 +204,7 @@ class PhysicsEngine:
         if pet.position.y > bottom_limit:
             pet.position.y = snapshot.work_area_rect.bottom - pet.height
             pet.velocity.y = 0.0
-            pet.support_platform_id = "ground:work_area"
+            pet.support_surface_id = "ground:work_area"
             events.clamped_to_screen = True
             events.landed_on = "ground:work_area"
             if self.apply_state_transitions:

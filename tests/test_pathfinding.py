@@ -45,7 +45,7 @@ def make_pet() -> Pet:
         velocity=Vec2(),
         width=84,
         height=104,
-        support_platform_id="ground:work_area",
+        support_surface_id="ground:work_area",
     )
 
 
@@ -59,7 +59,7 @@ def ground() -> Platform:
 
 def test_same_level_overlapping_platforms_generate_transform_not_jump():
     pet = make_pet()
-    pet.support_platform_id = "taskbar:main"
+    pet.support_surface_id = "taskbar:main"
     taskbar = platform("taskbar:main", PlatformType.TASKBAR, Rect.from_xywh(0, 650, 900, 4))
     snapshot = make_snapshot([ground(), taskbar])
 
@@ -97,7 +97,7 @@ def test_path_to_point_on_current_platform_generates_walk_edge():
 
 def test_lower_platform_transfer_with_vertical_overlap_does_not_generate_jump():
     pet = make_pet()
-    pet.support_platform_id = "window:1:top"
+    pet.support_surface_id = "window:1:top"
     source_top = platform("window:1:top", PlatformType.WINDOW_TOP, Rect(160, 430, 320, 438), source_id=1)
     lower_top = platform("window:2:top", PlatformType.WINDOW_TOP, Rect(170, 520, 310, 528), source_id=2)
     snapshot = make_snapshot([ground(), source_top, lower_top])
@@ -115,7 +115,7 @@ def test_lower_platform_transfer_with_vertical_overlap_does_not_generate_jump():
 
 def test_drop_edge_is_created_when_vertical_ray_hits_platform():
     pet = make_pet()
-    pet.support_platform_id = "window:1:top"
+    pet.support_surface_id = "window:1:top"
     source_top = platform("window:1:top", PlatformType.WINDOW_TOP, Rect(160, 430, 320, 438), source_id=1)
     lower_top = platform("window:2:top", PlatformType.WINDOW_TOP, Rect(260, 520, 420, 528), source_id=2)
     snapshot = make_snapshot([ground(), source_top, lower_top])
@@ -175,7 +175,7 @@ def test_gap_between_platforms_generates_jump_edge_when_in_range():
 
 def test_jump_to_platform_on_right_targets_near_edge():
     pet = make_pet()
-    pet.support_platform_id = "window:1:top"
+    pet.support_surface_id = "window:1:top"
     source_top = platform("window:1:top", PlatformType.WINDOW_TOP, Rect(160, 430, 320, 438), source_id=1)
     target_top = platform("window:2:top", PlatformType.WINDOW_TOP, Rect(360, 430, 520, 438), source_id=2)
     snapshot = make_snapshot([ground(), source_top, target_top])
@@ -220,7 +220,7 @@ def test_platforms_are_adapted_to_surfaces():
 
 def test_surface_graph_uses_fall_edges_for_vertical_ray_hits():
     pet = make_pet()
-    pet.support_platform_id = "window:1:top"
+    pet.support_surface_id = "window:1:top"
     source_top = platform("window:1:top", PlatformType.WINDOW_TOP, Rect(160, 430, 320, 438), source_id=1)
     lower_top = platform("window:2:top", PlatformType.WINDOW_TOP, Rect(260, 520, 420, 528), source_id=2)
     snapshot = make_snapshot([ground(), source_top, lower_top])
@@ -333,7 +333,7 @@ def test_ground_jump_to_low_vertical_surface_keeps_wall_bottom_landing():
 
 def test_jump_to_vertical_surface_chooses_nearest_wall_contact():
     pet = make_pet()
-    pet.support_platform_id = "window:1:top"
+    pet.support_surface_id = "window:1:top"
     source_top = platform("window:1:top", PlatformType.WINDOW_TOP, Rect(160, 430, 320, 438), source_id=1)
     target_side = platform("window:2:left", PlatformType.WINDOW_LEFT, Rect(360, 430, 374, 620), source_id=2)
     snapshot = make_snapshot([ground(), source_top, target_side])

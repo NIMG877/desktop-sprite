@@ -29,8 +29,8 @@ class Pet:
     height: int
     facing: Facing = Facing.RIGHT
     state: PetState = PetState.FALL
-    support_platform_id: str | None = None
-    target_platform_id: str | None = None
+    support_surface_id: str | None = None
+    target_surface_id: str | None = None
     target_window_id: int | None = None
     state_time: float = 0.0
     idle_timer: float = 0.0

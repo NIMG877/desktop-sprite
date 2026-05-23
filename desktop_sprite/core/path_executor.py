@@ -22,7 +22,7 @@ class PathExecutor:
             controller.path_plan = None
             return False
 
-        if controller.pet.support_platform_id == step.to_surface_id and step.action != TraversalAction.MOVE:
+        if controller.pet.support_surface_id == step.to_surface_id and step.action != TraversalAction.MOVE:
             controller.path_plan.advance()
             if controller.path_plan.is_complete:
                 target = controller.snapshot.platform_by_id(step.to_surface_id)
@@ -30,7 +30,7 @@ class PathExecutor:
                 return True
             return self.execute_path_plan()
 
-        if controller.pet.support_platform_id != step.from_surface_id:
+        if controller.pet.support_surface_id != step.from_surface_id:
             controller.path_plan = None
             return False
 
@@ -53,8 +53,8 @@ class PathExecutor:
                 controller.path_plan = None
                 return False
             if self.move_along_surface(source, step.target_t):
-                controller.pet.support_platform_id = None
-                controller.pet.target_platform_id = step.to_surface_id
+                controller.pet.support_surface_id = None
+                controller.pet.target_surface_id = step.to_surface_id
                 controller._transition(PetState.FALL)
             return True
 
@@ -70,7 +70,7 @@ class PathExecutor:
         return False
 
     def walk_toward_x(self, target_x: float) -> bool:
-        support = self.controller.snapshot.platform_by_id(self.controller.pet.support_platform_id)
+        support = self.controller.snapshot.platform_by_id(self.controller.pet.support_surface_id)
         if support is not None and support.walkable:
             return self.move_along_surface(support, target_x)
         controller = self.controller
@@ -125,8 +125,8 @@ class PathExecutor:
         if axis == "y":
             controller.pet.velocity.x = 0.0
             controller.pet.velocity.y = direction * speed
-            controller.pet.support_platform_id = surface_id
-            controller.pet.target_platform_id = surface_id
+            controller.pet.support_surface_id = surface_id
+            controller.pet.target_surface_id = surface_id
         else:
             controller.pet.velocity.x = direction * speed
             controller.pet.velocity.y = 0.0
@@ -142,8 +142,8 @@ class PathExecutor:
             return True
         reached = self.move_along_surface(target, step.target_t)
         if reached:
-            controller.pet.support_platform_id = target.id
-            controller.pet.target_platform_id = target.id if target.climbable else None
+            controller.pet.support_surface_id = target.id
+            controller.pet.target_surface_id = target.id if target.climbable else None
         return reached
 
     def start_jump_toward_surface(self, step: PathStep) -> None:
@@ -167,8 +167,8 @@ class PathExecutor:
             target_y = raw_land_y
         vx, vy = self.compute_jump_velocity_to(target_x, target_y)
         direction = 0 if abs(vx) <= 1e-6 else (1 if vx > 0 else -1)
-        controller.pet.target_platform_id = step.to_surface_id
-        controller.pet.support_platform_id = None
+        controller.pet.target_surface_id = step.to_surface_id
+        controller.pet.support_surface_id = None
         controller.pet.velocity.x = vx
         controller.pet.velocity.y = vy
         if direction:
@@ -189,8 +189,8 @@ class PathExecutor:
             )
             controller.pet.position.x = target_x
             controller.pet.position.y = target_y
-            controller.pet.support_platform_id = target.id
-            controller.pet.target_platform_id = target.id
+            controller.pet.support_surface_id = target.id
+            controller.pet.target_surface_id = target.id
             controller.pet.velocity.x = 0.0
             controller.pet.velocity.y = 0.0
             controller._transition(PetState.CLIMB)
@@ -201,8 +201,8 @@ class PathExecutor:
             )
             controller.pet.position.x = target_x
             controller.pet.position.y = target_y
-            controller.pet.support_platform_id = target.id
-            controller.pet.target_platform_id = None
+            controller.pet.support_surface_id = target.id
+            controller.pet.target_surface_id = None
             controller.pet.velocity.x = 0.0
             controller.pet.velocity.y = 0.0
             controller._transition(PetState.WALK)

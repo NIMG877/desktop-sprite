@@ -9,12 +9,10 @@ from desktop_sprite.core.character import CharacterDebugState, CharacterRenderSt
 from desktop_sprite.core.pathfinding import PathFinder, PathPlan, PathStep, TraversalAction
 from desktop_sprite.core.path_executor import PathExecutor
 from desktop_sprite.core.physics_engine import PhysicsEngine
-from desktop_sprite.core.reachability_policy import ReachabilityPolicy
 from desktop_sprite.environment.desktop_environment import DesktopEnvironment
 from desktop_sprite.environment.environment_snapshot import EnvironmentSnapshot
 from desktop_sprite.models.geometry import Vec2
 from desktop_sprite.models.platform import Platform, PlatformType
-from desktop_sprite.models.platform_topology import PlatformTopology
 from desktop_sprite.models.state import Facing, Pet, PetState
 from desktop_sprite.utils.config import AppConfig
 
@@ -56,12 +54,12 @@ class PetController:
         self._refresh_environment_if_needed()
         self._update_behavior(dt)
         old_state = self.pet.state
-        old_support_platform_id = self.pet.support_platform_id
+        old_support_surface_id = self.pet.support_surface_id
         motion_events = self.physics.update(self.pet, self.snapshot, dt)
         self._apply_motion_events(motion_events)
         self._landed_on_platform_last_tick = (
-            old_support_platform_id is None
-            and self.pet.support_platform_id is not None
+            old_support_surface_id is None
+            and self.pet.support_surface_id is not None
             and old_state in {PetState.FALL, PetState.JUMP}
         )
         self.pet.state_time += dt
@@ -70,8 +68,8 @@ class PetController:
 
     def start_drag(self, mouse_x: float, mouse_y: float) -> None:
         self._transition(PetState.DRAGGED)
-        self.pet.support_platform_id = None
-        self.pet.target_platform_id = None
+        self.pet.support_surface_id = None
+        self.pet.target_surface_id = None
         self.pet.velocity = Vec2()
         self.pet.drag_positions.clear()
         self._drag_offset = Vec2(mouse_x - self.pet.position.x, mouse_y - self.pet.position.y)
@@ -90,14 +88,14 @@ class PetController:
         if self.config.interaction.throw_enabled:
             self.pet.velocity.x = throw.x * self.config.physics.drag_throw_factor
             self.pet.velocity.y = throw.y * self.config.physics.drag_throw_factor
-        self.pet.support_platform_id = None
+        self.pet.support_surface_id = None
         self._transition(PetState.FALL)
 
     def poke(self) -> None:
         if self.pet.state == PetState.DRAGGED:
             return
         self.pet.velocity.y = min(self.pet.velocity.y, -220)
-        self.pet.support_platform_id = None
+        self.pet.support_surface_id = None
         self._transition(PetState.FALL)
 
     def _refresh_environment_if_needed(self) -> None:
@@ -125,7 +123,7 @@ class PetController:
             self._pick_new_idle_goal()
             return
 
-        support = self.snapshot.platform_by_id(self.pet.support_platform_id)
+        support = self.snapshot.platform_by_id(self.pet.support_surface_id)
         if support is None and self.pet.state not in {PetState.FALL, PetState.JUMP, PetState.CLIMB}:
             self._transition(PetState.FALL)
             return
@@ -152,11 +150,6 @@ class PetController:
         if self._execute_path_plan():
             return
 
-        target_side = self.snapshot.platform_by_id(self.pet.target_platform_id)
-        if target_side and target_side.climbable:
-            self._walk_toward_climb_side(target_side)
-            return
-
         self._keep_walking_on_platform(support, dt)
 
     def _execute_path_plan(self) -> bool:
@@ -174,7 +167,7 @@ class PetController:
             return
         if step.action == TraversalAction.MOVE and step.from_surface_id == step.to_surface_id:
             return
-        if self.pet.support_platform_id != step.to_surface_id:
+        if self.pet.support_surface_id != step.to_surface_id:
             return
         self.path_plan.advance()
         if self.path_plan.is_complete:
@@ -216,63 +209,9 @@ class PetController:
             self.path_executor = executor
         return executor
 
-    def _nearest_reachable_side_for_window(self, hwnd: int) -> Platform | None:
-        sides = [
-            platform
-            for platform in self.snapshot.platforms
-            if platform.source_id == hwnd and platform.climbable and self._can_ever_reach_climb_side(platform)
-        ]
-        if not sides:
-            return None
-        return min(sides, key=lambda platform: abs(platform.rect.center_x - self.pet.center_x))
-
-    def _walk_toward_climb_side(self, side: Platform) -> None:
-        reachability = self._climb_reachability(side)
-        if reachability == "unreachable":
-            self.pet.target_platform_id = None
-            self.pet.target_window_id = None
-            self.pet.velocity.x = 0.0
-            self._transition(PetState.IDLE)
-            self._pick_new_idle_goal()
-            return
-
-        target_x = side.rect.center_x - self.pet.width / 2
-        distance = target_x - self.pet.position.x
-        if reachability == "jump" and abs(distance) <= self._max_jump_distance():
-            self._start_jump_toward_climb_side(side, distance)
-            return
-
-        if abs(distance) <= self.config.physics.edge_snap_distance:
-            self.pet.position.x = target_x
-            self.pet.velocity.x = 0.0
-            self.pet.target_platform_id = side.id
-            self.pet.facing = Facing.RIGHT if side.type == PlatformType.WINDOW_LEFT else Facing.LEFT
-            self.pet.support_platform_id = None
-            self._transition(PetState.CLIMB)
-            return
-
-        direction = 1 if distance > 0 else -1
-        self.pet.velocity.x = direction * self.config.physics.walk_speed
-        self.pet.facing = Facing.RIGHT if direction > 0 else Facing.LEFT
-        self._transition(PetState.WALK)
-
-    def _start_jump_toward_climb_side(self, side: Platform, distance: float) -> None:
-        target_x = side.rect.center_x - self.pet.width / 2
-        target_y = side.rect.bottom - self.pet.height
-        vx, vy = self._executor().compute_jump_velocity_to(target_x, target_y)
-        direction = 0 if abs(vx) <= 1e-6 else (1 if vx > 0 else -1)
-        self.pet.target_platform_id = side.id
-        self.pet.target_window_id = side.source_id
-        self.pet.support_platform_id = None
-        self.pet.velocity.x = vx
-        self.pet.velocity.y = vy
-        if direction:
-            self.pet.facing = Facing.RIGHT if direction > 0 else Facing.LEFT
-        self._transition(PetState.JUMP)
-
     def _maybe_grab_climb_side_while_jumping(self) -> None:
         step = self.path_plan.current_step if self.path_plan else None
-        side_id = self.pet.target_platform_id
+        side_id = self.pet.target_surface_id
         if step and step.action == TraversalAction.JUMP:
             candidate = self.snapshot.platform_by_id(step.to_surface_id)
             if candidate and candidate.climbable:
@@ -280,7 +219,7 @@ class PetController:
 
         side = self.snapshot.platform_by_id(side_id)
         if side is None or not side.climbable:
-            self.pet.target_platform_id = None
+            self.pet.target_surface_id = None
             return
 
         target_x = side.rect.center_x - self.pet.width / 2
@@ -300,8 +239,8 @@ class PetController:
         self.pet.position.x = target_x
         self.pet.velocity.x = 0.0
         self.pet.velocity.y = 0.0
-        self.pet.support_platform_id = None
-        self.pet.target_platform_id = side.id
+        self.pet.support_surface_id = None
+        self.pet.target_surface_id = side.id
         self.pet.facing = Facing.RIGHT if side.type == PlatformType.WINDOW_LEFT else Facing.LEFT
         if step and step.action == TraversalAction.JUMP and step.to_surface_id == side.id:
             self.path_plan.advance()
@@ -311,50 +250,10 @@ class PetController:
         self._transition(PetState.CLIMB)
 
     def _snap_to_climb_side(self) -> None:
-        side = self.snapshot.platform_by_id(self.pet.target_platform_id)
+        side = self.snapshot.platform_by_id(self.pet.target_surface_id)
         if side is None:
             return
         self.pet.position.x = side.rect.center_x - self.pet.width / 2
-
-    def _climb_reachability(self, side: Platform) -> str:
-        reachability = ReachabilityPolicy(self.config.physics, self.config.physics.edge_snap_distance)
-        top = self._top_platform_for_side(side)
-        if top is None:
-            return "unreachable"
-
-        if not reachability.can_climb_to_top(side, top):
-            return "unreachable"
-
-        bottom_gap = self.pet.bottom - side.rect.bottom
-        if bottom_gap <= self.config.physics.edge_snap_distance:
-            return "stand"
-        if bottom_gap <= self._max_jump_height():
-            return "jump"
-        return "unreachable"
-
-    def _can_ever_reach_climb_side(self, side: Platform) -> bool:
-        reachability = ReachabilityPolicy(self.config.physics, self.config.physics.edge_snap_distance)
-        top = self._top_platform_for_side(side)
-        if top is None:
-            return False
-        if not reachability.can_climb_to_top(side, top):
-            return False
-        bottom_gap = self.pet.bottom - side.rect.bottom
-        return bottom_gap <= self._max_jump_height()
-
-    def _top_platform_for_side(self, side: Platform) -> Platform | None:
-        return self.snapshot.platform_by_id(PlatformTopology.top_id_for_side(side))
-
-    def _max_jump_height(self) -> float:
-        jump_speed_y = abs(self.config.physics.jump_speed_y)
-        gravity = max(self.config.physics.gravity, 1.0)
-        return jump_speed_y * jump_speed_y / (2.0 * gravity)
-
-    def _max_jump_distance(self) -> float:
-        jump_speed_y = abs(self.config.physics.jump_speed_y)
-        gravity = max(self.config.physics.gravity, 1.0)
-        air_time = 2.0 * jump_speed_y / gravity
-        return self.config.physics.jump_speed_x * air_time
 
     def _keep_walking_on_platform(self, support: Platform | None, dt: float) -> None:
         now = time.monotonic()

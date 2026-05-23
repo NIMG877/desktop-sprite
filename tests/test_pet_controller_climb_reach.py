@@ -21,8 +21,8 @@ def make_controller(window_top_y: float, pet_bottom: float = 200) -> tuple[PetCo
         width=config.pet.width,
         height=config.pet.height,
         state=PetState.WALK,
-        support_platform_id="ground:work_area",
-        target_platform_id="window:123:left",
+        support_surface_id="ground:work_area",
+        target_surface_id="window:123:left",
     )
     controller.state_machine = BehaviorStateMachine(PetState.WALK)
     controller._state_goal_until = 0.0
@@ -83,56 +83,6 @@ def make_controller_with_side(window_top_y: float, window_bottom_y: float, pet_b
         timestamp=0,
     )
     return controller, side
-
-
-def test_climb_reachability_allows_standing_reach():
-    controller, side = make_controller(window_top_y=120)
-
-    assert controller._climb_reachability(side) == "stand"
-
-
-def test_climb_reachability_allows_jump_reach():
-    controller, side = make_controller_with_side(window_top_y=25, window_bottom_y=140)
-
-    assert controller._climb_reachability(side) == "jump"
-
-
-def test_climb_reachability_blocks_unreachable_edge():
-    controller, side = make_controller_with_side(window_top_y=-80, window_bottom_y=80)
-
-    assert controller._climb_reachability(side) == "unreachable"
-
-
-def test_unreachable_climb_target_is_cleared_instead_of_climbing():
-    controller, side = make_controller_with_side(window_top_y=-80, window_bottom_y=80)
-
-    controller._walk_toward_climb_side(side)
-
-    assert controller.pet.target_platform_id is None
-    assert controller.pet.state == PetState.IDLE
-
-
-def test_reachable_tall_edge_starts_jump_before_climb():
-    controller, side = make_controller_with_side(window_top_y=25, window_bottom_y=140)
-
-    controller._walk_toward_climb_side(side)
-
-    assert controller.pet.state == PetState.JUMP
-    assert controller.pet.support_platform_id is None
-    assert controller.pet.velocity.y < 0
-
-
-def test_high_window_top_can_still_be_climbable_when_window_bottom_is_reachable():
-    controller, side = make_controller_with_side(window_top_y=20, window_bottom_y=190)
-
-    assert controller._climb_reachability(side) == "stand"
-
-
-def test_window_bottom_above_pet_bottom_requires_jump_even_if_within_pet_height():
-    controller, side = make_controller_with_side(window_top_y=25, window_bottom_y=140)
-
-    assert 0 < controller.pet.bottom - side.rect.bottom < controller.pet.height
-    assert controller._climb_reachability(side) == "jump"
 
 
 def test_walk_toward_x_does_not_snap_at_edge_distance():
@@ -199,8 +149,8 @@ def test_controller_executes_vertical_move_plan():
     controller.state_machine = BehaviorStateMachine(PetState.CLIMB)
     controller.pet.position.x = side.rect.center_x - controller.pet.width / 2
     controller.pet.position.y = side.rect.bottom - controller.pet.height
-    controller.pet.support_platform_id = side.id
-    controller.pet.target_platform_id = side.id
+    controller.pet.support_surface_id = side.id
+    controller.pet.target_surface_id = side.id
     controller.path_plan = PathPlan(
         steps=[
             PathStep(TraversalAction.MOVE, side.id, side.id, side.rect.top, 1)
@@ -256,8 +206,8 @@ def test_controller_executes_fall_step_from_surface_edge():
 
     assert handled
     assert controller.pet.state == PetState.FALL
-    assert controller.pet.support_platform_id is None
-    assert controller.pet.target_platform_id == "window:123:top"
+    assert controller.pet.support_surface_id is None
+    assert controller.pet.target_surface_id == "window:123:top"
 
 
 def test_random_wander_prefers_current_platform_via_path_plan(monkeypatch):
@@ -343,7 +293,7 @@ def test_dragging_preserves_existing_path_plan_for_debug():
 def test_validate_keeps_active_climb_path_even_when_current_position_no_longer_reaches_side():
     controller, side = make_controller_with_side(window_top_y=25, window_bottom_y=140)
     controller.pet.state = PetState.CLIMB
-    controller.pet.target_platform_id = side.id
+    controller.pet.target_surface_id = side.id
     controller.pet.position.y = -20
     controller.path_plan = PathPlan(
         steps=[
@@ -380,8 +330,8 @@ def test_completed_climb_continues_with_next_path_edge():
     controller, side = make_controller(window_top_y=120)
     controller.pet.state = PetState.CLIMB
     controller.state_machine = BehaviorStateMachine(PetState.CLIMB)
-    controller.pet.support_platform_id = "window:123:top"
-    controller.pet.target_platform_id = None
+    controller.pet.support_surface_id = "window:123:top"
+    controller.pet.target_surface_id = None
     controller.pet.position.x = side.rect.center_x - controller.pet.width / 2
     controller.path_plan = PathPlan(
         steps=[
@@ -405,8 +355,8 @@ def test_completed_final_climb_finishes_path_on_top_platform():
     controller, side = make_controller(window_top_y=120)
     controller.pet.state = PetState.CLIMB
     controller.state_machine = BehaviorStateMachine(PetState.CLIMB)
-    controller.pet.support_platform_id = "window:123:top"
-    controller.pet.target_platform_id = None
+    controller.pet.support_surface_id = "window:123:top"
+    controller.pet.target_surface_id = None
     controller.path_plan = PathPlan(
         steps=[
             PathStep(TraversalAction.TRANSFORM, "ground:work_area", "window:123:top", side.rect.center_x - controller.pet.width / 2, 1, side.id)
@@ -419,14 +369,14 @@ def test_completed_final_climb_finishes_path_on_top_platform():
     controller._update_behavior(0.016)
 
     assert controller.path_plan is None
-    assert controller.pet.support_platform_id == "window:123:top"
+    assert controller.pet.support_surface_id == "window:123:top"
     assert controller.pet.state == PetState.IDLE
 
 
 def test_landing_tick_preserves_existing_path_plan():
     controller, _side = make_controller(window_top_y=120)
     controller.pet.state = PetState.IDLE
-    controller.pet.support_platform_id = "window:123:top"
+    controller.pet.support_surface_id = "window:123:top"
     controller._landed_on_platform_last_tick = True
     controller.path_plan = PathPlan(
         steps=[
@@ -446,8 +396,8 @@ def test_landing_tick_preserves_existing_path_plan():
 def test_jump_grab_uses_planned_wall_contact_point():
     controller, side = make_controller(window_top_y=120)
     controller.pet.state = PetState.JUMP
-    controller.pet.support_platform_id = None
-    controller.pet.target_platform_id = side.id
+    controller.pet.support_surface_id = None
+    controller.pet.target_surface_id = side.id
     controller.pet.position.x = side.rect.center_x - controller.pet.width / 2
     controller.pet.position.y = side.rect.top - controller.pet.height
     controller.path_plan = PathPlan(
@@ -478,7 +428,7 @@ def test_jump_grab_uses_planned_wall_contact_point():
     controller._maybe_grab_climb_side_while_jumping()
 
     assert controller.pet.state == PetState.CLIMB
-    assert controller.pet.target_platform_id == side.id
+    assert controller.pet.target_surface_id == side.id
     assert controller.path_plan is not None
     assert controller.path_plan.current_index == 1
 
@@ -486,8 +436,8 @@ def test_jump_grab_uses_planned_wall_contact_point():
 def test_landing_tick_does_not_start_new_path(monkeypatch):
     controller, _side = make_controller(window_top_y=120)
     controller.pet.state = PetState.IDLE
-    controller.pet.support_platform_id = "window:123:top"
-    controller.pet.target_platform_id = None
+    controller.pet.support_surface_id = "window:123:top"
+    controller.pet.target_surface_id = None
     controller.path_plan = None
     controller._landed_on_platform_last_tick = True
     called = False

@@ -35,8 +35,6 @@ class NavNodeKind(StrEnum):
     EVENT_POINT = "event_point"
     DROP_POINT = "drop_point"
     JUMP_POINT = "jump_point"
-    CLIMB_CONTACT = "climb_contact"
-    CLIMB_ENDPOINT = "climb_endpoint"
     TRANSFORM_POINT = "transform_point"
 
 
@@ -215,7 +213,7 @@ class PathFinder:
         physics: PhysicsConfig,
         target_window_id: int | None = None,
     ) -> PathPlan | None:
-        start_surface_id = pet.support_platform_id
+        start_surface_id = pet.support_surface_id
         if start_surface_id is None:
             return None
         start_platform = snapshot.platform_by_id(start_surface_id)

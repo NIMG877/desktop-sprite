@@ -335,17 +335,17 @@ class DebugOverlayWindow(QWidget):
         scale = qt_primary_screen_scale()
         lines = [
             f"{pet.state}",
-            f"xy=({pet.position.x:.0f},{pet.position.y:.0f})",
-            f"center=({pet.center_x:.0f},{pet.position.y + pet.height / 2:.0f})",
-            f"bottom={pet.bottom:.0f}",
-            f"floor={floor_y:.0f} over={overflow:.0f}",
-            f"scale={scale:.2f}",
+            # f"xy=({pet.position.x:.0f},{pet.position.y:.0f})",
+            f"center=({pet.center_x:.2f},{pet.position.y + pet.height / 2:.2f})",
+            # f"bottom={pet.bottom:.0f}",
+            # f"floor={floor_y:.0f} over={overflow:.0f}",
+            f"scale={scale:.1f}",
             f"v=({pet.velocity.x:.0f},{pet.velocity.y:.0f})",
             f"p={pet.support_platform_id or '-'}",
             # f"p_name={self._support_window_title()}",
         ]
-        walkable = sum(1 for platform in debug_state.snapshot.platforms if platform.walkable)
-        climbable = sum(1 for platform in debug_state.snapshot.platforms if platform.climbable)
+        # walkable = sum(1 for platform in debug_state.snapshot.platforms if platform.walkable)
+        # climbable = sum(1 for platform in debug_state.snapshot.platforms if platform.climbable)
         # lines.append(f"map platform={walkable} climb={climbable}")
         # lines.append(f"mesh nodes={len(mesh.nodes)} edges={graph_edges}")
         # lines.append(f"edge walk={walk_edges} drop={drop_edges} jump={jump_edges} climb={climb_edges}")
@@ -449,7 +449,8 @@ class DebugOverlayWindow(QWidget):
         for edge_index in range(path_plan.current_index, len(path_plan.edges)):
             edge = path_plan.edges[edge_index]
             for waypoint in self._edge_waypoints(edge):
-                segments.append((current, waypoint, edge_index, edge.action))
+                if self._distance(current, waypoint) >= 1:
+                    segments.append((current, waypoint, edge_index, edge.action))
                 current = waypoint
         return segments
 
@@ -462,41 +463,67 @@ class DebugOverlayWindow(QWidget):
         if target is None:
             return []
 
-        if edge.action == PathAction.CLIMB:
-            side = snapshot.platform_by_id(edge.side_platform_id)
-            if side is None:
-                return [QPointF(edge.approach_x + pet.width / 2, target.rect.top - pet.height / 2)]
-            return [
-                QPointF(side.rect.center_x, side.rect.bottom - pet.height / 2),
-                QPointF(side.rect.center_x, target.rect.top - pet.height / 2),
-            ]
+        points: list[QPointF] = []
+        if edge.action in {PathAction.JUMP, PathAction.FALL, PathAction.TRANSFORM}:
+            if edge.approach_point is not None:
+                points.append(self._body_center_point(edge.approach_point, pet))
+            if edge.land_point is not None:
+                points.append(self._body_center_point(edge.land_point, pet))
+            elif edge.land_t is not None:
+                points.append(self._body_center_point(self._surface_body_point(target, edge.land_t, pet), pet))
+            return points
 
-        if edge.action == PathAction.JUMP and target.climbable:
-            land_x = edge.land_x if edge.land_x is not None else edge.approach_x
-            return [QPointF(land_x + pet.width / 2, target.rect.bottom - pet.height / 2)]
+        if edge.land_point is not None:
+            return [self._body_center_point(edge.land_point, pet)]
+        return [self._body_center_point(self._surface_body_point(target, edge.target_t, pet), pet)]
 
-        land_x = edge.land_x if edge.land_x is not None else edge.approach_x
-        return [QPointF(land_x + pet.width / 2, target.rect.top - pet.height / 2)]
+    def _body_center_point(self, body_point: tuple[float, float], pet) -> QPointF:
+        return QPointF(body_point[0] + pet.width / 2, body_point[1] + pet.height / 2)
+
+    def _surface_body_point(self, platform: Platform, anchor_t: float, pet) -> tuple[float, float]:
+        if platform.climbable:
+            return platform.rect.center_x - pet.width / 2, anchor_t - pet.height
+        return anchor_t, platform.rect.top - pet.height
 
     def _edge_debug_steps(self, edge: PathEdge) -> list[str]:
+        snapshot = self.character.debug_state().snapshot
+        source = snapshot.platform_by_id(edge.from_platform_id)
+        target = snapshot.platform_by_id(edge.to_platform_id)
+        target_label = self._anchor_label(target, edge.target_t)
+        land_label = self._anchor_label(target, edge.land_t)
+        approach_label = self._point_label(edge.approach_point)
+        land_point_label = self._point_label(edge.land_point)
         if edge.action == PathAction.MOVE:
-            return [f"move t={edge.approach_x:.0f} -> {edge.to_platform_id}"]
+            return [f"move {target_label} -> {edge.to_platform_id}"]
         if edge.action == PathAction.TRANSFORM:
             side = edge.side_platform_id or "-"
             return [
-                f"contact t={edge.approach_x:.0f} -> {side}",
-                f"transform -> {edge.to_platform_id}",
+                f"contact {approach_label} via {side}",
+                f"transform land {land_label} {land_point_label} -> {edge.to_platform_id}",
             ]
         if edge.action == PathAction.JUMP:
-            land_x = edge.land_x if edge.land_x is not None else edge.approach_x
             return [
-                f"approach t={edge.approach_x:.0f}",
-                f"jump land t={land_x:.0f} -> {edge.to_platform_id}",
+                f"approach {approach_label}",
+                f"jump land {land_label} {land_point_label} -> {edge.to_platform_id}",
             ]
         if edge.action == PathAction.FALL:
-            land_x = edge.land_x if edge.land_x is not None else edge.approach_x
-            return [f"fall t={land_x:.0f} -> {edge.to_platform_id}"]
+            return [
+                f"drop {approach_label}",
+                f"fall land {land_label} {land_point_label} -> {edge.to_platform_id}",
+            ]
         return [f"{edge.action} -> {edge.to_platform_id}"]
+
+    def _anchor_label(self, platform: Platform | None, anchor_t: float | None) -> str:
+        if anchor_t is None:
+            return "t=-"
+        if platform is not None and platform.climbable:
+            return f"y={anchor_t:.0f}"
+        return f"x={anchor_t:.0f}"
+
+    def _point_label(self, point: tuple[float, float] | None) -> str:
+        if point is None:
+            return "(--, --)"
+        return f"({point[0]:.0f},{point[1]:.0f})"
 
     def _support_window_title(self) -> str:
         debug_state = self.character.debug_state()

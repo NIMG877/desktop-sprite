@@ -49,6 +49,8 @@ class InteractionConfig:
     throw_enabled: bool
     click_reaction: bool
     mouse_hover_reaction: bool
+    target_search_down_distance: float
+    target_search_up_distance: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,6 +75,10 @@ def load_config(path: str | Path | None = None) -> AppConfig:
 
     _load_character_profiles(config_path.parent, data)
     app_data = data["app"]
+    interaction_data = data["interaction"]
+    interaction_data.setdefault("target_search_down_distance", 220.0)
+    interaction_data.setdefault("target_search_up_distance", 80.0)
+
     return AppConfig(
         app=RuntimeConfig(
             fps=app_data["fps"],
@@ -83,7 +89,7 @@ def load_config(path: str | Path | None = None) -> AppConfig:
         pet=PetConfig(**data["pet"]),
         physics=PhysicsConfig(**data["physics"]),
         behavior=BehaviorConfig(**data["behavior"]),
-        interaction=InteractionConfig(**data["interaction"]),
+        interaction=InteractionConfig(**interaction_data),
         character=CharacterConfig(**data["character"]),
     )
 

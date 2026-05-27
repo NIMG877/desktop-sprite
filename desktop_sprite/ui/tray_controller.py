@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPen, QPixmap
@@ -11,8 +12,9 @@ logger = logging.getLogger(__name__)
 
 
 class TrayController:
-    def __init__(self, window: QWidget) -> None:
+    def __init__(self, window: QWidget, on_set_target: Callable[[], None] | None = None) -> None:
         self.window = window
+        self.on_set_target = on_set_target
         self.tray = QSystemTrayIcon(self._create_icon(), window)
         self.tray.setToolTip("Desktop Sprite")
         self.tray.setContextMenu(self._create_menu())
@@ -30,6 +32,11 @@ class TrayController:
 
     def _create_menu(self) -> QMenu:
         menu = QMenu(self.window)
+        if self.on_set_target is not None:
+            set_target_action = QAction("设置目标点", menu)
+            set_target_action.triggered.connect(self.on_set_target)
+            menu.addAction(set_target_action)
+            menu.addSeparator()
         quit_action = QAction("退出", menu)
         quit_action.triggered.connect(self.quit)
         menu.addAction(quit_action)

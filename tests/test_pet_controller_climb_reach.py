@@ -226,6 +226,38 @@ def test_random_wander_prefers_current_platform_via_path_plan(monkeypatch):
     assert controller.path_plan.current_step.to_surface_id == support.id
 
 
+def test_set_target_surface_point_uses_pathfinder_plan():
+    controller, _side = make_controller(window_top_y=120)
+
+    success = controller.set_target_surface_point("ground:work_area", 180)
+
+    assert success
+    assert controller.path_plan is not None
+    assert controller.path_plan.target_surface_id == "ground:work_area"
+    assert controller.path_plan.target_anchor_t == 180
+
+
+def test_set_target_surface_point_keeps_existing_plan_when_unreachable(monkeypatch):
+    controller, _side = make_controller(window_top_y=120)
+    existing = PathPlan(
+        steps=[
+            PathStep(TraversalAction.MOVE, "ground:work_area", "ground:work_area", 140, 1)
+        ],
+        current_index=0,
+        target_window_id=None,
+        snapshot_timestamp=1.0,
+        target_surface_id="ground:work_area",
+        target_anchor_t=140,
+    )
+    controller.path_plan = existing
+    monkeypatch.setattr(controller.pathfinder, "find_path_to_surface_point", lambda **_kwargs: None)
+
+    success = controller.set_target_surface_point("window:123:top", 100)
+
+    assert not success
+    assert controller.path_plan is existing
+
+
 def window_platforms(hwnd: int, left: float, top: float, right: float, bottom: float) -> list[Platform]:
     return [
         Platform(

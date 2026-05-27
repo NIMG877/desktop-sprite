@@ -7,6 +7,7 @@ from PySide6.QtWidgets import QApplication
 
 from desktop_sprite.core.character_factory import create_character
 from desktop_sprite.ui.sprite_window import SpriteWindow
+from desktop_sprite.ui.target_selector import TargetSelectorOverlay
 from desktop_sprite.ui.tray_controller import TrayController
 from desktop_sprite.utils.config import AppConfig, load_config
 from desktop_sprite.utils.logger import configure_logging
@@ -42,7 +43,8 @@ def main() -> int:
     character = create_character(config, character_type=args.character)
     window = SpriteWindow(character, config)
     character.set_own_window_handle(int(window.winId()))
-    tray = TrayController(window)
+    target_selector = TargetSelectorOverlay(character, config)
+    tray = TrayController(window, on_set_target=target_selector.start)
     tray.show()
     window.show()
 

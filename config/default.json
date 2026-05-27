@@ -26,7 +26,9 @@
     "draggable": true,
     "throw_enabled": true,
     "click_reaction": true,
-    "mouse_hover_reaction": true
+    "mouse_hover_reaction": true,
+    "target_search_down_distance": 220,
+    "target_search_up_distance": 80
   },
   "character": {
     "default_type": "pet",

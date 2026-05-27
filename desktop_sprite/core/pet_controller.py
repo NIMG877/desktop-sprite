@@ -98,6 +98,23 @@ class PetController:
         self.pet.support_surface_id = None
         self._transition(PetState.FALL)
 
+    def set_target_surface_point(self, surface_id: str, anchor_t: float) -> bool:
+        target = self.snapshot.platform_by_id(surface_id)
+        plan = self.pathfinder.find_path_to_surface_point(
+            pet=self.pet,
+            snapshot=self.snapshot,
+            target_surface_id=surface_id,
+            target_anchor_t=anchor_t,
+            physics=self.config.physics,
+            target_window_id=target.source_id if target else None,
+        )
+        if plan is None:
+            return False
+
+        self.path_plan = plan
+        self.pet.target_window_id = plan.target_window_id
+        return True
+
     def _refresh_environment_if_needed(self) -> None:
         now = time.monotonic()
         refresh_interval = 1.0 / max(self.config.app.fps, 1)

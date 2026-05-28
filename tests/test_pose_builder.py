@@ -128,3 +128,22 @@ def test_fly_and_land_flap_frequency_only_slightly_exceeds_hover():
 
     assert hover_frequency < fly_frequency <= hover_frequency * 1.15
     assert hover_frequency < land_frequency <= hover_frequency * 1.15
+
+
+def test_previous_open_wings_pose_uses_previous_elapsed_when_state_time_resets():
+    builder = PoseBuilder()
+    pet = make_pet(PetState.FLY)
+    pet.state_time = 0.0
+
+    previous_pose = builder.build(
+        pet,
+        phase=0.99,
+        width=84,
+        height=104,
+        state=PetState.OPEN_WINGS,
+        state_elapsed=0.7,
+    )
+
+    assert previous_pose.wings is not None
+    assert previous_pose.wings.openness == 1.0
+    assert previous_pose.wings.opacity == 225

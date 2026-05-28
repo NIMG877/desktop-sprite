@@ -71,7 +71,13 @@ class SpriteWindow(QWidget):
         if render_state.body is None or render_state.animation is None:
             return
         animation = render_state.animation
-        pose = self.pose_builder.build(render_state.body, animation.phase, render_state.pose_width, render_state.pose_height)
+        pose = self.pose_builder.build(
+            render_state.body,
+            animation.phase,
+            render_state.pose_width,
+            render_state.pose_height,
+            state_elapsed=animation.elapsed,
+        )
         if animation.previous_state is not None and animation.blend_alpha < 1.0:
             previous_pose = self.pose_builder.build(
                 render_state.body,
@@ -79,6 +85,7 @@ class SpriteWindow(QWidget):
                 render_state.pose_width,
                 render_state.pose_height,
                 state=animation.previous_state,
+                state_elapsed=animation.previous_elapsed,
             )
             pose = previous_pose.blend(pose, animation.blend_alpha)
         painter.save()

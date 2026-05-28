@@ -231,20 +231,29 @@ class RenderPose:
 
 
 class PoseBuilder:
-    def build(self, pet: Pet, phase: float, width: int, height: int, state: PetState | None = None) -> RenderPose:
+    def build(
+        self,
+        pet: Pet,
+        phase: float,
+        width: int,
+        height: int,
+        state: PetState | None = None,
+        state_elapsed: float | None = None,
+    ) -> RenderPose:
         resolved_state = state or pet.state
+        resolved_elapsed = pet.state_time if state_elapsed is None else state_elapsed
         cycle = phase * math.tau
         speed = clamp(abs(pet.velocity.x) / 160.0, 0.0, 1.6)
         fall_strength = clamp(max(pet.velocity.y, 0.0) / 1000.0, 0.0, 1.25)
 
         body = self._body(resolved_state, width, height, fall_strength)
         offset = self._offset(resolved_state, cycle, speed, fall_strength)
-        rotation = self._rotation(resolved_state, pet, fall_strength)
+        rotation = self._rotation(resolved_state, pet, fall_strength, resolved_elapsed)
         limbs = self._limbs(resolved_state, cycle, speed, fall_strength, width, height)
         scarf = self._scarf(resolved_state, cycle, width, height, fall_strength)
         eyes = self._eyes(resolved_state, cycle, width, height, fall_strength)
         shadow = self._shadow(resolved_state, width, height, fall_strength)
-        wings = self._wings(resolved_state, phase, pet, width, height)
+        wings = self._wings(resolved_state, phase, resolved_elapsed, width, height)
 
         return RenderPose(
             facing=pet.facing,
@@ -279,7 +288,7 @@ class PoseBuilder:
             return PosePoint(math.sin(cycle * 0.5) * 1.0, math.sin(cycle) * 2.0)
         return PosePoint(0.0, 0.0)
 
-    def _rotation(self, state: PetState, pet: Pet, fall_strength: float) -> float:
+    def _rotation(self, state: PetState, pet: Pet, fall_strength: float, state_elapsed: float) -> float:
         if state == PetState.FALL:
             drift = clamp(pet.velocity.x / 500.0, -1.0, 1.0)
             return -12.0 - fall_strength * 14.0 + drift * 8.0
@@ -292,7 +301,7 @@ class PoseBuilder:
         if state == PetState.DRAGGED:
             return clamp(pet.velocity.x / 70.0, -10.0, 10.0)
         if state in {PetState.OPEN_WINGS, PetState.FLY, PetState.HOVER, PetState.WING_LAND, PetState.CLOSE_WINGS}:
-            return math.sin(pet.state_time * 2.0) * 2.5
+            return math.sin(state_elapsed * 2.0) * 2.5
         return 0.0
 
     def _body(self, state: PetState, w: int, h: int, fall_strength: float) -> BodyPose:
@@ -452,14 +461,14 @@ class PoseBuilder:
             return ShadowPose(PoseRect(w * 0.34, h * 0.92, w * 0.34, h * 0.05), 35)
         return ShadowPose(PoseRect(w * 0.22, h * 0.84, w * 0.56, h * 0.10), 70)
 
-    def _wings(self, state: PetState, phase: float, pet: Pet, w: int, h: int) -> WingPose | None:
+    def _wings(self, state: PetState, phase: float, state_elapsed: float, w: int, h: int) -> WingPose | None:
         if not self._is_show_state(state):
             return None
 
         if state == PetState.OPEN_WINGS:
-            openness = clamp(pet.state_time / 0.7, 0.0, 1.0)
+            openness = clamp(state_elapsed / 0.7, 0.0, 1.0)
         elif state == PetState.CLOSE_WINGS:
-            openness = 1.0 - clamp(pet.state_time / 0.7, 0.0, 1.0)
+            openness = 1.0 - clamp(state_elapsed / 0.7, 0.0, 1.0)
         else:
             openness = 1.0
         flap = self._wing_flap(phase, state)

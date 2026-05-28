@@ -1,6 +1,8 @@
 from desktop_sprite.core.behavior_state_machine import BehaviorStateMachine
+from desktop_sprite.core.behavior_orchestrator import BehaviorOrchestrator, BehaviorPhaseName
 from desktop_sprite.core.pathfinding import PathFinder, PathPlan, PathStep, TraversalAction
 from desktop_sprite.core.pet_controller import PetController
+from desktop_sprite.core.pet_mode import ModeController, PetMode
 from desktop_sprite.environment.environment_snapshot import EnvironmentSnapshot
 from desktop_sprite.models.geometry import Rect, Vec2
 from desktop_sprite.models.platform import Platform, PlatformType
@@ -15,6 +17,8 @@ def make_controller(window_top_y: float, pet_bottom: float = 200) -> tuple[PetCo
     controller.config = config
     controller.pathfinder = PathFinder()
     controller.path_plan = None
+    controller.mode_controller = ModeController()
+    controller.orchestrator = BehaviorOrchestrator()
     controller.pet = Pet(
         position=Vec2(100, pet_bottom - config.pet.height),
         velocity=Vec2(0, 0),
@@ -224,6 +228,8 @@ def test_random_wander_prefers_current_platform_via_path_plan(monkeypatch):
     assert controller.path_plan.current_step.action == TraversalAction.MOVE
     assert controller.path_plan.current_step.from_surface_id == support.id
     assert controller.path_plan.current_step.to_surface_id == support.id
+    assert controller.mode_controller.mode == PetMode.GO_TO_TARGET
+    assert controller.orchestrator.phase.name == BehaviorPhaseName.PATH_EXECUTING
 
 
 def test_set_target_surface_point_uses_pathfinder_plan():
@@ -235,6 +241,8 @@ def test_set_target_surface_point_uses_pathfinder_plan():
     assert controller.path_plan is not None
     assert controller.path_plan.target_surface_id == "ground:work_area"
     assert controller.path_plan.target_anchor_t == 180
+    assert controller.mode_controller.mode == PetMode.GO_TO_TARGET
+    assert controller.orchestrator.phase.name == BehaviorPhaseName.PATH_EXECUTING
 
 
 def test_set_target_surface_point_keeps_existing_plan_when_unreachable(monkeypatch):
@@ -256,6 +264,81 @@ def test_set_target_surface_point_keeps_existing_plan_when_unreachable(monkeypat
 
     assert not success
     assert controller.path_plan is existing
+    assert controller.mode_controller.mode == PetMode.IDLE
+    assert controller.orchestrator.phase.name == BehaviorPhaseName.IDLE_WAIT
+
+
+def test_start_show_locks_mode_and_clears_path_plan():
+    controller, _side = make_controller(window_top_y=120)
+    controller.path_plan = PathPlan(
+        steps=[
+            PathStep(TraversalAction.MOVE, "ground:work_area", "ground:work_area", 140, 1)
+        ],
+        current_index=0,
+        target_window_id=None,
+        snapshot_timestamp=1.0,
+        target_surface_id="ground:work_area",
+        target_anchor_t=140,
+    )
+
+    assert controller.start_show()
+
+    assert controller.path_plan is None
+    assert controller.mode_controller.mode == PetMode.SHOW
+    assert controller.mode_controller.locked
+    assert controller.orchestrator.phase.name == BehaviorPhaseName.SHOW_OPEN_WINGS
+    assert controller.pet.state == PetState.OPEN_WINGS
+
+
+def test_show_render_state_separates_canvas_from_pet_body():
+    controller, _side = make_controller(window_top_y=120)
+    original_x = controller.pet.position.x
+    original_y = controller.pet.position.y
+
+    controller.start_show()
+    render = controller.render_state()
+
+    assert controller.pet.position.x == original_x
+    assert controller.pet.position.y == original_y
+    assert render.width > controller.pet.width
+    assert render.height > controller.pet.height
+    assert render.pose_width == controller.pet.width
+    assert render.pose_height == controller.pet.height
+    assert render.body_offset_x > 0
+    assert render.body_offset_y > 0
+    assert render.x == controller.pet.position.x - render.body_offset_x
+    assert render.y == controller.pet.position.y - render.body_offset_y
+
+
+def test_show_mode_blocks_target_drag_poke_and_random_wander():
+    controller, _side = make_controller(window_top_y=120)
+    original_state = controller.pet.state
+
+    controller.start_show()
+
+    assert not controller.set_target_surface_point("ground:work_area", 180)
+    controller.start_drag(120, 120)
+    controller.poke()
+    controller._start_random_wander(controller.snapshot.platform_by_id("ground:work_area"))
+
+    assert controller.mode_controller.mode == PetMode.SHOW
+    assert controller.pet.state != PetState.DRAGGED
+    assert controller.pet.state != original_state or controller.pet.state == PetState.OPEN_WINGS
+    assert controller.path_plan is None
+
+
+def test_show_phases_finish_back_to_idle():
+    controller, _side = make_controller(window_top_y=120)
+    controller.start_show()
+
+    for seconds in [0.71, 1.21, 1.01, 5.01, 1.81, 0.71]:
+        controller.orchestrator.tick(seconds)
+        controller._update_show()
+
+    assert controller.mode_controller.mode == PetMode.IDLE
+    assert not controller.mode_controller.locked
+    assert controller.orchestrator.phase.name == BehaviorPhaseName.IDLE_WAIT
+    assert controller.pet.state == PetState.IDLE
 
 
 def window_platforms(hwnd: int, left: float, top: float, right: float, bottom: float) -> list[Platform]:
@@ -304,6 +387,8 @@ def test_controller_clears_path_when_next_platform_disappears():
     controller._validate_path_plan()
 
     assert controller.path_plan is None
+    assert controller.mode_controller.mode == PetMode.IDLE
+    assert controller.orchestrator.phase.name == BehaviorPhaseName.IDLE_WAIT
 
 
 def test_dragging_preserves_existing_path_plan_for_debug():
@@ -403,6 +488,8 @@ def test_completed_final_climb_finishes_path_on_top_platform():
     assert controller.path_plan is None
     assert controller.pet.support_surface_id == "window:123:top"
     assert controller.pet.state == PetState.IDLE
+    assert controller.mode_controller.mode == PetMode.IDLE
+    assert controller.orchestrator.phase.name == BehaviorPhaseName.IDLE_WAIT
 
 
 def test_landing_tick_preserves_existing_path_plan():

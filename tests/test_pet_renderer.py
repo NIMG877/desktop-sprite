@@ -31,7 +31,19 @@ def test_renderer_draws_non_empty_images_for_core_states():
     builder = PoseBuilder()
     renderer = PetRenderer()
 
-    for state in [PetState.IDLE, PetState.WALK, PetState.JUMP, PetState.CLIMB, PetState.FALL, PetState.DRAGGED]:
+    for state in [
+        PetState.IDLE,
+        PetState.WALK,
+        PetState.JUMP,
+        PetState.CLIMB,
+        PetState.FALL,
+        PetState.DRAGGED,
+        PetState.OPEN_WINGS,
+        PetState.FLY,
+        PetState.HOVER,
+        PetState.WING_LAND,
+        PetState.CLOSE_WINGS,
+    ]:
         image = QImage(84, 104, QImage.Format.Format_ARGB32)
         image.fill(0)
         painter = QPainter(image)

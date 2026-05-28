@@ -14,6 +14,11 @@ class PetState(StrEnum):
     FALL = "fall"
     DRAGGED = "dragged"
     SLEEP = "sleep"
+    OPEN_WINGS = "open_wings"
+    FLY = "fly"
+    HOVER = "hover"
+    WING_LAND = "wing_land"
+    CLOSE_WINGS = "close_wings"
 
 
 class Facing(StrEnum):

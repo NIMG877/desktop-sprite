@@ -1,14 +1,18 @@
 from __future__ import annotations
 
+import math
 import random
 import time
+from dataclasses import dataclass
 
 from desktop_sprite.core.animation_player import AnimationPlayer
+from desktop_sprite.core.behavior_orchestrator import BehaviorOrchestrator, BehaviorPhaseName
 from desktop_sprite.core.behavior_state_machine import BehaviorStateMachine
 from desktop_sprite.core.character import CharacterDebugState, CharacterRenderState
 from desktop_sprite.core.pathfinding import PathFinder, PathPlan, PathStep, TraversalAction
 from desktop_sprite.core.path_executor import PathExecutor
 from desktop_sprite.core.physics_engine import PhysicsEngine
+from desktop_sprite.core.pet_mode import ModeController, PetMode
 from desktop_sprite.environment.desktop_environment import DesktopEnvironment
 from desktop_sprite.environment.environment_snapshot import EnvironmentSnapshot
 from desktop_sprite.models.geometry import Vec2
@@ -20,6 +24,20 @@ from desktop_sprite.utils.config import AppConfig
 LOCAL_WANDER_PROBABILITY = 0.5
 WALK_TARGET_ARRIVAL_DISTANCE = 0.8
 MIN_WANDER_DISTANCE_FACTOR = 0.8
+SHOW_RENDER_SCALE_X = 5.0
+SHOW_RENDER_SCALE_Y = 2.6
+
+
+@dataclass(slots=True)
+class ShowContext:
+    start_x: float
+    start_y: float
+    hover_x: float
+    hover_y: float
+    land_x: float
+    land_y: float
+    render_width: int
+    render_height: int
 
 
 class PetController:
@@ -38,6 +56,8 @@ class PetController:
         self.pathfinder = PathFinder()
         self.path_executor = PathExecutor(self)
         self.path_plan: PathPlan | None = None
+        self.mode_controller = ModeController(PetMode.IDLE)
+        self.orchestrator = BehaviorOrchestrator(BehaviorPhaseName.IDLE_WAIT)
         self.state_machine = BehaviorStateMachine(self.pet.state)
         self.animation = AnimationPlayer()
         self.snapshot = self.environment.snapshot()
@@ -45,13 +65,22 @@ class PetController:
         self._state_goal_until = 0.0
         self._landed_on_platform_last_tick = False
         self._drag_offset = Vec2()
+        self._show_context: ShowContext | None = None
         self._pick_new_idle_goal()
 
     def set_own_window_handle(self, hwnd: int | None) -> None:
         self.environment.set_own_window_handle(hwnd)
 
     def tick(self, dt: float) -> None:
+        self._ensure_runtime_layers()
+        self.orchestrator.tick(dt)
         self._refresh_environment_if_needed()
+        if self.mode_controller.is_show():
+            self._update_show()
+            self.pet.state_time += dt
+            self.animation.set_state(self.pet.state)
+            self.animation.update(dt)
+            return
         self._update_behavior(dt)
         old_state = self.pet.state
         old_support_surface_id = self.pet.support_surface_id
@@ -67,6 +96,8 @@ class PetController:
         self.animation.update(dt)
 
     def start_drag(self, mouse_x: float, mouse_y: float) -> None:
+        if self._is_show_mode():
+            return
         self._transition(PetState.DRAGGED)
         self.pet.support_surface_id = None
         self.pet.target_surface_id = None
@@ -76,6 +107,8 @@ class PetController:
         self._record_drag(mouse_x, mouse_y)
 
     def drag_to(self, mouse_x: float, mouse_y: float) -> None:
+        if self._is_show_mode():
+            return
         if self.pet.state != PetState.DRAGGED:
             return
         self.pet.position.x = mouse_x - self._drag_offset.x
@@ -83,6 +116,8 @@ class PetController:
         self._record_drag(mouse_x, mouse_y)
 
     def release_drag(self, mouse_x: float, mouse_y: float) -> None:
+        if self._is_show_mode():
+            return
         self._record_drag(mouse_x, mouse_y)
         throw = self._drag_throw_velocity()
         if self.config.interaction.throw_enabled:
@@ -92,6 +127,8 @@ class PetController:
         self._transition(PetState.FALL)
 
     def poke(self) -> None:
+        if self._is_show_mode():
+            return
         if self.pet.state == PetState.DRAGGED:
             return
         self.pet.velocity.y = min(self.pet.velocity.y, -220)
@@ -99,6 +136,9 @@ class PetController:
         self._transition(PetState.FALL)
 
     def set_target_surface_point(self, surface_id: str, anchor_t: float) -> bool:
+        self._ensure_runtime_layers()
+        if self.mode_controller.is_show():
+            return False
         target = self.snapshot.platform_by_id(surface_id)
         plan = self.pathfinder.find_path_to_surface_point(
             pet=self.pet,
@@ -111,8 +151,44 @@ class PetController:
         if plan is None:
             return False
 
-        self.path_plan = plan
-        self.pet.target_window_id = plan.target_window_id
+        self._start_path_plan(plan)
+        return True
+
+    def start_show(self) -> bool:
+        self._ensure_runtime_layers()
+        if self.mode_controller.is_show():
+            return False
+
+        render_width = round(self.pet.width * SHOW_RENDER_SCALE_X)
+        render_height = round(self.pet.height * SHOW_RENDER_SCALE_Y)
+        screen = self.snapshot.screen_rect
+        work = self.snapshot.work_area_rect
+        start_x = self.pet.position.x
+        start_y = self.pet.position.y
+        hover_x = screen.left + screen.width / 2 - self.pet.width / 2
+        hover_y = screen.top + screen.height * 0.20
+        land_x = hover_x
+        land_y = work.bottom - self.pet.height
+
+        self._show_context = ShowContext(
+            start_x=start_x,
+            start_y=start_y,
+            hover_x=hover_x,
+            hover_y=hover_y,
+            land_x=land_x,
+            land_y=land_y,
+            render_width=render_width,
+            render_height=render_height,
+        )
+        self.path_plan = None
+        self.pet.target_window_id = None
+        self.pet.support_surface_id = None
+        self.pet.target_surface_id = None
+        self.pet.velocity = Vec2()
+        self.pet.position = Vec2(start_x, start_y)
+        self.mode_controller.set_mode(PetMode.SHOW, force=True, lock=True)
+        self.orchestrator.begin_show()
+        self._transition(PetState.OPEN_WINGS)
         return True
 
     def _refresh_environment_if_needed(self) -> None:
@@ -127,6 +203,8 @@ class PetController:
         self._last_environment_refresh = now
 
     def _update_behavior(self, dt: float) -> None:
+        if self._is_show_mode():
+            return
         if self.pet.state == PetState.DRAGGED:
             return
 
@@ -137,7 +215,7 @@ class PetController:
         if self.path_plan is None and self.pet.state == PetState.WALK:
             self.pet.velocity.x = 0.0
             self._transition(PetState.IDLE)
-            self._pick_new_idle_goal()
+            self._enter_idle_mode()
             return
 
         support = self.snapshot.platform_by_id(self.pet.support_surface_id)
@@ -180,7 +258,7 @@ class PetController:
             return
         step = self.path_plan.current_step
         if step is None:
-            self.path_plan = None
+            self._clear_path_plan()
             return
         if step.action == TraversalAction.MOVE and step.from_surface_id == step.to_surface_id:
             return
@@ -191,6 +269,8 @@ class PetController:
             self._finish_path_plan()
 
     def _finish_path_plan(self, *, finish_climb: bool = False) -> None:
+        self._ensure_runtime_layers()
+        self.orchestrator.advance(BehaviorPhaseName.PATH_FINISHED)
         self.path_plan = None
         self.pet.velocity.x = 0.0
         active_states = {PetState.FALL, PetState.JUMP, PetState.DRAGGED}
@@ -198,17 +278,46 @@ class PetController:
             active_states.add(PetState.CLIMB)
         if self.pet.state not in active_states:
             self._transition(PetState.IDLE)
-            self._pick_new_idle_goal()
+            self._enter_idle_mode()
+        else:
+            self._enter_idle_mode(pick_new_goal=False)
 
     def _validate_path_plan(self) -> None:
         if self.path_plan is None:
             return
         step = self.path_plan.current_step
         if step is None:
-            self.path_plan = None
+            self._clear_path_plan()
             return
         if not self._is_path_step_present(step):
-            self.path_plan = None
+            self._clear_path_plan()
+
+    def _start_path_plan(self, plan: PathPlan) -> None:
+        self._ensure_runtime_layers()
+        if self.mode_controller.is_show():
+            return
+        self.path_plan = plan
+        self.pet.target_window_id = plan.target_window_id
+        self.mode_controller.set_mode(PetMode.GO_TO_TARGET)
+        self.orchestrator.begin(BehaviorPhaseName.PATH_EXECUTING)
+
+    def _clear_path_plan(self) -> None:
+        self.path_plan = None
+        self._enter_idle_mode()
+
+    def _enter_idle_mode(self, *, pick_new_goal: bool = True) -> None:
+        self._ensure_runtime_layers()
+        if not self.mode_controller.set_mode(PetMode.IDLE):
+            return
+        self.orchestrator.begin(BehaviorPhaseName.IDLE_WAIT)
+        if pick_new_goal:
+            self._pick_new_idle_goal()
+
+    def _ensure_runtime_layers(self) -> None:
+        if not hasattr(self, "mode_controller"):
+            self.mode_controller = ModeController(PetMode.IDLE)
+        if not hasattr(self, "orchestrator"):
+            self.orchestrator = BehaviorOrchestrator(BehaviorPhaseName.IDLE_WAIT)
 
     def _is_path_step_present(self, step: PathStep) -> bool:
         if self.snapshot.platform_by_id(step.from_surface_id) is None:
@@ -218,6 +327,90 @@ class PetController:
         if step.contact_surface_id and self.snapshot.platform_by_id(step.contact_surface_id) is None:
             return False
         return True
+
+    def _is_show_mode(self) -> bool:
+        self._ensure_runtime_layers()
+        return self.mode_controller.is_show()
+
+    def _update_show(self) -> None:
+        context = getattr(self, "_show_context", None)
+        if context is None:
+            self._finish_show()
+            return
+
+        phase = self.orchestrator.phase.name
+        self._sync_show_state_to_phase()
+        if self.orchestrator.is_sequence_complete():
+            self._finish_show()
+            return
+
+        if phase == BehaviorPhaseName.SHOW_OPEN_WINGS:
+            self.pet.position = Vec2(context.start_x, context.start_y)
+            return
+
+        if phase == BehaviorPhaseName.SHOW_FLY:
+            t = self._smooth_progress(self.orchestrator.phase_progress())
+            self.pet.position = Vec2(
+                self._lerp(context.start_x, context.hover_x, t),
+                self._lerp(context.start_y, context.hover_y, t),
+            )
+            return
+
+        if phase == BehaviorPhaseName.SHOW_HOVER:
+            self.pet.position = Vec2(context.hover_x, context.hover_y + self._hover_offset())
+            return
+
+        if phase == BehaviorPhaseName.SHOW_TITLE:
+            self.pet.position = Vec2(context.hover_x, context.hover_y + self._hover_offset())
+            return
+
+        if phase == BehaviorPhaseName.SHOW_LAND:
+            t = self._smooth_progress(self.orchestrator.phase_progress())
+            self.pet.position = Vec2(
+                self._lerp(context.hover_x, context.land_x, t),
+                self._lerp(context.hover_y, context.land_y, t),
+            )
+            return
+
+        if phase == BehaviorPhaseName.SHOW_CLOSE_WINGS:
+            self.pet.position = Vec2(context.land_x, context.land_y)
+
+    def _sync_show_state_to_phase(self) -> None:
+        state_by_phase = {
+            BehaviorPhaseName.SHOW_OPEN_WINGS: PetState.OPEN_WINGS,
+            BehaviorPhaseName.SHOW_FLY: PetState.FLY,
+            BehaviorPhaseName.SHOW_HOVER: PetState.HOVER,
+            BehaviorPhaseName.SHOW_TITLE: PetState.HOVER,
+            BehaviorPhaseName.SHOW_LAND: PetState.WING_LAND,
+            BehaviorPhaseName.SHOW_CLOSE_WINGS: PetState.CLOSE_WINGS,
+        }
+        state = state_by_phase.get(self.orchestrator.phase.name)
+        if state is not None:
+            self._transition(state)
+
+    def _finish_show(self) -> None:
+        context = getattr(self, "_show_context", None)
+        if context is not None:
+            self.pet.position = Vec2(context.land_x, context.land_y)
+        self._show_context = None
+        self.pet.velocity = Vec2()
+        self.pet.support_surface_id = None
+        self.pet.target_surface_id = None
+        self.mode_controller.unlock()
+        self.mode_controller.set_mode(PetMode.IDLE, force=True)
+        self.orchestrator.begin(BehaviorPhaseName.IDLE_WAIT)
+        self._transition(PetState.IDLE)
+        self._pick_new_idle_goal()
+
+    def _hover_offset(self) -> float:
+        return math.sin(self.pet.state_time * 2.2) * 8.0
+
+    def _smooth_progress(self, value: float) -> float:
+        t = min(max(value, 0.0), 1.0)
+        return t * t * (3.0 - 2.0 * t)
+
+    def _lerp(self, start: float, end: float, t: float) -> float:
+        return start + (end - start) * t
 
     def _executor(self) -> PathExecutor:
         executor = getattr(self, "path_executor", None)
@@ -290,6 +483,8 @@ class PetController:
                 self.pet.facing = Facing.LEFT
 
     def _start_random_wander(self, support: Platform) -> bool:
+        if self._is_show_mode():
+            return True
         plan = None
         if random.random() > LOCAL_WANDER_PROBABILITY:
             plan = self._random_reachable_platform_plan(support)
@@ -299,8 +494,7 @@ class PetController:
             self._pick_new_idle_goal()
             return True
 
-        self.path_plan = plan
-        self.pet.target_window_id = plan.target_window_id
+        self._start_path_plan(plan)
         return True
 
     def _random_reachable_platform_plan(self, support: Platform) -> PathPlan | None:
@@ -409,19 +603,32 @@ class PetController:
         return Vec2((end[1] - start[1]) / dt, (end[2] - start[2]) / dt)
 
     def render_state(self) -> CharacterRenderState:
+        context = getattr(self, "_show_context", None)
+        width = context.render_width if context is not None else self.pet.width
+        height = context.render_height if context is not None else self.pet.height
+        body_offset_x = (width - self.pet.width) / 2 if context is not None else 0.0
+        body_offset_y = (height - self.pet.height) / 2 if context is not None else 0.0
         return CharacterRenderState(
-            x=self.pet.position.x,
-            y=self.pet.position.y,
-            width=self.pet.width,
-            height=self.pet.height,
+            x=self.pet.position.x - body_offset_x,
+            y=self.pet.position.y - body_offset_y,
+            width=width,
+            height=height,
             body=self.pet,
-            animation=self.animation,
+            animation=getattr(self, "animation", None),
+            body_width=self.pet.width,
+            body_height=self.pet.height,
+            body_offset_x=body_offset_x,
+            body_offset_y=body_offset_y,
         )
 
     def debug_state(self) -> CharacterDebugState:
+        self._ensure_runtime_layers()
         return CharacterDebugState(
             snapshot=self.snapshot,
             pathfinder=self.pathfinder,
             path_plan=self.path_plan,
             physics=self.config.physics,
+            mode=self.mode_controller.mode,
+            phase=self.orchestrator.phase.name,
+            phase_elapsed=self.orchestrator.phase.elapsed,
         )

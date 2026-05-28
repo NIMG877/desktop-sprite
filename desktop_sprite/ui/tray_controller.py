@@ -12,9 +12,15 @@ logger = logging.getLogger(__name__)
 
 
 class TrayController:
-    def __init__(self, window: QWidget, on_set_target: Callable[[], None] | None = None) -> None:
+    def __init__(
+        self,
+        window: QWidget,
+        on_set_target: Callable[[], None] | None = None,
+        on_show: Callable[[], None] | None = None,
+    ) -> None:
         self.window = window
         self.on_set_target = on_set_target
+        self.on_show = on_show
         self.tray = QSystemTrayIcon(self._create_icon(), window)
         self.tray.setToolTip("Desktop Sprite")
         self.tray.setContextMenu(self._create_menu())
@@ -32,6 +38,10 @@ class TrayController:
 
     def _create_menu(self) -> QMenu:
         menu = QMenu(self.window)
+        if self.on_show is not None:
+            show_action = QAction("展示", menu)
+            show_action.triggered.connect(self.on_show)
+            menu.addAction(show_action)
         if self.on_set_target is not None:
             set_target_action = QAction("设置目标点", menu)
             set_target_action.triggered.connect(self.on_set_target)

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from PySide6.QtCore import QPoint, QRectF, Qt
-from PySide6.QtGui import QColor, QPainter, QPen
+from PySide6.QtCore import QPoint, QPointF, QRectF, Qt
+from PySide6.QtGui import QColor, QPainter, QPen, QPolygonF
 
 from desktop_sprite.ui.render_pose import LimbPose, PoseRect, RenderPose
 
@@ -17,6 +17,7 @@ class PetRenderer:
             painter.translate(-width / 2, -height / 2)
 
             self._draw_shadow(painter, pose)
+            self._draw_wings(painter, pose)
             self._draw_limbs(painter, pose)
             self._draw_body(painter, pose)
             self._draw_scarf(painter, pose)
@@ -38,6 +39,42 @@ class PetRenderer:
         try:
             for limb in pose.limbs:
                 self._draw_limb(painter, limb)
+        finally:
+            painter.restore()
+
+    def _draw_wings(self, painter: QPainter, pose: RenderPose) -> None:
+        if pose.wings is None or pose.wings.opacity <= 0:
+            return
+        painter.save()
+        try:
+            wing = pose.wings
+            painter.setPen(QPen(QColor(210, 230, 245, min(wing.opacity + 20, 255)), 2))
+            painter.setBrush(QColor(245, 250, 255, wing.opacity))
+            painter.drawPolygon(
+                QPolygonF(
+                    [
+                        self._point(wing.left_root),
+                        self._point(wing.left_tip),
+                        self._point(wing.left_lower),
+                    ]
+                )
+            )
+            painter.drawPolygon(
+                QPolygonF(
+                    [
+                        self._point(wing.right_root),
+                        self._point(wing.right_tip),
+                        self._point(wing.right_lower),
+                    ]
+                )
+            )
+            painter.setPen(QPen(QColor(215, 232, 245, min(wing.opacity + 10, 255)), 2))
+            for root, tip, lower in (
+                (wing.left_root, wing.left_tip, wing.left_lower),
+                (wing.right_root, wing.right_tip, wing.right_lower),
+            ):
+                painter.drawLine(QPoint(round(root.x), round(root.y)), QPoint(round(tip.x), round(tip.y)))
+                painter.drawLine(QPoint(round(root.x), round(root.y)), QPoint(round(lower.x), round(lower.y)))
         finally:
             painter.restore()
 
@@ -112,6 +149,9 @@ class PetRenderer:
     def _draw_sleep_eye(self, painter: QPainter, rect: PoseRect) -> None:
         y = rect.y + rect.height / 2
         painter.drawLine(QPoint(round(rect.x), round(y)), QPoint(round(rect.x + rect.width), round(y)))
+
+    def _point(self, point) -> QPointF:
+        return QPointF(point.x, point.y)
 
     def _draw_ellipse(self, painter: QPainter, rect: PoseRect) -> None:
         painter.drawEllipse(QRectF(rect.x, rect.y, rect.width, rect.height))

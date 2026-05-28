@@ -6,6 +6,7 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QApplication
 
 from desktop_sprite.core.character_factory import create_character
+from desktop_sprite.ui.show_overlay import ShowOverlayWindow
 from desktop_sprite.ui.sprite_window import SpriteWindow
 from desktop_sprite.ui.target_selector import TargetSelectorOverlay
 from desktop_sprite.ui.tray_controller import TrayController
@@ -44,7 +45,14 @@ def main() -> int:
     window = SpriteWindow(character, config)
     character.set_own_window_handle(int(window.winId()))
     target_selector = TargetSelectorOverlay(character, config)
-    tray = TrayController(window, on_set_target=target_selector.start)
+    show_overlay = ShowOverlayWindow(character)
+
+    def start_show() -> None:
+        if character.start_show():
+            target_selector.stop()
+            show_overlay.start()
+
+    tray = TrayController(window, on_set_target=target_selector.start, on_show=start_show)
     tray.show()
     window.show()
 

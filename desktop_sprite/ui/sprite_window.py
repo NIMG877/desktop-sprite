@@ -53,6 +53,8 @@ class SpriteWindow(QWidget):
                 self.resize(render_state.width, render_state.height)
             self.move(round(render_state.x), round(render_state.y))
             self.update()
+            if self.character.debug_state().mode.value == "show":
+                self.raise_()
             if self.debug_overlay is not None:
                 self.debug_overlay.sync_to_snapshot()
         except KeyboardInterrupt:
@@ -69,27 +71,34 @@ class SpriteWindow(QWidget):
         if render_state.body is None or render_state.animation is None:
             return
         animation = render_state.animation
-        pose = self.pose_builder.build(
-            render_state.body,
-            animation.phase,
-            self.width(),
-            self.height(),
-        )
+        pose = self.pose_builder.build(render_state.body, animation.phase, render_state.pose_width, render_state.pose_height)
         if animation.previous_state is not None and animation.blend_alpha < 1.0:
             previous_pose = self.pose_builder.build(
                 render_state.body,
                 animation.previous_phase,
-                self.width(),
-                self.height(),
+                render_state.pose_width,
+                render_state.pose_height,
                 state=animation.previous_state,
             )
             pose = previous_pose.blend(pose, animation.blend_alpha)
+        painter.save()
+        painter.translate(render_state.body_offset_x, render_state.body_offset_y)
         self.pet_renderer.draw_pose(
             painter,
             pose,
-            self.width(),
-            self.height(),
+            render_state.pose_width,
+            render_state.pose_height,
         )
+        painter.restore()
+
+        if self.config.app.debug_draw:
+            self._draw_debug_window_bounds(painter)
+
+    def _draw_debug_window_bounds(self, painter: QPainter) -> None:
+        pen = QPen(QColor(255, 40, 40, 230), 2, Qt.PenStyle.DashLine)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRect(QRectF(1, 1, max(self.width() - 2, 0), max(self.height() - 2, 0)))
 
     def mousePressEvent(self, event) -> None:
         if event.button() != Qt.MouseButton.LeftButton:
@@ -262,7 +271,8 @@ class DebugOverlayWindow(QWidget):
                         self._draw_arrowhead(painter, start, end, color, 5)
 
     def _draw_nav_node_marker(self, painter: QPainter, node) -> None:
-        point = QPointF(node.x + self.character.render_state().width / 2, node.y + self.character.render_state().height / 2)
+        render_state = self.character.render_state()
+        point = QPointF(node.x + render_state.pose_width / 2, node.y + render_state.pose_height / 2)
         color = QColor(55, 135, 255, 160)
         if node.kind == NavNodeKind.DROP_POINT:
             color = QColor(70, 110, 220, 135)
@@ -325,20 +335,24 @@ class DebugOverlayWindow(QWidget):
             lines.append(f"surfaces h={horizontal} v={vertical}")
             lines.append(f"graph nodes={len(graph.nodes)} edges={graph_edges}")
             lines.append(f"edge move={move_edges} fall={fall_edges} jump={jump_edges} transform={transform_edges}")
+            lines.append(f"mode={debug_state.mode}")
+            lines.append(f"phase={debug_state.phase} {debug_state.phase_elapsed:.2f}s")
             lines.append("path=-")
             return lines
         floor_y = debug_state.snapshot.work_area_rect.bottom
         overflow = pet.bottom - floor_y
         scale = qt_primary_screen_scale()
         lines = [
-            f"{pet.state}",
+            f"mode={debug_state.mode}",
+            f"phase={debug_state.phase} {debug_state.phase_elapsed:.2f}s",
+            f"behavior:{pet.state}",
             # f"xy=({pet.position.x:.0f},{pet.position.y:.0f})",
             f"center=({pet.center_x:.2f},{pet.position.y + pet.height / 2:.2f})",
             # f"bottom={pet.bottom:.0f}",
             # f"floor={floor_y:.0f} over={overflow:.0f}",
             f"scale={scale:.1f}",
             f"v=({pet.velocity.x:.0f},{pet.velocity.y:.0f})",
-            f"p={pet.support_surface_id or '-'}",
+            f"platform={pet.support_surface_id or '-'}",
             # f"p_name={self._support_window_title()}",
         ]
         # walkable = sum(1 for platform in debug_state.snapshot.platforms if platform.walkable)

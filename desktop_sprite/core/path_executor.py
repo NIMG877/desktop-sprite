@@ -19,7 +19,7 @@ class PathExecutor:
         if step is None:
             return False
         if not controller._is_path_step_present(step):
-            controller.path_plan = None
+            controller._clear_path_plan()
             return False
 
         if controller.pet.support_surface_id == step.to_surface_id and step.action != TraversalAction.MOVE:
@@ -31,12 +31,12 @@ class PathExecutor:
             return self.execute_path_plan()
 
         if controller.pet.support_surface_id != step.from_surface_id:
-            controller.path_plan = None
+            controller._clear_path_plan()
             return False
 
         if step.action == TraversalAction.TRANSFORM:
             if not self.execute_transform_step(step):
-                controller.path_plan = None
+                controller._clear_path_plan()
                 return False
             return True
 
@@ -50,7 +50,7 @@ class PathExecutor:
         if step.action == TraversalAction.FALL:
             source = controller.snapshot.platform_by_id(step.from_surface_id)
             if source is None:
-                controller.path_plan = None
+                controller._clear_path_plan()
                 return False
             if self.move_along_surface(source, step.target_t):
                 controller.pet.support_surface_id = None
@@ -61,7 +61,7 @@ class PathExecutor:
         if step.action == TraversalAction.JUMP:
             source = controller.snapshot.platform_by_id(step.from_surface_id)
             if source is None:
-                controller.path_plan = None
+                controller._clear_path_plan()
                 return False
             if self.move_along_surface(source, step.target_t):
                 self.start_jump_toward_surface(step)
@@ -138,7 +138,7 @@ class PathExecutor:
         controller = self.controller
         target = controller.snapshot.platform_by_id(step.to_surface_id)
         if target is None:
-            controller.path_plan = None
+            controller._clear_path_plan()
             return True
         reached = self.move_along_surface(target, step.target_t)
         if reached:
@@ -150,11 +150,11 @@ class PathExecutor:
         controller = self.controller
         target = controller.snapshot.platform_by_id(step.to_surface_id)
         if target is None:
-            controller.path_plan = None
+            controller._clear_path_plan()
             return
         land_point = step.land_point or step.approach_point
         if land_point is None:
-            controller.path_plan = None
+            controller._clear_path_plan()
             return
         if target.climbable:
             target_x, target_y = land_point

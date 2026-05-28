@@ -22,6 +22,9 @@ class PosePoint:
     def blend(self, other: "PosePoint", t: float) -> "PosePoint":
         return PosePoint(lerp(self.x, other.x, t), lerp(self.y, other.y, t))
 
+    def moved_by(self, dx: float, dy: float) -> "PosePoint":
+        return PosePoint(self.x + dx, self.y + dy)
+
 
 @dataclass(frozen=True, slots=True)
 class PoseRect:
@@ -37,6 +40,9 @@ class PoseRect:
             lerp(self.width, other.width, t),
             lerp(self.height, other.height, t),
         )
+
+    def moved_by(self, dx: float, dy: float) -> "PoseRect":
+        return PoseRect(self.x + dx, self.y + dy, self.width, self.height)
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,6 +62,15 @@ class LimbPose:
             lerp(self.terminal_radius, other.terminal_radius, t),
         )
 
+    def moved_by(self, dx: float, dy: float) -> "LimbPose":
+        return LimbPose(
+            self.root.moved_by(dx, dy),
+            self.joint.moved_by(dx, dy),
+            self.end.moved_by(dx, dy),
+            self.radius,
+            self.terminal_radius,
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class BodyPose:
@@ -68,6 +83,13 @@ class BodyPose:
             self.back.blend(other.back, t),
             self.front.blend(other.front, t),
             self.highlight.blend(other.highlight, t),
+        )
+
+    def moved_by(self, dx: float, dy: float) -> "BodyPose":
+        return BodyPose(
+            self.back.moved_by(dx, dy),
+            self.front.moved_by(dx, dy),
+            self.highlight.moved_by(dx, dy),
         )
 
 
@@ -88,6 +110,15 @@ class EyePose:
             sleeping=other.sleeping if t >= 0.5 else self.sleeping,
         )
 
+    def moved_by(self, dx: float, dy: float) -> "EyePose":
+        return EyePose(
+            self.left.moved_by(dx, dy),
+            self.right.moved_by(dx, dy),
+            self.left_highlight.moved_by(dx, dy),
+            self.right_highlight.moved_by(dx, dy),
+            self.sleeping,
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class ScarfPose:
@@ -104,6 +135,14 @@ class ScarfPose:
             self.tail_b.blend(other.tail_b, t),
         )
 
+    def moved_by(self, dx: float, dy: float) -> "ScarfPose":
+        return ScarfPose(
+            self.band.moved_by(dx, dy),
+            self.tail_a.moved_by(dx, dy),
+            self.tail_tip.moved_by(dx, dy),
+            self.tail_b.moved_by(dx, dy),
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class ShadowPose:
@@ -112,6 +151,42 @@ class ShadowPose:
 
     def blend(self, other: "ShadowPose", t: float) -> "ShadowPose":
         return ShadowPose(self.ellipse.blend(other.ellipse, t), round(lerp(self.opacity, other.opacity, t)))
+
+    def moved_by(self, dx: float, dy: float) -> "ShadowPose":
+        return ShadowPose(self.ellipse.moved_by(dx, dy), self.opacity)
+
+
+@dataclass(frozen=True, slots=True)
+class WingPose:
+    left_root: PosePoint
+    left_tip: PosePoint
+    left_lower: PosePoint
+    right_root: PosePoint
+    right_tip: PosePoint
+    right_lower: PosePoint
+    opacity: int
+
+    def blend(self, other: "WingPose", t: float) -> "WingPose":
+        return WingPose(
+            self.left_root.blend(other.left_root, t),
+            self.left_tip.blend(other.left_tip, t),
+            self.left_lower.blend(other.left_lower, t),
+            self.right_root.blend(other.right_root, t),
+            self.right_tip.blend(other.right_tip, t),
+            self.right_lower.blend(other.right_lower, t),
+            round(lerp(self.opacity, other.opacity, t)),
+        )
+
+    def moved_by(self, dx: float, dy: float) -> "WingPose":
+        return WingPose(
+            self.left_root.moved_by(dx, dy),
+            self.left_tip.moved_by(dx, dy),
+            self.left_lower.moved_by(dx, dy),
+            self.right_root.moved_by(dx, dy),
+            self.right_tip.moved_by(dx, dy),
+            self.right_lower.moved_by(dx, dy),
+            self.opacity,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,6 +199,7 @@ class RenderPose:
     scarf: ScarfPose
     shadow: ShadowPose
     limbs: tuple[LimbPose, LimbPose, LimbPose, LimbPose]
+    wings: WingPose | None = None
     edge_line: tuple[PosePoint, PosePoint] | None = None
 
     def blend(self, other: "RenderPose", t: float) -> "RenderPose":
@@ -136,8 +212,16 @@ class RenderPose:
             scarf=self.scarf.blend(other.scarf, t),
             shadow=self.shadow.blend(other.shadow, t),
             limbs=tuple(a.blend(b, t) for a, b in zip(self.limbs, other.limbs)),  # type: ignore[arg-type]
+            wings=self._blend_wings(other, t),
             edge_line=other.edge_line if t >= 0.5 else self.edge_line,
         )
+
+    def _blend_wings(self, other: "RenderPose", t: float) -> WingPose | None:
+        if self.wings is None:
+            return other.wings if t >= 0.5 else None
+        if other.wings is None:
+            return None if t >= 0.5 else self.wings
+        return self.wings.blend(other.wings, t)
 
 
 class PoseBuilder:
@@ -154,6 +238,7 @@ class PoseBuilder:
         scarf = self._scarf(resolved_state, cycle, width, height, fall_strength)
         eyes = self._eyes(resolved_state, cycle, width, height, fall_strength)
         shadow = self._shadow(resolved_state, width, height, fall_strength)
+        wings = self._wings(resolved_state, cycle, pet, width, height)
 
         return RenderPose(
             facing=pet.facing,
@@ -164,8 +249,12 @@ class PoseBuilder:
             scarf=scarf,
             shadow=shadow,
             limbs=limbs,
+            wings=wings,
             edge_line=None,
         )
+
+    def _is_show_state(self, state: PetState) -> bool:
+        return state in {PetState.OPEN_WINGS, PetState.FLY, PetState.HOVER, PetState.WING_LAND, PetState.CLOSE_WINGS}
 
     def _offset(self, state: PetState, cycle: float, speed: float, fall_strength: float) -> PosePoint:
         if state == PetState.WALK:
@@ -180,6 +269,8 @@ class PoseBuilder:
             return PosePoint(0.0, 5.0 + fall_strength * 2.0)
         if state == PetState.DRAGGED:
             return PosePoint(math.sin(cycle) * 1.2, math.cos(cycle) * 1.0)
+        if state in {PetState.OPEN_WINGS, PetState.FLY, PetState.HOVER, PetState.WING_LAND, PetState.CLOSE_WINGS}:
+            return PosePoint(math.sin(cycle * 0.5) * 1.0, math.sin(cycle) * 2.0)
         return PosePoint(0.0, 0.0)
 
     def _rotation(self, state: PetState, pet: Pet, fall_strength: float) -> float:
@@ -194,6 +285,8 @@ class PoseBuilder:
             return 7.0 * lift + drift * 8.0
         if state == PetState.DRAGGED:
             return clamp(pet.velocity.x / 70.0, -10.0, 10.0)
+        if state in {PetState.OPEN_WINGS, PetState.FLY, PetState.HOVER, PetState.WING_LAND, PetState.CLOSE_WINGS}:
+            return math.sin(pet.state_time * 2.0) * 2.5
         return 0.0
 
     def _body(self, state: PetState, w: int, h: int, fall_strength: float) -> BodyPose:
@@ -218,6 +311,12 @@ class PoseBuilder:
                 PoseRect(w * 0.31, h * 0.22, w * 0.20, h * 0.17),
             )
         if state == PetState.JUMP:
+            return BodyPose(
+                PoseRect(w * 0.23, h * 0.16, w * 0.56, h * 0.68),
+                PoseRect(w * 0.20, h * 0.12, w * 0.56, h * 0.66),
+                PoseRect(w * 0.32, h * 0.22, w * 0.18, h * 0.17),
+            )
+        if state in {PetState.OPEN_WINGS, PetState.FLY, PetState.HOVER, PetState.WING_LAND, PetState.CLOSE_WINGS}:
             return BodyPose(
                 PoseRect(w * 0.23, h * 0.16, w * 0.56, h * 0.68),
                 PoseRect(w * 0.20, h * 0.12, w * 0.56, h * 0.66),
@@ -269,6 +368,15 @@ class PoseBuilder:
                 LimbPose(PosePoint(w * 0.62, h * 0.43), PosePoint(w * 0.72, h * 0.25), PosePoint(w * 0.78, h * 0.09 - tuck), radius, terminal),
                 LimbPose(PosePoint(w * 0.39, h * 0.72), PosePoint(w * 0.33, h * 0.78), PosePoint(w * 0.28, h * 0.78 + tuck), radius, terminal),
                 LimbPose(PosePoint(w * 0.58, h * 0.72), PosePoint(w * 0.66, h * 0.78), PosePoint(w * 0.72, h * 0.78 - tuck), radius, terminal),
+            )
+
+        if state in {PetState.OPEN_WINGS, PetState.FLY, PetState.HOVER, PetState.WING_LAND, PetState.CLOSE_WINGS}:
+            arm_lift = math.sin(cycle) * h * 0.02
+            return (
+                LimbPose(PosePoint(w * 0.32, h * 0.43), PosePoint(w * 0.20, h * 0.34 + arm_lift), PosePoint(w * 0.13, h * 0.25 + arm_lift), radius, terminal),
+                LimbPose(PosePoint(w * 0.64, h * 0.43), PosePoint(w * 0.78, h * 0.34 - arm_lift), PosePoint(w * 0.86, h * 0.25 - arm_lift), radius, terminal),
+                LimbPose(PosePoint(w * 0.39, h * 0.72), PosePoint(w * 0.35, h * 0.80), PosePoint(w * 0.31, h * 0.86), radius, terminal),
+                LimbPose(PosePoint(w * 0.58, h * 0.72), PosePoint(w * 0.64, h * 0.80), PosePoint(w * 0.69, h * 0.86), radius, terminal),
             )
 
         stride = math.sin(cycle) * h * 0.05 * max(speed, 0.35)
@@ -334,4 +442,30 @@ class PoseBuilder:
             return ShadowPose(PoseRect(w * 0.34, h * 0.91, w * (0.40 - fall_strength * 0.12), h * 0.055), round(36 - fall_strength * 14))
         if state == PetState.JUMP:
             return ShadowPose(PoseRect(w * 0.30, h * 0.90, w * 0.42, h * 0.06), 42)
+        if state in {PetState.OPEN_WINGS, PetState.FLY, PetState.HOVER, PetState.WING_LAND, PetState.CLOSE_WINGS}:
+            return ShadowPose(PoseRect(w * 0.34, h * 0.92, w * 0.34, h * 0.05), 35)
         return ShadowPose(PoseRect(w * 0.22, h * 0.84, w * 0.56, h * 0.10), 70)
+
+    def _wings(self, state: PetState, cycle: float, pet: Pet, w: int, h: int) -> WingPose | None:
+        if not self._is_show_state(state):
+            return None
+
+        if state == PetState.OPEN_WINGS:
+            openness = clamp(pet.state_time / 0.7, 0.0, 1.0)
+        elif state == PetState.CLOSE_WINGS:
+            openness = 1.0 - clamp(pet.state_time / 0.7, 0.0, 1.0)
+        else:
+            openness = 1.0
+        flap = math.sin(cycle) * h * 0.10 * max(openness, 0.2)
+        span = w * (0.62 + 1.25 * openness)
+        lift = h * (0.10 + 0.62 * openness)
+        lower = h * (0.34 + 0.18 * openness)
+        return WingPose(
+            left_root=PosePoint(w * 0.34, h * 0.34),
+            left_tip=PosePoint(w * 0.34 - span, h * 0.42 - lift + flap),
+            left_lower=PosePoint(w * 0.28 - span * 0.52, h * lower + flap * 0.45),
+            right_root=PosePoint(w * 0.66, h * 0.34),
+            right_tip=PosePoint(w * 0.66 + span, h * 0.42 - lift - flap),
+            right_lower=PosePoint(w * 0.72 + span * 0.52, h * lower - flap * 0.45),
+            opacity=round(225 * openness),
+        )

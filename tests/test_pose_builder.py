@@ -55,3 +55,14 @@ def test_jump_pose_raises_hands_and_tucks_feet():
     assert pose.limbs[1].end.y < pose.body.front.y
     assert pose.limbs[2].end.y < 104 * 0.86
     assert pose.scarf.tail_tip.y < 104 * 0.50
+
+
+def test_show_pose_uses_requested_body_size():
+    builder = PoseBuilder()
+    pet = make_pet(PetState.HOVER)
+
+    pose = builder.build(pet, phase=0.25, width=84, height=104)
+
+    assert pose.body.front.width < 84
+    assert pose.body.front.height < 104
+    assert pose.wings is not None

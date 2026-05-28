@@ -20,8 +20,8 @@ class BehaviorPhaseName(StrEnum):
 SHOW_PHASE_DURATIONS: dict[BehaviorPhaseName, float] = {
     BehaviorPhaseName.SHOW_OPEN_WINGS: 0.7,
     BehaviorPhaseName.SHOW_FLY: 1.2,
-    BehaviorPhaseName.SHOW_HOVER: 1.0,
-    BehaviorPhaseName.SHOW_TITLE: 5.0,
+    BehaviorPhaseName.SHOW_HOVER: 0.5,
+    BehaviorPhaseName.SHOW_TITLE: 3.2,
     BehaviorPhaseName.SHOW_LAND: 1.8,
     BehaviorPhaseName.SHOW_CLOSE_WINGS: 0.7,
 }

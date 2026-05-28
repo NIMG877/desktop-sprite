@@ -66,3 +66,14 @@ def test_show_pose_uses_requested_body_size():
     assert pose.body.front.width < 84
     assert pose.body.front.height < 104
     assert pose.wings is not None
+
+
+def test_show_wing_lower_edges_stay_near_pose_bounds():
+    builder = PoseBuilder()
+    pet = make_pet(PetState.FLY)
+
+    pose = builder.build(pet, phase=0.25, width=84, height=104)
+
+    assert pose.wings is not None
+    assert pose.wings.left_lower.y < 104
+    assert pose.wings.right_lower.y < 104

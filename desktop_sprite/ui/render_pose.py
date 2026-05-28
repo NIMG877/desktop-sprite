@@ -165,6 +165,8 @@ class WingPose:
     right_tip: PosePoint
     right_lower: PosePoint
     opacity: int
+    openness: float = 1.0
+    flap: float = 0.0
 
     def blend(self, other: "WingPose", t: float) -> "WingPose":
         return WingPose(
@@ -175,6 +177,8 @@ class WingPose:
             self.right_tip.blend(other.right_tip, t),
             self.right_lower.blend(other.right_lower, t),
             round(lerp(self.opacity, other.opacity, t)),
+            lerp(self.openness, other.openness, t),
+            lerp(self.flap, other.flap, t),
         )
 
     def moved_by(self, dx: float, dy: float) -> "WingPose":
@@ -186,6 +190,8 @@ class WingPose:
             self.right_tip.moved_by(dx, dy),
             self.right_lower.moved_by(dx, dy),
             self.opacity,
+            self.openness,
+            self.flap,
         )
 
 
@@ -456,16 +462,20 @@ class PoseBuilder:
             openness = 1.0 - clamp(pet.state_time / 0.7, 0.0, 1.0)
         else:
             openness = 1.0
-        flap = math.sin(cycle) * h * 0.10 * max(openness, 0.2)
-        span = w * (0.62 + 1.25 * openness)
-        lift = h * (0.10 + 0.62 * openness)
-        lower = h * (0.34 + 0.18 * openness)
+        flap = math.sin(cycle)
+        flap_y = flap * h * 0.13 * max(openness, 0.2)
+        span = w * (0.48 + 1.50 * openness)
+        lift = h * (0.03 + 0.50 * openness)
+        lower = h * (0.68 - 0.18 * openness)
+        fold_drop = h * (0.34 * (1.0 - openness))
         return WingPose(
             left_root=PosePoint(w * 0.34, h * 0.34),
-            left_tip=PosePoint(w * 0.34 - span, h * 0.42 - lift + flap),
-            left_lower=PosePoint(w * 0.28 - span * 0.52, h * lower + flap * 0.45),
+            left_tip=PosePoint(w * 0.34 - span, h * 0.38 - lift + fold_drop + flap_y),
+            left_lower=PosePoint(w * 0.28 - span * (0.44 + openness * 0.16), lower + fold_drop * 0.35 + flap_y * 0.45),
             right_root=PosePoint(w * 0.66, h * 0.34),
-            right_tip=PosePoint(w * 0.66 + span, h * 0.42 - lift - flap),
-            right_lower=PosePoint(w * 0.72 + span * 0.52, h * lower - flap * 0.45),
+            right_tip=PosePoint(w * 0.66 + span, h * 0.38 - lift + fold_drop - flap_y),
+            right_lower=PosePoint(w * 0.72 + span * (0.44 + openness * 0.16), lower + fold_drop * 0.35 - flap_y * 0.45),
             opacity=round(225 * openness),
+            openness=openness,
+            flap=flap,
         )

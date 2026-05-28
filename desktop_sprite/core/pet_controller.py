@@ -166,7 +166,7 @@ class PetController:
         start_x = self.pet.position.x
         start_y = self.pet.position.y
         hover_x = screen.left + screen.width / 2 - self.pet.width / 2
-        hover_y = screen.top + screen.height * 0.20
+        hover_y = screen.top + screen.height * 0.3
         land_x = hover_x
         land_y = work.bottom - self.pet.height
 

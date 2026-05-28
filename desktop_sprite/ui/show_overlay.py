@@ -9,7 +9,7 @@ from desktop_sprite.core.character import DesktopCharacter
 from desktop_sprite.core.pet_mode import PetMode
 
 
-SHOW_TITLE = "苍翼降临"
+SHOW_TITLE = "苍翼裁决者"
 
 
 class ShowOverlayWindow(QWidget):
@@ -66,12 +66,11 @@ class ShowOverlayWindow(QWidget):
             return
 
         painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor(0, 0, 0, 85))
+        painter.fillRect(self.rect(), QColor(0, 0, 0, 170))
         if debug.phase != BehaviorPhaseName.SHOW_TITLE:
             return
 
-        font = QFont("Microsoft YaHei", 54)
-        font.setBold(True)
+        font = QFont("Microsoft YaHei", 128, QFont.Weight.Bold)
         painter.setFont(font)
-        painter.setPen(QColor(255, 255, 255, 235))
+        painter.setPen(QColor(255, 255, 255, 255))
         painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, SHOW_TITLE)

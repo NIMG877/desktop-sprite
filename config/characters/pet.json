@@ -3,6 +3,18 @@
     "width": 84,
     "height": 104,
     "default_spawn_x": 300,
-    "default_spawn_y": 300
+    "default_spawn_y": 300,
+    "flight": {
+      "speed": 380,
+      "landing_speed": 210
+    },
+    "wings": {
+      "open_seconds": 1,
+      "close_seconds": 1
+    },
+    "hover": {
+      "amplitude": 8,
+      "frequency": 2.2
+    }
   }
 }

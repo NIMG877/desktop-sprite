@@ -24,8 +24,10 @@ from desktop_sprite.utils.config import AppConfig
 LOCAL_WANDER_PROBABILITY = 0.5
 WALK_TARGET_ARRIVAL_DISTANCE = 0.8
 MIN_WANDER_DISTANCE_FACTOR = 0.8
-SHOW_RENDER_SCALE_X = 5.0
-SHOW_RENDER_SCALE_Y = 2.6
+SHOW_RENDER_SCALE_X = 4.6
+SHOW_RENDER_SCALE_Y = 3.8
+SHOW_HOVER_SECONDS = 0.5
+SHOW_TITLE_SECONDS = 3.2
 
 
 @dataclass(slots=True)
@@ -38,6 +40,34 @@ class ShowContext:
     land_y: float
     render_width: int
     render_height: int
+
+
+@dataclass(slots=True)
+class WingAbility:
+    state: PetState
+    duration: float
+    elapsed: float = 0.0
+
+
+@dataclass(slots=True)
+class FlightAbility:
+    start_x: float
+    start_y: float
+    target_x: float
+    target_y: float
+    speed: float
+    state: PetState
+
+
+@dataclass(slots=True)
+class HoverAbility:
+    base_x: float
+    base_y: float
+    duration: float | None = None
+    elapsed: float = 0.0
+
+
+PetAbility = WingAbility | FlightAbility | HoverAbility
 
 
 class PetController:
@@ -66,6 +96,7 @@ class PetController:
         self._landed_on_platform_last_tick = False
         self._drag_offset = Vec2()
         self._show_context: ShowContext | None = None
+        self._active_pet_ability: PetAbility | None = None
         self._pick_new_idle_goal()
 
     def set_own_window_handle(self, hwnd: int | None) -> None:
@@ -76,7 +107,7 @@ class PetController:
         self.orchestrator.tick(dt)
         self._refresh_environment_if_needed()
         if self.mode_controller.is_show():
-            self._update_show()
+            self._update_show(dt)
             self.pet.state_time += dt
             self.animation.set_state(self.pet.state)
             self.animation.update(dt)
@@ -188,7 +219,8 @@ class PetController:
         self.pet.position = Vec2(start_x, start_y)
         self.mode_controller.set_mode(PetMode.SHOW, force=True, lock=True)
         self.orchestrator.begin_show()
-        self._transition(PetState.OPEN_WINGS)
+        self._active_pet_ability = None
+        self._start_show_phase_ability(BehaviorPhaseName.SHOW_OPEN_WINGS, self._show_context)
         return True
 
     def _refresh_environment_if_needed(self) -> None:
@@ -332,67 +364,38 @@ class PetController:
         self._ensure_runtime_layers()
         return self.mode_controller.is_show()
 
-    def _update_show(self) -> None:
+    def _update_show(self, dt: float = 0.0) -> None:
         context = getattr(self, "_show_context", None)
         if context is None:
             self._finish_show()
             return
 
         phase = self.orchestrator.phase.name
-        self._sync_show_state_to_phase()
         if self.orchestrator.is_sequence_complete():
             self._finish_show()
             return
 
-        if phase == BehaviorPhaseName.SHOW_OPEN_WINGS:
-            self.pet.position = Vec2(context.start_x, context.start_y)
-            return
+        if self._active_pet_ability is None:
+            self._start_show_phase_ability(phase, context)
 
-        if phase == BehaviorPhaseName.SHOW_FLY:
-            t = self._smooth_progress(self.orchestrator.phase_progress())
-            self.pet.position = Vec2(
-                self._lerp(context.start_x, context.hover_x, t),
-                self._lerp(context.start_y, context.hover_y, t),
-            )
-            return
+        ability_done = self._update_pet_ability(dt)
 
-        if phase == BehaviorPhaseName.SHOW_HOVER:
-            self.pet.position = Vec2(context.hover_x, context.hover_y + self._hover_offset())
-            return
+        if phase == BehaviorPhaseName.SHOW_HOVER and isinstance(self._active_pet_ability, HoverAbility):
+            if self._active_pet_ability.elapsed >= SHOW_HOVER_SECONDS:
+                self.orchestrator.advance_sequence()
 
-        if phase == BehaviorPhaseName.SHOW_TITLE:
-            self.pet.position = Vec2(context.hover_x, context.hover_y + self._hover_offset())
-            return
-
-        if phase == BehaviorPhaseName.SHOW_LAND:
-            t = self._smooth_progress(self.orchestrator.phase_progress())
-            self.pet.position = Vec2(
-                self._lerp(context.hover_x, context.land_x, t),
-                self._lerp(context.hover_y, context.land_y, t),
-            )
-            return
-
-        if phase == BehaviorPhaseName.SHOW_CLOSE_WINGS:
-            self.pet.position = Vec2(context.land_x, context.land_y)
-
-    def _sync_show_state_to_phase(self) -> None:
-        state_by_phase = {
-            BehaviorPhaseName.SHOW_OPEN_WINGS: PetState.OPEN_WINGS,
-            BehaviorPhaseName.SHOW_FLY: PetState.FLY,
-            BehaviorPhaseName.SHOW_HOVER: PetState.HOVER,
-            BehaviorPhaseName.SHOW_TITLE: PetState.HOVER,
-            BehaviorPhaseName.SHOW_LAND: PetState.WING_LAND,
-            BehaviorPhaseName.SHOW_CLOSE_WINGS: PetState.CLOSE_WINGS,
-        }
-        state = state_by_phase.get(self.orchestrator.phase.name)
-        if state is not None:
-            self._transition(state)
+        if ability_done:
+            self._active_pet_ability = None
+            self.orchestrator.advance_sequence()
+            if self.orchestrator.is_sequence_complete():
+                self._finish_show()
 
     def _finish_show(self) -> None:
         context = getattr(self, "_show_context", None)
         if context is not None:
             self.pet.position = Vec2(context.land_x, context.land_y)
         self._show_context = None
+        self._active_pet_ability = None
         self.pet.velocity = Vec2()
         self.pet.support_surface_id = None
         self.pet.target_surface_id = None
@@ -402,15 +405,106 @@ class PetController:
         self._transition(PetState.IDLE)
         self._pick_new_idle_goal()
 
-    def _hover_offset(self) -> float:
-        return math.sin(self.pet.state_time * 2.2) * 8.0
+    def _start_show_phase_ability(self, phase: BehaviorPhaseName | str, context: ShowContext) -> None:
+        if phase == BehaviorPhaseName.SHOW_OPEN_WINGS:
+            self._start_open_wings()
+            self.pet.position = Vec2(context.start_x, context.start_y)
+            return
+        if phase == BehaviorPhaseName.SHOW_FLY:
+            self._start_flight_to(context.hover_x, context.hover_y, state=PetState.FLY, speed=self.config.pet.flight.speed)
+            return
+        if phase == BehaviorPhaseName.SHOW_HOVER:
+            self._start_hover(context.hover_x, context.hover_y, SHOW_HOVER_SECONDS + SHOW_TITLE_SECONDS)
+            return
+        if phase == BehaviorPhaseName.SHOW_TITLE:
+            if not isinstance(self._active_pet_ability, HoverAbility):
+                self._start_hover(context.hover_x, context.hover_y, SHOW_TITLE_SECONDS)
+            return
+        if phase == BehaviorPhaseName.SHOW_LAND:
+            self._start_flight_to(
+                context.land_x,
+                context.land_y,
+                state=PetState.WING_LAND,
+                speed=self.config.pet.flight.landing_speed,
+            )
+            return
+        if phase == BehaviorPhaseName.SHOW_CLOSE_WINGS:
+            self.pet.position = Vec2(context.land_x, context.land_y)
+            self._start_close_wings()
 
-    def _smooth_progress(self, value: float) -> float:
-        t = min(max(value, 0.0), 1.0)
-        return t * t * (3.0 - 2.0 * t)
+    def _start_open_wings(self) -> None:
+        self._transition(PetState.OPEN_WINGS)
+        self.pet.velocity = Vec2()
+        self._active_pet_ability = WingAbility(PetState.OPEN_WINGS, self.config.pet.wings.open_seconds)
 
-    def _lerp(self, start: float, end: float, t: float) -> float:
-        return start + (end - start) * t
+    def _start_close_wings(self) -> None:
+        self._transition(PetState.CLOSE_WINGS)
+        self.pet.velocity = Vec2()
+        self._active_pet_ability = WingAbility(PetState.CLOSE_WINGS, self.config.pet.wings.close_seconds)
+
+    def _start_flight_to(self, target_x: float, target_y: float, *, state: PetState, speed: float) -> None:
+        self._transition(state)
+        self.pet.support_surface_id = None
+        self.pet.target_surface_id = None
+        self._active_pet_ability = FlightAbility(
+            start_x=self.pet.position.x,
+            start_y=self.pet.position.y,
+            target_x=target_x,
+            target_y=target_y,
+            speed=max(speed, 1.0),
+            state=state,
+        )
+
+    def _start_hover(self, base_x: float, base_y: float, duration: float | None = None) -> None:
+        self._transition(PetState.HOVER)
+        self.pet.velocity = Vec2()
+        self._active_pet_ability = HoverAbility(base_x, base_y, None if duration is None else max(duration, 0.0))
+
+    def _update_pet_ability(self, dt: float) -> bool:
+        ability = self._active_pet_ability
+        if ability is None:
+            return True
+        if isinstance(ability, WingAbility):
+            ability.elapsed += max(dt, 0.0)
+            return ability.elapsed >= ability.duration
+        if isinstance(ability, FlightAbility):
+            return self._update_flight_ability(ability, dt)
+        if isinstance(ability, HoverAbility):
+            return self._update_hover_ability(ability, dt)
+        return True
+
+    def _update_flight_ability(self, ability: FlightAbility, dt: float) -> bool:
+        dx = ability.target_x - self.pet.position.x
+        dy = ability.target_y - self.pet.position.y
+        distance = math.hypot(dx, dy)
+        if distance <= 0.001:
+            self.pet.position = Vec2(ability.target_x, ability.target_y)
+            self.pet.velocity = Vec2()
+            return True
+
+        step = ability.speed * max(dt, 0.0)
+        if step >= distance:
+            self.pet.position = Vec2(ability.target_x, ability.target_y)
+            self.pet.velocity = Vec2()
+            return True
+
+        direction_x = dx / distance
+        direction_y = dy / distance
+        self.pet.position.x += direction_x * step
+        self.pet.position.y += direction_y * step
+        self.pet.velocity = Vec2(direction_x * ability.speed, direction_y * ability.speed)
+        self.pet.facing = Facing.RIGHT if direction_x >= 0 else Facing.LEFT
+        return False
+
+    def _update_hover_ability(self, ability: HoverAbility, dt: float) -> bool:
+        ability.elapsed += max(dt, 0.0)
+        self.pet.position = Vec2(
+            ability.base_x,
+            ability.base_y + math.sin(ability.elapsed * self.config.pet.hover.frequency) * self.config.pet.hover.amplitude,
+        )
+        if ability.duration is None:
+            return False
+        return ability.elapsed >= ability.duration
 
     def _executor(self) -> PathExecutor:
         executor = getattr(self, "path_executor", None)

@@ -1,7 +1,7 @@
 from desktop_sprite.core.behavior_state_machine import BehaviorStateMachine
 from desktop_sprite.core.behavior_orchestrator import BehaviorOrchestrator, BehaviorPhaseName
 from desktop_sprite.core.pathfinding import PathFinder, PathPlan, PathStep, TraversalAction
-from desktop_sprite.core.pet_controller import PetController
+from desktop_sprite.core.pet_controller import HoverAbility, PetController, SHOW_HOVER_SECONDS
 from desktop_sprite.core.pet_mode import ModeController, PetMode
 from desktop_sprite.environment.environment_snapshot import EnvironmentSnapshot
 from desktop_sprite.models.geometry import Rect, Vec2
@@ -331,14 +331,62 @@ def test_show_phases_finish_back_to_idle():
     controller, _side = make_controller(window_top_y=120)
     controller.start_show()
 
-    for seconds in [0.71, 1.21, 1.01, 5.01, 1.81, 0.71]:
-        controller.orchestrator.tick(seconds)
-        controller._update_show()
+    for _ in range(80):
+        controller._update_show(0.1)
+        if controller.mode_controller.mode == PetMode.IDLE:
+            break
 
     assert controller.mode_controller.mode == PetMode.IDLE
     assert not controller.mode_controller.locked
     assert controller.orchestrator.phase.name == BehaviorPhaseName.IDLE_WAIT
     assert controller.pet.state == PetState.IDLE
+
+
+def test_show_flight_uses_pet_flight_speed_instead_of_phase_duration():
+    controller, _side = make_controller(window_top_y=120)
+    controller.start_show()
+
+    controller._update_show(controller.config.pet.wings.open_seconds)
+    assert controller.orchestrator.phase.name == BehaviorPhaseName.SHOW_FLY
+
+    start_x = controller.pet.position.x
+    start_y = controller.pet.position.y
+    controller._update_show(0.1)
+    distance = ((controller.pet.position.x - start_x) ** 2 + (controller.pet.position.y - start_y) ** 2) ** 0.5
+
+    assert round(distance, 5) == round(controller.config.pet.flight.speed * 0.1, 5)
+
+
+def test_hover_ability_loops_until_caller_supplies_duration():
+    controller, _side = make_controller(window_top_y=120)
+    controller.pet.state = PetState.FLY
+    controller.state_machine = BehaviorStateMachine(PetState.FLY)
+
+    controller._start_hover(100, 80)
+
+    assert not controller._update_pet_ability(10.0)
+    assert controller.pet.state == PetState.HOVER
+
+
+def test_show_title_reuses_existing_hover_ability_without_resetting_elapsed():
+    controller, _side = make_controller(window_top_y=120)
+    controller.start_show()
+    controller.orchestrator.advance_sequence()
+    controller.orchestrator.advance_sequence()
+    controller._active_pet_ability = None
+
+    controller._update_show(SHOW_HOVER_SECONDS + 0.1)
+
+    ability = controller._active_pet_ability
+    assert isinstance(ability, HoverAbility)
+    assert controller.orchestrator.phase.name == BehaviorPhaseName.SHOW_TITLE
+    assert ability.elapsed > SHOW_HOVER_SECONDS
+
+    same_ability = ability
+    controller._update_show(0.1)
+
+    assert controller._active_pet_ability is same_ability
+    assert same_ability.elapsed > SHOW_HOVER_SECONDS + 0.1
 
 
 def window_platforms(hwnd: int, left: float, top: float, right: float, bottom: float) -> list[Platform]:

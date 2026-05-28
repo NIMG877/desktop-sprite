@@ -17,15 +17,6 @@ class BehaviorPhaseName(StrEnum):
     SHOW_CLOSE_WINGS = "show_close_wings"
 
 
-SHOW_PHASE_DURATIONS: dict[BehaviorPhaseName, float] = {
-    BehaviorPhaseName.SHOW_OPEN_WINGS: 0.7,
-    BehaviorPhaseName.SHOW_FLY: 1.2,
-    BehaviorPhaseName.SHOW_HOVER: 0.5,
-    BehaviorPhaseName.SHOW_TITLE: 3.2,
-    BehaviorPhaseName.SHOW_LAND: 1.8,
-    BehaviorPhaseName.SHOW_CLOSE_WINGS: 0.7,
-}
-
 SHOW_PHASE_SEQUENCE: tuple[BehaviorPhaseName, ...] = (
     BehaviorPhaseName.SHOW_OPEN_WINGS,
     BehaviorPhaseName.SHOW_FLY,
@@ -75,8 +66,6 @@ class BehaviorOrchestrator:
         return self._sequence_complete
 
     def phase_duration(self) -> float | None:
-        if isinstance(self.phase.name, BehaviorPhaseName):
-            return SHOW_PHASE_DURATIONS.get(self.phase.name)
         return None
 
     def phase_progress(self) -> float:
@@ -84,6 +73,15 @@ class BehaviorOrchestrator:
         if duration is None or duration <= 0:
             return 0.0
         return min(max(self.phase.elapsed / duration, 0.0), 1.0)
+
+    def advance_sequence(self) -> None:
+        if not self._sequence or self._sequence_complete:
+            return
+        if self._sequence_index >= len(self._sequence) - 1:
+            self._sequence_complete = True
+            return
+        self._sequence_index += 1
+        self.phase = BehaviorPhase(self._sequence[self._sequence_index])
 
     def _advance_sequence_if_needed(self) -> None:
         if not self._sequence or self._sequence_complete:

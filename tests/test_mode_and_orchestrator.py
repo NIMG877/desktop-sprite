@@ -47,18 +47,21 @@ def test_orchestrator_tracks_phase_elapsed_and_reset():
     assert orchestrator.phase.elapsed == 0.0
 
 
-def test_orchestrator_runs_show_sequence_by_phase_duration():
+def test_orchestrator_runs_show_sequence_when_controller_advances_abilities():
     orchestrator = BehaviorOrchestrator()
 
     orchestrator.begin_show()
     assert orchestrator.phase.name == BehaviorPhaseName.SHOW_OPEN_WINGS
 
     orchestrator.tick(0.71)
+    assert orchestrator.phase.name == BehaviorPhaseName.SHOW_OPEN_WINGS
+
+    orchestrator.advance_sequence()
     assert orchestrator.phase.name == BehaviorPhaseName.SHOW_FLY
     assert not orchestrator.is_sequence_complete()
 
-    for seconds in [1.21, 1.01, 5.01, 1.81, 0.71]:
-        orchestrator.tick(seconds)
+    for _ in range(5):
+        orchestrator.advance_sequence()
 
     assert orchestrator.phase.name == BehaviorPhaseName.SHOW_CLOSE_WINGS
     assert orchestrator.is_sequence_complete()

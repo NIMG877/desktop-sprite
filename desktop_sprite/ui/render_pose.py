@@ -231,6 +231,10 @@ class RenderPose:
 
 
 class PoseBuilder:
+    def __init__(self, wing_open_seconds: float = 0.7, wing_close_seconds: float = 0.7) -> None:
+        self.wing_open_seconds = max(wing_open_seconds, 0.001)
+        self.wing_close_seconds = max(wing_close_seconds, 0.001)
+
     def build(
         self,
         pet: Pet,
@@ -300,6 +304,10 @@ class PoseBuilder:
             return 7.0 * lift + drift * 8.0
         if state == PetState.DRAGGED:
             return clamp(pet.velocity.x / 70.0, -10.0, 10.0)
+        if state == PetState.FLY:
+            if abs(pet.velocity.x) <= 0.001 and abs(pet.velocity.y) <= 0.001:
+                return math.sin(state_elapsed * 2.0) * 2.5
+            return math.degrees(math.atan2(abs(pet.velocity.x), -pet.velocity.y))
         if state in {PetState.OPEN_WINGS, PetState.FLY, PetState.HOVER, PetState.WING_LAND, PetState.CLOSE_WINGS}:
             return math.sin(state_elapsed * 2.0) * 2.5
         return 0.0
@@ -385,20 +393,51 @@ class PoseBuilder:
                 LimbPose(PosePoint(w * 0.58, h * 0.72), PosePoint(w * 0.66, h * 0.78), PosePoint(w * 0.72, h * 0.78 - tuck), radius, terminal),
             )
 
-        if state in {PetState.OPEN_WINGS, PetState.FLY, PetState.HOVER, PetState.WING_LAND, PetState.CLOSE_WINGS}:
-            arm_lift = math.sin(cycle) * h * 0.02
+        if state in {PetState.HOVER, PetState.OPEN_WINGS, PetState.CLOSE_WINGS}:
+            return self._idle_style_limbs(cycle, max(speed, 0.35), w, h, radius, terminal)
+
+        if state in {PetState.FLY, PetState.WING_LAND}:
+            arm_wave = math.sin(cycle) * h * 0.018
+            if state == PetState.FLY:
+                left_end_x, right_end_x = w * 0.28, w * 0.70
+                joint_y, end_y = h * 0.58, h * 0.72
+            else:
+                left_end_x, right_end_x = w * 0.13, w * 0.85
+                joint_y, end_y = h * 0.58, h * 0.70
             return (
-                LimbPose(PosePoint(w * 0.32, h * 0.43), PosePoint(w * 0.20, h * 0.34 + arm_lift), PosePoint(w * 0.13, h * 0.25 + arm_lift), radius, terminal),
-                LimbPose(PosePoint(w * 0.64, h * 0.43), PosePoint(w * 0.78, h * 0.34 - arm_lift), PosePoint(w * 0.86, h * 0.25 - arm_lift), radius, terminal),
+                LimbPose(PosePoint(w * 0.32, h * 0.43), PosePoint(w * 0.27, joint_y + arm_wave), PosePoint(left_end_x, end_y + arm_wave), radius, terminal * 0.8),
+                LimbPose(PosePoint(w * 0.64, h * 0.43), PosePoint(w * 0.71, joint_y - arm_wave), PosePoint(right_end_x, end_y - arm_wave), radius, terminal * 0.8),
                 LimbPose(PosePoint(w * 0.39, h * 0.72), PosePoint(w * 0.35, h * 0.80), PosePoint(w * 0.31, h * 0.86), radius, terminal),
                 LimbPose(PosePoint(w * 0.58, h * 0.72), PosePoint(w * 0.64, h * 0.80), PosePoint(w * 0.69, h * 0.86), radius, terminal),
             )
 
-        stride = math.sin(cycle) * h * 0.05 * max(speed, 0.35)
-        arm_swing = math.sin(cycle + math.pi) * h * 0.035 * max(speed, 0.25)
-        if state == PetState.IDLE:
-            stride *= 0.2
-            arm_swing *= 0.2
+        stride_scale = 0.2 if state == PetState.IDLE else 1.0
+        arm_scale = 0.2 if state == PetState.IDLE else 1.0
+        return self._idle_style_limbs(
+            cycle,
+            max(speed, 0.35),
+            w,
+            h,
+            radius,
+            terminal,
+            stride_scale=stride_scale,
+            arm_scale=arm_scale,
+        )
+
+    def _idle_style_limbs(
+        self,
+        cycle: float,
+        speed: float,
+        w: int,
+        h: int,
+        radius: float,
+        terminal: float,
+        *,
+        stride_scale: float = 0.2,
+        arm_scale: float = 0.2,
+    ) -> tuple[LimbPose, LimbPose, LimbPose, LimbPose]:
+        stride = math.sin(cycle) * h * 0.05 * speed * stride_scale
+        arm_swing = math.sin(cycle + math.pi) * h * 0.035 * max(speed, 0.25) * arm_scale
         return (
             LimbPose(PosePoint(w * 0.29, h * 0.48), PosePoint(w * 0.22, h * 0.55 + arm_swing), PosePoint(w * 0.18, h * 0.64 + arm_swing), radius, terminal * 0.8),
             LimbPose(PosePoint(w * 0.67, h * 0.48), PosePoint(w * 0.75, h * 0.55 - arm_swing), PosePoint(w * 0.80, h * 0.64 - arm_swing), radius, terminal * 0.8),
@@ -466,9 +505,9 @@ class PoseBuilder:
             return None
 
         if state == PetState.OPEN_WINGS:
-            openness = clamp(state_elapsed / 0.7, 0.0, 1.0)
+            openness = clamp(state_elapsed / self.wing_open_seconds, 0.0, 1.0)
         elif state == PetState.CLOSE_WINGS:
-            openness = 1.0 - clamp(state_elapsed / 0.7, 0.0, 1.0)
+            openness = 1.0 - clamp(state_elapsed / self.wing_close_seconds, 0.0, 1.0)
         else:
             openness = 1.0
         flap = self._wing_flap(phase, state)
@@ -493,8 +532,8 @@ class PoseBuilder:
     def _wing_flap(self, phase: float, state: PetState) -> float:
         p = phase % 1.0
         downstroke_duration = 0.32
-        down_peak = 1.9 if state == PetState.FLY else 1.0
-        up_peak = -0.42 if state == PetState.FLY else -0.72
+        down_peak = 2.6 if state == PetState.FLY else 1.0
+        up_peak = -0.32 if state == PetState.FLY else -0.72
 
         if p < downstroke_duration:
             t = p / downstroke_duration

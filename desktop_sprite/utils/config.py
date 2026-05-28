@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -15,11 +15,32 @@ class RuntimeConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class PetFlightConfig:
+    speed: float = 520.0
+    landing_speed: float = 360.0
+
+
+@dataclass(frozen=True, slots=True)
+class PetWingConfig:
+    open_seconds: float = 0.7
+    close_seconds: float = 0.7
+
+
+@dataclass(frozen=True, slots=True)
+class PetHoverConfig:
+    amplitude: float = 8.0
+    frequency: float = 2.2
+
+
+@dataclass(frozen=True, slots=True)
 class PetConfig:
     width: int
     height: int
     default_spawn_x: int
     default_spawn_y: int
+    flight: PetFlightConfig = field(default_factory=PetFlightConfig)
+    wings: PetWingConfig = field(default_factory=PetWingConfig)
+    hover: PetHoverConfig = field(default_factory=PetHoverConfig)
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,6 +100,11 @@ def load_config(path: str | Path | None = None) -> AppConfig:
     interaction_data.setdefault("target_search_down_distance", 220.0)
     interaction_data.setdefault("target_search_up_distance", 80.0)
 
+    pet_data = dict(data["pet"])
+    flight_data = pet_data.pop("flight", {})
+    wing_data = pet_data.pop("wings", {})
+    hover_data = pet_data.pop("hover", {})
+
     return AppConfig(
         app=RuntimeConfig(
             fps=app_data["fps"],
@@ -86,7 +112,12 @@ def load_config(path: str | Path | None = None) -> AppConfig:
             debug_draw=app_data["debug_draw"],
             log_level=app_data["log_level"],
         ),
-        pet=PetConfig(**data["pet"]),
+        pet=PetConfig(
+            **pet_data,
+            flight=PetFlightConfig(**flight_data),
+            wings=PetWingConfig(**wing_data),
+            hover=PetHoverConfig(**hover_data),
+        ),
         physics=PhysicsConfig(**data["physics"]),
         behavior=BehaviorConfig(**data["behavior"]),
         interaction=InteractionConfig(**interaction_data),

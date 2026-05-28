@@ -147,3 +147,52 @@ def test_previous_open_wings_pose_uses_previous_elapsed_when_state_time_resets()
     assert previous_pose.wings is not None
     assert previous_pose.wings.openness == 1.0
     assert previous_pose.wings.opacity == 225
+
+
+def test_flight_pose_rotation_points_head_toward_target_direction():
+    builder = PoseBuilder()
+
+    upward = builder.build(make_pet(PetState.FLY, Vec2(0, -100)), phase=0.0, width=84, height=104)
+    diagonal = builder.build(make_pet(PetState.FLY, Vec2(100, -100)), phase=0.0, width=84, height=104)
+    horizontal = builder.build(make_pet(PetState.FLY, Vec2(100, 0)), phase=0.0, width=84, height=104)
+    vertical = builder.build(make_pet(PetState.FLY, Vec2(0, -100)), phase=0.0, width=84, height=104)
+    landing = builder.build(make_pet(PetState.WING_LAND, Vec2(0, 100)), phase=0.0, width=84, height=104, state_elapsed=0.0)
+
+    assert upward.rotation == 0
+    assert 0 < diagonal.rotation < horizontal.rotation
+    assert horizontal.rotation == 90
+    assert vertical.rotation == 0
+    assert landing.rotation == 0
+
+
+def test_flight_hover_and_land_arms_point_down_with_expected_tightness():
+    builder = PoseBuilder()
+
+    fly = builder.build(make_pet(PetState.FLY), phase=0.0, width=84, height=104)
+    hover = builder.build(make_pet(PetState.HOVER), phase=0.0, width=84, height=104)
+    land = builder.build(make_pet(PetState.WING_LAND), phase=0.0, width=84, height=104)
+    idle = builder.build(make_pet(PetState.IDLE), phase=0.0, width=84, height=104)
+    open_wings = builder.build(make_pet(PetState.OPEN_WINGS), phase=0.0, width=84, height=104)
+
+    fly_left, fly_right = fly.limbs[0], fly.limbs[1]
+    hover_left, hover_right = hover.limbs[0], hover.limbs[1]
+    land_left, land_right = land.limbs[0], land.limbs[1]
+    idle_left, idle_right = idle.limbs[0], idle.limbs[1]
+
+    assert fly_left.end.y > fly_left.root.y
+    assert hover_left.end.y > hover_left.root.y
+    assert land_left.end.y > land_left.root.y
+    assert fly_right.end.y > fly_right.root.y
+    assert hover_right.end.y > hover_right.root.y
+    assert land_right.end.y > land_right.root.y
+
+    fly_span = fly_right.end.x - fly_left.end.x
+    hover_span = hover_right.end.x - hover_left.end.x
+    land_span = land_right.end.x - land_left.end.x
+    idle_span = idle_right.end.x - idle_left.end.x
+
+    assert fly_span < hover_span
+    assert abs(hover_span - idle_span) <= 2
+    assert land_span > hover_span
+    assert open_wings.limbs[0].end == idle_left.end
+    assert open_wings.limbs[1].end == idle_right.end

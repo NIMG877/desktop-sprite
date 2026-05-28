@@ -25,7 +25,7 @@ class SpriteWindow(QWidget):
         self._press_global: QPoint | None = None
         self._dragging = False
         self.pet_renderer = PetRenderer()
-        self.pose_builder = PoseBuilder()
+        self.pose_builder = PoseBuilder(config.pet.wings.open_seconds, config.pet.wings.close_seconds)
         self.debug_overlay = DebugOverlayWindow(character, config) if config.app.debug_draw else None
 
         flags = Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool

@@ -148,7 +148,7 @@ class PetRenderer:
             )
             tip = PosePoint(
                 root.x + side * span * tip_xf,
-                root.y + span * tip_yf + flap * (7.0 - tip_xf * 3.0) * max(openness, 0.35),
+                root.y + span * tip_yf + flap * (60.0 - tip_xf * 26.0) * max(openness, 0.35),
             )
             self._draw_feather(
                 painter,
@@ -183,7 +183,7 @@ class PetRenderer:
             base = PosePoint(root.x + side * span * base_xf, root.y + span * base_yf * 0.34)
             tip = PosePoint(
                 root.x + side * span * tip_xf,
-                root.y + span * tip_yf + flap * 4.0 * max(openness, 0.35),
+                root.y + span * tip_yf + flap * 34.0 * max(openness, 0.35),
             )
             self._draw_feather(
                 painter,

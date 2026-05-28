@@ -1,5 +1,6 @@
 from desktop_sprite.models.geometry import Vec2
 from desktop_sprite.models.state import Pet, PetState
+from desktop_sprite.core.animation_player import DEFAULT_ANIMATIONS
 from desktop_sprite.ui.render_pose import PoseBuilder
 
 
@@ -68,12 +69,62 @@ def test_show_pose_uses_requested_body_size():
     assert pose.wings is not None
 
 
-def test_show_wing_lower_edges_stay_near_pose_bounds():
+def test_show_wing_lower_edges_stay_within_show_canvas_margin():
     builder = PoseBuilder()
     pet = make_pet(PetState.FLY)
 
     pose = builder.build(pet, phase=0.25, width=84, height=104)
 
     assert pose.wings is not None
-    assert pose.wings.left_lower.y < 104
-    assert pose.wings.right_lower.y < 104
+    assert pose.wings.left_lower.y < 104 * 1.6
+    assert pose.wings.right_lower.y < 104 * 1.6
+
+
+def test_wing_downstroke_is_faster_than_upstroke():
+    builder = PoseBuilder()
+    pet = make_pet(PetState.HOVER)
+
+    down_start = builder.build(pet, phase=0.04, width=84, height=104)
+    down_end = builder.build(pet, phase=0.20, width=84, height=104)
+    up_start = builder.build(pet, phase=0.48, width=84, height=104)
+    up_end = builder.build(pet, phase=0.64, width=84, height=104)
+
+    assert down_start.wings is not None
+    assert down_end.wings is not None
+    assert up_start.wings is not None
+    assert up_end.wings is not None
+
+    down_distance = down_end.wings.left_tip.y - down_start.wings.left_tip.y
+    up_distance = up_start.wings.left_tip.y - up_end.wings.left_tip.y
+    assert down_distance > up_distance
+
+
+def test_fly_wing_downstroke_has_stronger_amplitude():
+    builder = PoseBuilder()
+
+    hover = builder.build(make_pet(PetState.HOVER), phase=0.32, width=84, height=104)
+    fly = builder.build(make_pet(PetState.FLY), phase=0.32, width=84, height=104)
+    hover_up = builder.build(make_pet(PetState.HOVER), phase=0.0, width=84, height=104)
+    fly_up = builder.build(make_pet(PetState.FLY), phase=0.0, width=84, height=104)
+
+    assert hover.wings is not None
+    assert fly.wings is not None
+    assert hover_up.wings is not None
+    assert fly_up.wings is not None
+    assert fly.wings.left_tip.y > hover.wings.left_tip.y
+    assert fly.wings.right_tip.y > hover.wings.right_tip.y
+    assert fly_up.wings.left_tip.y > hover_up.wings.left_tip.y
+    assert fly_up.wings.right_tip.y > hover_up.wings.right_tip.y
+
+
+def test_fly_and_land_flap_frequency_only_slightly_exceeds_hover():
+    hover = DEFAULT_ANIMATIONS[PetState.HOVER]
+    fly = DEFAULT_ANIMATIONS[PetState.FLY]
+    land = DEFAULT_ANIMATIONS[PetState.WING_LAND]
+
+    hover_frequency = hover.fps / hover.frame_count
+    fly_frequency = fly.fps / fly.frame_count
+    land_frequency = land.fps / land.frame_count
+
+    assert hover_frequency < fly_frequency <= hover_frequency * 1.15
+    assert hover_frequency < land_frequency <= hover_frequency * 1.15

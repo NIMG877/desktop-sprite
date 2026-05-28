@@ -21,9 +21,9 @@ DEFAULT_ANIMATIONS: dict[PetState, AnimationSpec] = {
     PetState.DRAGGED: AnimationSpec(fps=5, frame_count=2),
     PetState.SLEEP: AnimationSpec(fps=2, frame_count=4),
     PetState.OPEN_WINGS: AnimationSpec(fps=8, frame_count=6),
-    PetState.FLY: AnimationSpec(fps=10, frame_count=6),
+    PetState.FLY: AnimationSpec(fps=9, frame_count=8),
     PetState.HOVER: AnimationSpec(fps=8, frame_count=8),
-    PetState.WING_LAND: AnimationSpec(fps=8, frame_count=6),
+    PetState.WING_LAND: AnimationSpec(fps=9, frame_count=8),
     PetState.CLOSE_WINGS: AnimationSpec(fps=8, frame_count=6),
 }
 

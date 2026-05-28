@@ -244,7 +244,7 @@ class PoseBuilder:
         scarf = self._scarf(resolved_state, cycle, width, height, fall_strength)
         eyes = self._eyes(resolved_state, cycle, width, height, fall_strength)
         shadow = self._shadow(resolved_state, width, height, fall_strength)
-        wings = self._wings(resolved_state, cycle, pet, width, height)
+        wings = self._wings(resolved_state, phase, pet, width, height)
 
         return RenderPose(
             facing=pet.facing,
@@ -452,7 +452,7 @@ class PoseBuilder:
             return ShadowPose(PoseRect(w * 0.34, h * 0.92, w * 0.34, h * 0.05), 35)
         return ShadowPose(PoseRect(w * 0.22, h * 0.84, w * 0.56, h * 0.10), 70)
 
-    def _wings(self, state: PetState, cycle: float, pet: Pet, w: int, h: int) -> WingPose | None:
+    def _wings(self, state: PetState, phase: float, pet: Pet, w: int, h: int) -> WingPose | None:
         if not self._is_show_state(state):
             return None
 
@@ -462,8 +462,9 @@ class PoseBuilder:
             openness = 1.0 - clamp(pet.state_time / 0.7, 0.0, 1.0)
         else:
             openness = 1.0
-        flap = math.sin(cycle)
-        flap_y = flap * h * 0.13 * max(openness, 0.2)
+        flap = self._wing_flap(phase, state)
+        flap_scale = 0.96 if state == PetState.FLY else 0.78
+        flap_y = flap * h * flap_scale * max(openness, 0.2)
         span = w * (0.48 + 1.50 * openness)
         lift = h * (0.03 + 0.50 * openness)
         lower = h * (0.68 - 0.18 * openness)
@@ -473,9 +474,26 @@ class PoseBuilder:
             left_tip=PosePoint(w * 0.34 - span, h * 0.38 - lift + fold_drop + flap_y),
             left_lower=PosePoint(w * 0.28 - span * (0.44 + openness * 0.16), lower + fold_drop * 0.35 + flap_y * 0.45),
             right_root=PosePoint(w * 0.66, h * 0.34),
-            right_tip=PosePoint(w * 0.66 + span, h * 0.38 - lift + fold_drop - flap_y),
-            right_lower=PosePoint(w * 0.72 + span * (0.44 + openness * 0.16), lower + fold_drop * 0.35 - flap_y * 0.45),
+            right_tip=PosePoint(w * 0.66 + span, h * 0.38 - lift + fold_drop + flap_y),
+            right_lower=PosePoint(w * 0.72 + span * (0.44 + openness * 0.16), lower + fold_drop * 0.35 + flap_y * 0.45),
             opacity=round(225 * openness),
             openness=openness,
             flap=flap,
         )
+
+    def _wing_flap(self, phase: float, state: PetState) -> float:
+        p = phase % 1.0
+        downstroke_duration = 0.32
+        down_peak = 1.9 if state == PetState.FLY else 1.0
+        up_peak = -0.42 if state == PetState.FLY else -0.72
+
+        if p < downstroke_duration:
+            t = p / downstroke_duration
+            return lerp(up_peak, down_peak, self._smoothstep(t))
+
+        t = (p - downstroke_duration) / (1.0 - downstroke_duration)
+        return lerp(down_peak, up_peak, self._smoothstep(t))
+
+    def _smoothstep(self, value: float) -> float:
+        t = clamp(value, 0.0, 1.0)
+        return t * t * (3.0 - 2.0 * t)

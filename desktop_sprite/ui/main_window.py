@@ -44,7 +44,6 @@ class MainWindow(QMainWindow):
         self.undo_button: QPushButton | None = None
         self.settings_page: QWidget | None = None
         self.settings_layout: QVBoxLayout | None = None
-        self.settings_editor_slot: QWidget | None = None
 
         self.setWindowTitle("Desktop Sprite")
         self.resize(1120, 720)
@@ -175,10 +174,7 @@ class MainWindow(QMainWindow):
         self.save_apply_button.setEnabled(False)
         header_row.addWidget(self.save_apply_button)
         layout.addLayout(header_row)
-        self.settings_editor_slot = QWidget(page)
-        slot_layout = QVBoxLayout(self.settings_editor_slot)
-        slot_layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self.settings_editor_slot, 1)
+        layout.addStretch(1)
         return page
 
     def _switch_page(self, index: int) -> None:
@@ -187,11 +183,14 @@ class MainWindow(QMainWindow):
             self._ensure_config_editor()
 
     def _ensure_config_editor(self) -> None:
-        if self.config_editor is not None or self.settings_editor_slot is None:
+        if self.config_editor is not None or self.settings_layout is None:
             return
-        self.config_editor = ConfigEditorWidget(self.config_path, self.settings_page)
+        stretch = self.settings_layout.takeAt(self.settings_layout.count() - 1)
+        if stretch is not None:
+            del stretch
+        self.config_editor = ConfigEditorWidget(self.config_path)
         self.config_editor.dirtyChanged.connect(self._set_config_actions_enabled)
-        self.settings_editor_slot.layout().addWidget(self.config_editor)
+        self.settings_layout.addWidget(self.config_editor, 1)
 
     def _set_config_actions_enabled(self, enabled: bool) -> None:
         if self.save_apply_button is not None:
@@ -206,14 +205,8 @@ class MainWindow(QMainWindow):
             self.on_apply_config()
 
     def _undo_config_changes(self) -> None:
-        if self.config_editor is None or self.settings_editor_slot is None:
-            return
-        self.config_editor.setVisible(False)
-        self.settings_editor_slot.layout().removeWidget(self.config_editor)
-        self.config_editor.deleteLater()
-        self.config_editor = None
-        self._set_config_actions_enabled(False)
-        self._ensure_config_editor()
+        if self.config_editor is not None:
+            self.config_editor.undo_changes()
 
     def _create_placeholder_page(self, title: str, description: str) -> QWidget:
         page = self._page_container()

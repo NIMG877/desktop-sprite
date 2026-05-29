@@ -178,9 +178,9 @@ class MainWindow(QMainWindow):
         return page
 
     def _switch_page(self, index: int) -> None:
-        self.stack.setCurrentIndex(index)
         if self.sidebar.item(index).text() == "设置":
             self._ensure_config_editor()
+        self.stack.setCurrentIndex(index)
 
     def _ensure_config_editor(self) -> None:
         if self.config_editor is not None or self.settings_layout is None:
@@ -188,7 +188,7 @@ class MainWindow(QMainWindow):
         stretch = self.settings_layout.takeAt(self.settings_layout.count() - 1)
         if stretch is not None:
             del stretch
-        self.config_editor = ConfigEditorWidget(self.config_path)
+        self.config_editor = ConfigEditorWidget(self.config_path, self.settings_page)
         self.config_editor.dirtyChanged.connect(self._set_config_actions_enabled)
         self.settings_layout.addWidget(self.config_editor, 1)
 

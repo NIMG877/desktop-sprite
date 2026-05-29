@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -46,6 +47,7 @@ class ConfigEditorWidget(QWidget):
         self.ui_state_path = self.config_path.parent / UI_STATE_FILENAME
         self.documents: list[_Document] = []
         self._json_timers: dict[QPlainTextEdit, QTimer] = {}
+        self._value_setters: dict[tuple[Path, JsonPath], Callable[[Any], None]] = {}
         self._ui_state: dict[str, Any] = {}
         self._dirty = False
 
@@ -53,13 +55,18 @@ class ConfigEditorWidget(QWidget):
         root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(12)
 
-        hint = QLabel("修改后点击保存并应用才会写入配置文件。")
+        hint = QLabel("修改后点击保存并应用才会写入配置文件。", self)
         hint.setObjectName("mutedText")
         root_layout.addWidget(hint)
 
-        self.scroll = QScrollArea()
+        self.scroll = QScrollArea(self)
         self.scroll.setWidgetResizable(True)
         self.scroll.setObjectName("configScroll")
+        self.content = QWidget(self.scroll)
+        self.content_layout = QVBoxLayout(self.content)
+        self.content_layout.setContentsMargins(0, 0, 12, 0)
+        self.content_layout.setSpacing(4)
+        self.scroll.setWidget(self.content)
         root_layout.addWidget(self.scroll, 1)
 
         self.reload()
@@ -96,18 +103,18 @@ class ConfigEditorWidget(QWidget):
     def undo_changes(self) -> None:
         for document in self.documents:
             document.data = copy.deepcopy(document.saved_data)
-        self._build_tree()
+            self._reset_document_editors(document)
         self._set_dirty(False)
 
     def _build_tree(self) -> None:
-        container = QWidget()
-        layout = QVBoxLayout(container)
-        layout.setContentsMargins(0, 0, 12, 0)
-        layout.setSpacing(4)
+        self._value_setters.clear()
+        self.setUpdatesEnabled(False)
+        self._json_timers.clear()
+        self._clear_layout(self.content_layout)
 
         default_document = self.documents[0]
         self._add_config_node(
-            layout,
+            self.content_layout,
             default_document,
             (),
             default_document.data,
@@ -117,7 +124,7 @@ class ConfigEditorWidget(QWidget):
 
         profile_documents = self.documents[1:]
         if profile_documents:
-            characters_section = self._create_section("characters", "characters", 0)
+            characters_section = self._create_section("characters", "characters", 0, self.content)
             characters_layout = QVBoxLayout(characters_section.content)
             characters_layout.setContentsMargins(0, 0, 0, 0)
             characters_layout.setSpacing(2)
@@ -132,10 +139,21 @@ class ConfigEditorWidget(QWidget):
                     indent=1,
                     section_key=f"characters.{document.label}",
                 )
-            layout.addWidget(characters_section)
+            self.content_layout.addWidget(characters_section)
 
-        layout.addStretch(1)
-        self.scroll.setWidget(container)
+        self.content_layout.addStretch(1)
+        self.setUpdatesEnabled(True)
+
+    def _clear_layout(self, layout: QVBoxLayout) -> None:
+        while layout.count():
+            item = layout.takeAt(0)
+            widget = item.widget()
+            child_layout = item.layout()
+            if widget is not None:
+                widget.hide()
+                widget.deleteLater()
+            elif child_layout is not None:
+                self._clear_layout(child_layout)
 
     def _load_documents(self) -> list[_Document]:
         root_data = self._load_json_object(self.config_path)
@@ -247,7 +265,7 @@ class ConfigEditorWidget(QWidget):
     ) -> None:
         if isinstance(value, dict):
             key = section_key or ".".join(path)
-            section = self._create_section(title or path[-1], key, indent)
+            section = self._create_section(title or path[-1], key, indent, layout.parentWidget())
             content_layout = QVBoxLayout(section.content)
             content_layout.setContentsMargins(0, 0, 0, 0)
             content_layout.setSpacing(2)
@@ -264,11 +282,17 @@ class ConfigEditorWidget(QWidget):
             layout.addWidget(section)
             return
 
-        layout.addWidget(self._create_value_row(document, path, value, indent))
+        layout.addWidget(self._create_value_row(document, path, value, indent, layout.parentWidget()))
 
-    def _create_section(self, title: str, key: str, indent: int) -> "_CollapsibleSection":
+    def _create_section(
+        self,
+        title: str,
+        key: str,
+        indent: int,
+        parent: QWidget | None,
+    ) -> "_CollapsibleSection":
         expanded = bool(self._ui_state.get("settings", {}).get("expanded", {}).get(key, False))
-        section = _CollapsibleSection(title, indent, expanded)
+        section = _CollapsibleSection(title, indent, expanded, parent)
         section.toggled.connect(lambda value, section_key=key: self._set_section_expanded(section_key, value))
         return section
 
@@ -279,46 +303,57 @@ class ConfigEditorWidget(QWidget):
         state[key] = expanded
         self._write_ui_state()
 
-    def _create_value_row(self, document: _Document, path: JsonPath, value: Any, indent: int) -> QWidget:
-        row = QWidget()
+    def _create_value_row(
+        self,
+        document: _Document,
+        path: JsonPath,
+        value: Any,
+        indent: int,
+        parent: QWidget | None,
+    ) -> QWidget:
+        row = QWidget(parent)
         row.setObjectName("configRow")
         layout = QHBoxLayout(row)
         layout.setContentsMargins(16 + indent * 18, 7, 12, 7)
         layout.setSpacing(16)
 
-        label = QLabel(path[-1])
+        label = QLabel(path[-1], row)
         label.setMinimumWidth(220)
         layout.addWidget(label, 1)
-        layout.addWidget(self._create_value_editor(document, path, value), 0)
+        layout.addWidget(self._create_value_editor(document, path, value, row), 0)
         return row
 
-    def _create_value_editor(self, document: _Document, path: JsonPath, value: Any) -> QWidget:
+    def _create_value_editor(self, document: _Document, path: JsonPath, value: Any, parent: QWidget) -> QWidget:
         if isinstance(value, bool):
-            checkbox = QCheckBox()
+            checkbox = QCheckBox(parent)
             checkbox.setChecked(value)
             checkbox.toggled.connect(lambda checked: self._update_value(document, path, checked))
+            self._value_setters[(document.path, path)] = checkbox.setChecked
             return checkbox
 
         if isinstance(value, int):
-            line = QLineEdit(str(value))
+            line = QLineEdit(str(value), parent)
             line.setValidator(QIntValidator(-1_000_000_000, 1_000_000_000, line))
             line.editingFinished.connect(lambda: self._commit_number(line, document, path, int))
+            self._value_setters[(document.path, path)] = lambda new_value, widget=line: widget.setText(str(new_value))
             return line
 
         if isinstance(value, float):
-            line = QLineEdit(str(value))
+            line = QLineEdit(str(value), parent)
             validator = QDoubleValidator(-1_000_000_000.0, 1_000_000_000.0, 4, line)
             validator.setNotation(QDoubleValidator.Notation.StandardNotation)
             line.setValidator(validator)
             line.editingFinished.connect(lambda: self._commit_number(line, document, path, float))
+            self._value_setters[(document.path, path)] = lambda new_value, widget=line: widget.setText(str(new_value))
             return line
 
         if isinstance(value, str):
-            line = QLineEdit(value)
+            line = QLineEdit(value, parent)
             line.editingFinished.connect(lambda: self._update_value(document, path, line.text()))
+            self._value_setters[(document.path, path)] = lambda new_value, widget=line: widget.setText(str(new_value))
             return line
 
-        editor = QPlainTextEdit(json.dumps(value, ensure_ascii=False, indent=2))
+        editor = QPlainTextEdit(json.dumps(value, ensure_ascii=False, indent=2), parent)
         editor.setMinimumHeight(82)
         editor.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         timer = QTimer(editor)
@@ -327,6 +362,9 @@ class ConfigEditorWidget(QWidget):
         timer.timeout.connect(lambda: self._commit_json_text(editor, document, path))
         self._json_timers[editor] = timer
         editor.textChanged.connect(timer.start)
+        self._value_setters[(document.path, path)] = lambda new_value, widget=editor: widget.setPlainText(
+            json.dumps(new_value, ensure_ascii=False, indent=2)
+        )
         return editor
 
     def _commit_number(
@@ -376,17 +414,41 @@ class ConfigEditorWidget(QWidget):
             value = value[key]
         return value
 
+    def _reset_document_editors(self, document: _Document) -> None:
+        for path, value in self._iter_leaf_values(document.data):
+            setter = self._value_setters.get((document.path, path))
+            if setter is None:
+                continue
+            widget = self._setter_widget(setter)
+            if widget is not None:
+                widget.blockSignals(True)
+            setter(value)
+            if widget is not None:
+                widget.blockSignals(False)
+
+    def _iter_leaf_values(self, data: dict[str, Any], path: JsonPath = ()):
+        for key, value in data.items():
+            current_path = (*path, key)
+            if isinstance(value, dict):
+                yield from self._iter_leaf_values(value, current_path)
+            else:
+                yield current_path, value
+
+    def _setter_widget(self, setter: Callable[[Any], None]) -> QWidget | None:
+        bound_self = getattr(setter, "__self__", None)
+        return bound_self if isinstance(bound_self, QWidget) else None
+
 
 class _CollapsibleSection(QWidget):
     toggled = Signal(bool)
 
-    def __init__(self, title: str, indent: int, expanded: bool) -> None:
-        super().__init__()
+    def __init__(self, title: str, indent: int, expanded: bool, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        self.button = QToolButton()
+        self.button = QToolButton(self)
         self.button.setObjectName("sectionHeader")
         self.button.setText(title)
         self.button.setCheckable(True)
@@ -396,7 +458,7 @@ class _CollapsibleSection(QWidget):
         self.button.setStyleSheet(f"QToolButton {{ padding-left: {12 + indent * 18}px; }}")
         layout.addWidget(self.button)
 
-        self.content = QWidget()
+        self.content = QWidget(self)
         self.content.setVisible(expanded)
         layout.addWidget(self.content)
 

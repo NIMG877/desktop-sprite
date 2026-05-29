@@ -33,6 +33,30 @@ def test_main_window_embeds_config_editor_in_settings(tmp_path):
     assert window.findChild(ConfigEditorWidget) is not None
 
 
+def test_main_window_lazily_creates_config_editor(tmp_path):
+    _app()
+    config_path = tmp_path / "default.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "app": {"fps": 60},
+                "character": {"profile_files": {}},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    window = MainWindow(config_path, on_set_target=lambda: None, on_show=lambda: None)
+
+    assert window.findChild(ConfigEditorWidget) is None
+    assert not (tmp_path / "ui_state.json").exists()
+
+    window.show_settings()
+
+    assert window.findChild(ConfigEditorWidget) is not None
+    assert (tmp_path / "ui_state.json").exists()
+
+
 def test_main_window_has_restart_and_quit_actions(tmp_path):
     _app()
     config_path = tmp_path / "default.json"
@@ -87,6 +111,7 @@ def test_main_window_enables_config_actions_only_when_dirty(tmp_path):
     assert not buttons["保存并应用"].isEnabled()
     assert not buttons["撤销修改"].isEnabled()
 
+    window.show_settings()
     line = next(item for item in window.findChildren(QLineEdit) if item.text() == "60")
     line.setText("75")
     line.editingFinished.emit()

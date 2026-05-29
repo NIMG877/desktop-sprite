@@ -3,7 +3,7 @@
     "expanded": {
       "default": true,
       "default.app": true,
-      "default.physics": true,
+      "default.physics": false,
       "default.behavior": true,
       "default.interaction": true,
       "default.character": true,

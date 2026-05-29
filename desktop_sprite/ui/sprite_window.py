@@ -41,6 +41,25 @@ class SpriteWindow(QWidget):
         self.timer.timeout.connect(self._tick)
         self.timer.start(max(int(1000 / config.app.fps), 1))
 
+    def apply_config(self, config: AppConfig) -> None:
+        self.config = config
+        self.pose_builder = PoseBuilder(config.pet.wings.open_seconds, config.pet.wings.close_seconds)
+        self.timer.setInterval(max(int(1000 / config.app.fps), 1))
+        if self._has_stays_on_top_flag() != config.app.always_on_top:
+            self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, config.app.always_on_top)
+            if self.isVisible():
+                self.show()
+        if config.app.debug_draw and self.debug_overlay is None:
+            self.debug_overlay = DebugOverlayWindow(self.character, config)
+        elif not config.app.debug_draw and self.debug_overlay is not None:
+            self.debug_overlay.close()
+            self.debug_overlay = None
+        elif self.debug_overlay is not None:
+            self.debug_overlay.apply_config(config)
+
+    def _has_stays_on_top_flag(self) -> bool:
+        return bool(self.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
+
     def _tick(self) -> None:
         try:
             now = time.monotonic()
@@ -159,6 +178,16 @@ class DebugOverlayWindow(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
         self.setMouseTracking(False)
+
+    def apply_config(self, config: AppConfig) -> None:
+        self.config = config
+        if self._has_stays_on_top_flag() != config.app.always_on_top:
+            self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, config.app.always_on_top)
+            if self.isVisible():
+                self.show()
+
+    def _has_stays_on_top_flag(self) -> bool:
+        return bool(self.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
 
     def sync_to_snapshot(self) -> None:
         screen = self.character.debug_state().snapshot.screen_rect

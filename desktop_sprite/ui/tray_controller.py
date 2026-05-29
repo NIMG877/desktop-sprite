@@ -17,13 +17,16 @@ class TrayController:
         window: QWidget,
         on_set_target: Callable[[], None] | None = None,
         on_show: Callable[[], None] | None = None,
+        on_open_window: Callable[[], None] | None = None,
     ) -> None:
         self.window = window
         self.on_set_target = on_set_target
         self.on_show = on_show
+        self.on_open_window = on_open_window
         self.tray = QSystemTrayIcon(self._create_icon(), window)
         self.tray.setToolTip("Desktop Sprite")
         self.tray.setContextMenu(self._create_menu())
+        self.tray.activated.connect(self._on_activated)
 
     def show(self) -> None:
         if not QSystemTrayIcon.isSystemTrayAvailable():
@@ -46,11 +49,21 @@ class TrayController:
             set_target_action = QAction("设置目标点", menu)
             set_target_action.triggered.connect(self.on_set_target)
             menu.addAction(set_target_action)
+        if self.on_set_target is not None:
             menu.addSeparator()
         quit_action = QAction("退出", menu)
         quit_action.triggered.connect(self.quit)
         menu.addAction(quit_action)
         return menu
+
+    def _on_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
+        if self.on_open_window is None:
+            return
+        if reason in {
+            QSystemTrayIcon.ActivationReason.Trigger,
+            QSystemTrayIcon.ActivationReason.DoubleClick,
+        }:
+            self.on_open_window()
 
     def _create_icon(self) -> QIcon:
         pixmap = QPixmap(32, 32)

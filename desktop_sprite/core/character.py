@@ -10,7 +10,7 @@ from desktop_sprite.core.pathfinding import PathFinder, PathPlan
 from desktop_sprite.core.pet_mode import PetMode
 from desktop_sprite.environment.environment_snapshot import EnvironmentSnapshot
 from desktop_sprite.models.state import Pet
-from desktop_sprite.utils.config import PhysicsConfig
+from desktop_sprite.utils.config import AppConfig, PhysicsConfig
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,6 +49,7 @@ class CharacterDebugState:
 
 class DesktopCharacter(Protocol):
     def set_own_window_handle(self, hwnd: int | None) -> None: ...
+    def apply_config(self, config: AppConfig) -> None: ...
     def tick(self, dt: float) -> None: ...
     def start_drag(self, mouse_x: float, mouse_y: float) -> None: ...
     def drag_to(self, mouse_x: float, mouse_y: float) -> None: ...

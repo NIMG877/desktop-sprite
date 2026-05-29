@@ -75,6 +75,7 @@ class PetController:
 
     def __init__(self, config: AppConfig) -> None:
         self.config = config
+        self._own_window_handle: int | None = None
         self.pet = Pet(
             position=Vec2(config.pet.default_spawn_x, config.pet.default_spawn_y),
             velocity=Vec2(),
@@ -100,7 +101,21 @@ class PetController:
         self._pick_new_idle_goal()
 
     def set_own_window_handle(self, hwnd: int | None) -> None:
+        self._own_window_handle = hwnd
         self.environment.set_own_window_handle(hwnd)
+
+    def apply_config(self, config: AppConfig) -> None:
+        size_changed = self.pet.width != config.pet.width or self.pet.height != config.pet.height
+        self.config = config
+        self.physics.config = config.physics
+        if size_changed:
+            self.pet.width = config.pet.width
+            self.pet.height = config.pet.height
+            self.environment = DesktopEnvironment(config.pet.width, config.pet.height)
+            self.environment.set_own_window_handle(self._own_window_handle)
+            self.snapshot = self.environment.snapshot()
+            self.path_plan = None
+        self._state_goal_until = min(self._state_goal_until, time.monotonic())
 
     def tick(self, dt: float) -> None:
         self._ensure_runtime_layers()

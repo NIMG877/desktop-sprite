@@ -1,11 +1,13 @@
 import argparse
 import signal
 import sys
+from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import QProcess, Qt, QTimer
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 from desktop_sprite.core.character_factory import create_character
+from desktop_sprite.ui.main_window import MainWindow
 from desktop_sprite.ui.show_overlay import ShowOverlayWindow
 from desktop_sprite.ui.sprite_window import SpriteWindow
 from desktop_sprite.ui.target_selector import TargetSelectorOverlay
@@ -26,7 +28,8 @@ def _parse_args(argv: list[str], config: AppConfig) -> tuple[argparse.Namespace,
 
 
 def main() -> int:
-    config = load_config()
+    config_path = Path(__file__).resolve().parents[1] / "config" / "default.json"
+    config = load_config(config_path)
     args, qt_args = _parse_args(sys.argv[1:], config)
     configure_logging(config.app.log_level)
 
@@ -35,6 +38,7 @@ def main() -> int:
     )
     app = QApplication([sys.argv[0], *qt_args])
     app.setApplicationName("Desktop Sprite")
+    app.setQuitOnLastWindowClosed(False)
     signal.signal(signal.SIGINT, lambda *_args: app.quit())
 
     interrupt_timer = QTimer()
@@ -52,7 +56,53 @@ def main() -> int:
             target_selector.stop()
             show_overlay.start()
 
-    tray = TrayController(window, on_set_target=target_selector.start, on_show=start_show)
+    def close_runtime_windows() -> None:
+        target_selector.stop()
+        show_overlay.stop()
+        main_window.hide()
+        tray.tray.hide()
+        window.close()
+
+    def quit_app() -> None:
+        close_runtime_windows()
+        app.quit()
+
+    def restart_app() -> None:
+        close_runtime_windows()
+
+        def launch_new_process() -> None:
+            QProcess.startDetached(sys.executable, sys.argv)
+            app.quit()
+
+        QTimer.singleShot(100, launch_new_process)
+
+    def apply_runtime_config() -> None:
+        try:
+            new_config = load_config(config_path)
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            QMessageBox.critical(main_window, "配置重载失败", str(exc))
+            return
+
+        configure_logging(new_config.app.log_level)
+        character.apply_config(new_config)
+        window.apply_config(new_config)
+        target_selector.apply_config(new_config)
+
+    main_window = MainWindow(
+        config_path,
+        on_set_target=target_selector.start,
+        on_show=start_show,
+        on_restart=restart_app,
+        on_apply_config=apply_runtime_config,
+        on_quit=quit_app,
+    )
+
+    tray = TrayController(
+        window,
+        on_set_target=target_selector.start,
+        on_show=start_show,
+        on_open_window=main_window.open_home,
+    )
     tray.show()
     window.show()
 

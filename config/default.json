@@ -2,7 +2,7 @@
   "app": {
     "fps": 60,
     "always_on_top": true,
-    "debug_draw": true,
+    "debug_draw": false,
     "log_level": "INFO"
   },
   "physics": {

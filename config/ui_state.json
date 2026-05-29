@@ -1,0 +1,18 @@
+{
+  "settings": {
+    "expanded": {
+      "default": true,
+      "default.app": true,
+      "default.physics": true,
+      "default.behavior": true,
+      "default.interaction": true,
+      "default.character": true,
+      "default.character.profile_files": false,
+      "characters": false,
+      "characters.pet": false,
+      "characters.pet.flight": false,
+      "characters.pet.wings": false,
+      "characters.pet.hover": false
+    }
+  }
+}

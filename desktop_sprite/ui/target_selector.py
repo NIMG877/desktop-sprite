@@ -89,6 +89,9 @@ class TargetSelectorOverlay(QWidget):
         self.raise_()
         self.activateWindow()
 
+    def apply_config(self, config: AppConfig) -> None:
+        self.config = config
+
     def stop(self) -> None:
         self.candidate = None
         self.hide()

@@ -1,39 +1,37 @@
 from __future__ import annotations
 
 import heapq
+from collections.abc import Mapping, Sequence
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from desktop_sprite.core.pathfinding import NavEdge
 
 
 class GraphPlanner:
     def shortest_path_tree(
         self,
-        graph,
+        adjacency: Mapping[str, Sequence["NavEdge"]],
         start_id: str,
         target_id: str,
-    ) -> dict[str, tuple[str, object]] | None:
+    ) -> dict[str, tuple[str, "NavEdge"]] | None:
         distances: dict[str, float] = {start_id: 0.0}
-        previous: dict[str, tuple[str, object]] = {}
+        previous: dict[str, tuple[str, "NavEdge"]] = {}
         queue: list[tuple[float, str]] = [(0.0, start_id)]
 
         while queue:
-            cost, platform_id = heapq.heappop(queue)
-            if cost > distances.get(platform_id, float("inf")):
+            cost, node_id = heapq.heappop(queue)
+            if cost > distances.get(node_id, float("inf")):
                 continue
-            if platform_id == target_id:
+            if node_id == target_id:
                 return previous
 
-            for edge in graph.get(platform_id, []):
-                to_id = self._edge_target_id(edge)
-                if to_id is None:
-                    continue
+            for edge in adjacency.get(node_id, []):
+                to_id = edge.to_node_id
                 next_cost = cost + edge.cost
                 if next_cost >= distances.get(to_id, float("inf")):
                     continue
                 distances[to_id] = next_cost
-                previous[to_id] = (platform_id, edge)
+                previous[to_id] = (node_id, edge)
                 heapq.heappush(queue, (next_cost, to_id))
-        return None
-
-    def _edge_target_id(self, edge) -> str | None:
-        if hasattr(edge, "to_node_id"):
-            return getattr(edge, "to_node_id")
         return None

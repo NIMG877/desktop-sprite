@@ -24,13 +24,6 @@ class TraversalAction(StrEnum):
     FALL = "fall"
 
 
-class SurfaceCapability(StrEnum):
-    MOVE = "move"
-    JUMP_TARGET = "jump_target"
-    FALL = "fall"
-    TRANSFORM = "transform"
-
-
 class NavNodeKind(StrEnum):
     EVENT_POINT = "event_point"
     DROP_POINT = "drop_point"
@@ -43,7 +36,6 @@ class Surface:
     id: str
     rect: object
     orientation: SurfaceOrientation
-    capabilities: frozenset[SurfaceCapability]
     dynamic: bool = False
     source_id: int | None = None
     type: PlatformType | None = None
@@ -52,27 +44,12 @@ class Surface:
     def from_platform(cls, platform: Platform) -> "Surface":
         if platform.climbable:
             orientation = SurfaceOrientation.VERTICAL
-            capabilities = frozenset(
-                {
-                    SurfaceCapability.MOVE,
-                    SurfaceCapability.TRANSFORM,
-                    SurfaceCapability.JUMP_TARGET,
-                }
-            )
         else:
             orientation = SurfaceOrientation.HORIZONTAL
-            capabilities = frozenset(
-                {
-                    SurfaceCapability.MOVE,
-                    SurfaceCapability.FALL,
-                    SurfaceCapability.JUMP_TARGET,
-                }
-            )
         return cls(
             id=platform.id,
             rect=platform.rect,
             orientation=orientation,
-            capabilities=capabilities,
             dynamic=platform.dynamic,
             source_id=platform.source_id,
             type=platform.type,
@@ -85,28 +62,6 @@ class Surface:
     @property
     def is_vertical(self) -> bool:
         return self.orientation == SurfaceOrientation.VERTICAL
-
-
-class SurfaceTopology:
-    @staticmethod
-    def window_top_id(hwnd: int) -> str:
-        return PlatformTopology.window_top_id(hwnd)
-
-    @staticmethod
-    def window_left_id(hwnd: int) -> str:
-        return PlatformTopology.window_left_id(hwnd)
-
-    @staticmethod
-    def window_right_id(hwnd: int) -> str:
-        return PlatformTopology.window_right_id(hwnd)
-
-    @staticmethod
-    def top_id_for_side_id(side_id: str) -> str:
-        return PlatformTopology.top_id_for_side_id(side_id)
-
-    @staticmethod
-    def top_id_for_side(side: Surface | Platform) -> str:
-        return SurfaceTopology.top_id_for_side_id(side.id)
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,7 +85,6 @@ class NavEdge:
     action: TraversalAction
     cost: float
     contact_surface_id: str | None = None
-    meta: dict[str, float | str] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -191,7 +145,7 @@ class PathFinder:
         target_window_id: int,
         physics: PhysicsConfig,
     ) -> PathPlan | None:
-        target_surface_id = SurfaceTopology.window_top_id(target_window_id)
+        target_surface_id = PlatformTopology.window_top_id(target_window_id)
         target_surface = snapshot.platform_by_id(target_surface_id)
         if target_surface is None:
             return None
@@ -283,7 +237,6 @@ class PathFinder:
                         landing_node.id,
                         TraversalAction.FALL,
                         self._fall_cost(vertical, physics),
-                        meta={"drop": "1"},
                     )
                 )
 
@@ -356,7 +309,6 @@ class PathFinder:
                         target_node.id,
                         TraversalAction.JUMP,
                         self._jump_cost(source_node, target_node, physics),
-                        meta={"target_t": target_node.anchor_t},
                     )
                 )
 
@@ -374,8 +326,6 @@ class PathFinder:
         clamp: bool = True,
     ) -> NavNode | None:
         if surface is None:
-            return None
-        if SurfaceCapability.MOVE not in surface.capabilities:
             return None
         clamped = self._clamp_anchor(surface, anchor_t, pet) if clamp else anchor_t
         node_id = f"{surface.id}:{role}:{round(clamped, 1)}"
@@ -446,8 +396,6 @@ class PathFinder:
             target_t = source.anchor_t
             land_t = target.anchor_t
             approach_point = (source.x, source.y)
-        if "target_t" in edge.meta:
-            land_t = float(edge.meta["target_t"])
         return PathStep(
             edge.action,
             source.surface_id,

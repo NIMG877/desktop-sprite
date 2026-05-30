@@ -20,14 +20,12 @@
 
 - 来源：地面、任务栏、窗口顶部等 `walkable` 平台
 - 方向：`SurfaceOrientation.HORIZONTAL`
-- 能力：`MOVE`、`FALL`、`JUMP_TARGET`
 - anchor 含义：`anchor_t` 表示角色左上角的 `x`
 
 竖直 surface：
 
 - 来源：窗口左右边缘等 `climbable` 墙面
 - 方向：`SurfaceOrientation.VERTICAL`
-- 能力：`MOVE`、`TRANSFORM`、`JUMP_TARGET`
 - anchor 含义：`anchor_t` 表示角色的 `bottom`，即角色底部所在的世界 y 坐标
 
 Surface 是当前寻路系统的统一拓扑单元。水平移动和竖直移动都被视为在某个 surface 上进行 `MOVE`，区别只在于移动轴和速度不同。
@@ -112,7 +110,6 @@ Surface(
     id: str,
     rect,
     orientation: SurfaceOrientation,
-    capabilities: frozenset[SurfaceCapability],
     dynamic: bool,
     source_id: int | None,
     type: PlatformType | None,
@@ -124,7 +121,6 @@ Surface(
 - `id`：surface 唯一标识
 - `rect`：世界坐标矩形
 - `orientation`：水平或竖直
-- `capabilities`：该 surface 支持的动作能力
 - `dynamic`：是否来自动态窗口
 - `source_id`：所属窗口 id
 - `type`：来源平台类型
@@ -137,17 +133,6 @@ VERTICAL
 ```
 
 水平 surface 的移动轴是 x，竖直 surface 的移动轴是 y。
-
-### SurfaceCapability
-
-```python
-MOVE
-JUMP_TARGET
-FALL
-TRANSFORM
-```
-
-能力用于描述 surface 可以参与哪些动作。
 
 ### TraversalAction
 
@@ -207,7 +192,6 @@ NavEdge(
     action: TraversalAction,
     cost: float,
     contact_surface_id: str | None = None,
-    meta: dict[str, float | str] = {},
 )
 ```
 

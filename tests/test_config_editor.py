@@ -42,9 +42,9 @@ def test_config_editor_discovers_profile_files_and_creates_ui_state(tmp_path):
 
     assert [document.path for document in editor.documents] == [config_path, profile_path.resolve()]
     section_titles = [button.text() for button in editor.findChildren(QToolButton)]
-    assert "default" in section_titles
-    assert "characters" in section_titles
-    assert "pet" in section_titles
+    assert "DEFAULT" in section_titles
+    assert "CHARACTERS" in section_titles
+    assert "PET" in section_titles
 
     state = json.loads((tmp_path / "ui_state.json").read_text(encoding="utf-8"))
     expanded = state["settings"]["expanded"]

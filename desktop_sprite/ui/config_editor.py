@@ -355,7 +355,7 @@ class ConfigEditorWidget(QWidget):
         parent: QWidget | None,
     ) -> "_CollapsibleSection":
         expanded = bool(self._ui_state.get("settings", {}).get("expanded", {}).get(key, False))
-        section = _CollapsibleSection(title, indent, expanded, parent)
+        section = _CollapsibleSection(title.upper(), indent, expanded, parent)
         section.toggled.connect(lambda value, section_key=key: self._set_section_expanded(section_key, value))
         return section
 

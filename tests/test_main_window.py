@@ -29,11 +29,11 @@ def test_main_window_embeds_config_editor_in_settings(tmp_path):
     window = MainWindow(config_path, on_set_target=lambda: None, on_show=lambda: None)
     window.show_settings()
 
-    assert window.settings_nav.currentItem().text() == "设置"
+    assert window.stackedWidget.currentWidget() is window.settings_page
     assert window.findChild(ConfigEditorWidget) is not None
 
 
-def test_main_window_lazily_creates_config_editor(tmp_path):
+def test_main_window_creates_config_editor_on_startup(tmp_path):
     _app()
     config_path = tmp_path / "default.json"
     config_path.write_text(
@@ -48,8 +48,8 @@ def test_main_window_lazily_creates_config_editor(tmp_path):
 
     window = MainWindow(config_path, on_set_target=lambda: None, on_show=lambda: None)
 
-    assert window.findChild(ConfigEditorWidget) is None
-    assert not (tmp_path / "ui_state.json").exists()
+    assert window.findChild(ConfigEditorWidget) is not None
+    assert (tmp_path / "ui_state.json").exists()
 
     window.show_settings()
 

@@ -76,6 +76,7 @@ class ConfigEditorWidget(QWidget):
         self.scroll.setWidget(self.content)
         root_layout.addWidget(self.scroll, 1)
 
+        self._apply_style()
         self.reload()
 
     @property
@@ -510,6 +511,81 @@ class ConfigEditorWidget(QWidget):
                 yield from self._iter_leaf_values(value, current_path)
             else:
                 yield current_path, value
+
+    def _apply_style(self) -> None:
+        self.setStyleSheet(
+            """
+            ConfigEditorWidget {
+                background: transparent;
+            }
+            QLabel {
+                color: #f3f3f3;
+                font-size: 14px;
+            }
+            #mutedText {
+                color: #c9c9c9;
+            }
+            #configScroll {
+                background: transparent;
+                border: none;
+            }
+            #configScroll > QWidget > QWidget {
+                background: transparent;
+            }
+            #configRow {
+                background: transparent;
+                min-height: 44px;
+            }
+            #configRow:hover {
+                background: rgba(255, 255, 255, 0.06);
+                border-radius: 6px;
+            }
+            QLineEdit, QPlainTextEdit {
+                background: #2d2d2d;
+                color: #f3f3f3;
+                border: 1px solid #4a4a4a;
+                border-radius: 5px;
+                padding: 4px 8px;
+                selection-background-color: #0078d4;
+            }
+            QLineEdit {
+                min-width: 150px;
+                max-width: 240px;
+                min-height: 30px;
+            }
+            QCheckBox {
+                color: #f3f3f3;
+                min-width: 150px;
+            }
+            #sectionHeader {
+                background: rgba(255, 255, 255, 0.08);
+                color: #f3f3f3;
+                border: 1px solid rgba(255, 255, 255, 0.10);
+                border-radius: 6px;
+                min-height: 32px;
+                text-align: left;
+                font-size: 14px;
+                font-weight: 600;
+            }
+            #sectionHeader:hover {
+                background: rgba(255, 255, 255, 0.12);
+            }
+            QScrollBar:vertical {
+                background: transparent;
+                width: 10px;
+                margin: 2px;
+            }
+            QScrollBar::handle:vertical {
+                background: #5a5a5a;
+                border-radius: 5px;
+                min-height: 36px;
+            }
+            QScrollBar::add-line:vertical,
+            QScrollBar::sub-line:vertical {
+                height: 0;
+            }
+            """
+        )
 
 
 class _CollapsibleSection(QWidget):

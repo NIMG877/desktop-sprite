@@ -6,6 +6,7 @@ from collections.abc import Callable
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon, QWidget
+from qfluentwidgets import FluentIcon as FIF
 
 
 logger = logging.getLogger(__name__)
@@ -48,16 +49,16 @@ class TrayController:
     def _create_menu(self) -> QMenu:
         menu = QMenu(self.owner)
         if self.on_show is not None:
-            show_action = QAction("展示", menu)
+            show_action = QAction(FIF.PLAY.icon(), "展示", menu)
             show_action.triggered.connect(self.on_show)
             menu.addAction(show_action)
         if self.on_set_target is not None:
-            set_target_action = QAction("设置目标点", menu)
+            set_target_action = QAction(FIF.GAME.icon(), "设置目标点", menu)
             set_target_action.triggered.connect(self.on_set_target)
             menu.addAction(set_target_action)
         if self.on_set_target is not None:
             menu.addSeparator()
-        quit_action = QAction("退出", menu)
+        quit_action = QAction(FIF.POWER_BUTTON.icon(), "退出", menu)
         quit_action.triggered.connect(self.quit)
         menu.addAction(quit_action)
         return menu

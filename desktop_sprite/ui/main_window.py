@@ -26,6 +26,7 @@ class MainWindow(QMainWindow):
         config_path: str | Path,
         on_set_target: Callable[[], None],
         on_show: Callable[[], None],
+        user_config_path: str | Path | None = None,
         on_restart: Callable[[], None] | None = None,
         on_apply_config: Callable[[], None] | None = None,
         on_quit: Callable[[], None] | None = None,
@@ -33,12 +34,14 @@ class MainWindow(QMainWindow):
     ) -> None:
         super().__init__(parent)
         self.config_path = Path(config_path)
+        self.user_config_path = Path(user_config_path) if user_config_path else None
         self.on_set_target = on_set_target
         self.on_show = on_show
         self.on_restart = on_restart or QApplication.quit
         self.on_apply_config = on_apply_config or self.on_restart
         self.on_quit = on_quit or QApplication.quit
         self.config_editor: ConfigEditorWidget | None = None
+        self.restore_defaults_button: QPushButton | None = None
         self.save_apply_button: QPushButton | None = None
         self.undo_button: QPushButton | None = None
         self.settings_page: QWidget | None = None
@@ -135,8 +138,8 @@ class MainWindow(QMainWindow):
         )
         layout.addWidget(
             self._action_row(
-                "重启应用",
-                "重新启动桌宠并加载最新配置。",
+                "重启桌宠",
+                "重新启动桌宠运行实例，管理界面保持打开。",
                 "重启",
                 self.on_restart,
             )
@@ -162,6 +165,10 @@ class MainWindow(QMainWindow):
         header.setObjectName("pageTitle")
         header_row.addWidget(header)
         header_row.addStretch(1)
+        self.restore_defaults_button = QPushButton("恢复默认配置")
+        self.restore_defaults_button.clicked.connect(self._restore_default_config)
+        header_row.addWidget(self.restore_defaults_button)
+
         self.undo_button = QPushButton("撤销修改")
         self.undo_button.clicked.connect(self._undo_config_changes)
         self.undo_button.setEnabled(False)
@@ -187,7 +194,11 @@ class MainWindow(QMainWindow):
         stretch = self.settings_layout.takeAt(self.settings_layout.count() - 1)
         if stretch is not None:
             del stretch
-        self.config_editor = ConfigEditorWidget(self.config_path, self.settings_page)
+        self.config_editor = ConfigEditorWidget(
+            self.config_path,
+            self.user_config_path,
+            self.settings_page,
+        )
         self.config_editor.dirtyChanged.connect(self._set_config_actions_enabled)
         self.settings_layout.addWidget(self.config_editor, 1)
 
@@ -206,6 +217,11 @@ class MainWindow(QMainWindow):
     def _undo_config_changes(self) -> None:
         if self.config_editor is not None:
             self.config_editor.undo_changes()
+
+    def _restore_default_config(self) -> None:
+        self._ensure_config_editor()
+        if self.config_editor is not None and self.config_editor.restore_defaults():
+            self.on_apply_config()
 
     def _create_placeholder_page(self, title: str, description: str) -> QWidget:
         page = self._page_container()
@@ -258,130 +274,5 @@ class MainWindow(QMainWindow):
 
     def _apply_style(self) -> None:
         self.setStyleSheet(
-            """
-            QMainWindow {
-                background: #202727;
-                color: #f5f7f7;
-            }
-            #sidebar {
-                background: #151c1c;
-                border: none;
-                padding: 72px 8px 16px 8px;
-                color: #e8eeee;
-                font-size: 17px;
-                outline: 0;
-            }
-            #sidebar::item {
-                min-height: 44px;
-                padding: 0 18px;
-                border-radius: 4px;
-            }
-            #sidebar::item:selected {
-                background: #283132;
-                border-left: 4px solid #72d5e7;
-                color: #ffffff;
-            }
-            #sidebar::item:hover {
-                background: #222b2b;
-            }
-            #content {
-                background: #202727;
-            }
-            QLabel {
-                color: #f5f7f7;
-                font-size: 15px;
-            }
-            #hero {
-                min-height: 220px;
-                border-radius: 8px;
-                background: #303736;
-                border: 1px solid #3c4543;
-            }
-            #heroTitle {
-                font-size: 40px;
-                font-weight: 700;
-            }
-            #heroSubtitle {
-                font-size: 20px;
-                color: #d8dfdf;
-            }
-            #pageTitle {
-                font-size: 28px;
-                font-weight: 700;
-            }
-            #actionRow {
-                background: #2b3232;
-                border: 1px solid #363f3e;
-                border-radius: 6px;
-            }
-            #cardTitle {
-                font-size: 19px;
-                font-weight: 600;
-            }
-            #mutedText {
-                color: #c1caca;
-            }
-            QPushButton {
-                min-height: 34px;
-                padding: 0 18px;
-                border-radius: 5px;
-                border: 1px solid #495354;
-                background: #343d3d;
-                color: #f5f7f7;
-            }
-            QPushButton:hover {
-                background: #3d4848;
-            }
-            QPushButton[primary="true"] {
-                background: #65c6d4;
-                color: #101616;
-                border: none;
-                font-weight: 600;
-            }
-            QLineEdit, QSpinBox, QDoubleSpinBox, QPlainTextEdit {
-                background: #182020;
-                color: #f5f7f7;
-                border: 1px solid #465252;
-                border-radius: 4px;
-                padding: 4px 6px;
-            }
-            QLineEdit {
-                min-width: 150px;
-                max-width: 240px;
-                min-height: 30px;
-            }
-            QCheckBox {
-                min-width: 150px;
-            }
-            #sectionHeader {
-                background: #3a4141;
-                border: none;
-                border-radius: 4px;
-                color: #ffffff;
-                font-size: 16px;
-                font-weight: 600;
-                min-height: 34px;
-                text-align: left;
-            }
-            #sectionHeader:hover {
-                background: #454d4d;
-            }
-            #configRow {
-                background: transparent;
-                min-height: 44px;
-            }
-            #configRow:hover {
-                background: #273030;
-            }
-            #configScroll {
-                background: transparent;
-            }
-            QScrollArea {
-                border: none;
-                background: transparent;
-            }
-            QScrollArea > QWidget > QWidget {
-                background: #202727;
-            }
-            """
+            Path(__file__).with_name("main_window.qss").read_text(encoding="utf-8")
         )

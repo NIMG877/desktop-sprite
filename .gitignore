@@ -15,3 +15,7 @@ logs/
 *_plan.md
 
 PBD史莱姆软体模拟技术方案.md
+
+# User configs
+/config/ui_state.json
+/config/user.json

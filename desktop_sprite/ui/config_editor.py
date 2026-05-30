@@ -39,9 +39,18 @@ class _Document:
 class ConfigEditorWidget(QWidget):
     dirtyChanged = Signal(bool)
 
-    def __init__(self, config_path: str | Path, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        config_path: str | Path,
+        user_config_path: str | Path | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
+        if isinstance(user_config_path, QWidget) and parent is None:
+            parent = user_config_path
+            user_config_path = None
         super().__init__(parent)
         self.config_path = Path(config_path)
+        self.user_config_path = Path(user_config_path) if user_config_path else None
         self.ui_state_path = self.config_path.parent / UI_STATE_FILENAME
         self.documents: list[_Document] = []
         self._value_setters: dict[tuple[Path, JsonPath], Callable[[Any], None]] = {}
@@ -86,15 +95,30 @@ class ConfigEditorWidget(QWidget):
 
     def save(self) -> bool:
         try:
+            if self.user_config_path is None:
+                for document in self.documents:
+                    self._write_json_object(document.path, document.data)
+            else:
+                self._write_json_object(self.user_config_path, self._user_config_data())
             for document in self.documents:
-                with document.path.open("w", encoding="utf-8") as file:
-                    json.dump(document.data, file, ensure_ascii=False, indent=2)
-                    file.write("\n")
                 document.saved_data = copy.deepcopy(document.data)
         except (OSError, TypeError) as exc:
             QMessageBox.critical(self, "配置保存失败", str(exc))
             return False
 
+        self._set_dirty(False)
+        return True
+
+    def restore_defaults(self) -> bool:
+        try:
+            if self.user_config_path is not None and self.user_config_path.exists():
+                self.user_config_path.unlink()
+            self.documents = self._load_documents()
+        except (OSError, json.JSONDecodeError) as exc:
+            QMessageBox.critical(self, "默认配置恢复失败", str(exc))
+            return False
+
+        self._build_tree()
         self._set_dirty(False)
         return True
 
@@ -157,6 +181,13 @@ class ConfigEditorWidget(QWidget):
 
     def _load_documents(self) -> list[_Document]:
         root_data = self._load_json_object(self.config_path)
+        user_data = (
+            self._load_json_object(self.user_config_path)
+            if self.user_config_path is not None and self.user_config_path.is_file()
+            else None
+        )
+        if user_data is not None:
+            self._apply_user_config_to_document(root_data, user_data)
         documents = [_Document("default", self.config_path, root_data, copy.deepcopy(root_data))]
 
         profile_files = root_data.get("character", {}).get("profile_files", {})
@@ -170,7 +201,34 @@ class ConfigEditorWidget(QWidget):
                 data = self._load_json_object(profile_path)
                 documents.append(_Document(name, profile_path, data, copy.deepcopy(data)))
 
+        if user_data is not None:
+            self._apply_user_config(documents, user_data)
+            for document in documents:
+                document.saved_data = copy.deepcopy(document.data)
+
         return documents
+
+    def _apply_user_config(self, documents: list[_Document], user_data: dict[str, Any]) -> None:
+        for document in documents:
+            self._apply_user_config_to_document(document.data, user_data)
+
+    def _apply_user_config_to_document(
+        self,
+        document_data: dict[str, Any],
+        user_data: dict[str, Any],
+    ) -> None:
+        matching = {
+            key: copy.deepcopy(value)
+            for key, value in user_data.items()
+            if key in document_data
+        }
+        _merge_dict(document_data, matching)
+
+    def _user_config_data(self) -> dict[str, Any]:
+        data = copy.deepcopy(self.documents[0].data)
+        for document in self.documents[1:]:
+            _merge_dict(data, document.data)
+        return data
 
     def _load_or_create_ui_state(self) -> dict[str, Any]:
         section_defaults = self._section_default_states()
@@ -251,6 +309,12 @@ class ConfigEditorWidget(QWidget):
         if not isinstance(data, dict):
             raise ValueError(f"{path} 顶层必须是 JSON 对象。")
         return data
+
+    def _write_json_object(self, path: Path, data: dict[str, Any]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w", encoding="utf-8") as file:
+            json.dump(data, file, ensure_ascii=False, indent=2)
+            file.write("\n")
 
     def _add_config_node(
         self,
@@ -477,5 +541,13 @@ class _CollapsibleSection(QWidget):
         self.content.setVisible(expanded)
         self.button.setArrowType(Qt.ArrowType.DownArrow if expanded else Qt.ArrowType.RightArrow)
         self.toggled.emit(expanded)
+
+
+def _merge_dict(target: dict[str, Any], source: dict[str, Any]) -> None:
+    for key, value in source.items():
+        if isinstance(value, dict) and isinstance(target.get(key), dict):
+            _merge_dict(target[key], value)
+        else:
+            target[key] = value
 
 

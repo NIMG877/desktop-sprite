@@ -18,14 +18,17 @@ class TrayController:
         on_set_target: Callable[[], None] | None = None,
         on_show: Callable[[], None] | None = None,
         on_open_window: Callable[[], None] | None = None,
+        owner: QWidget | None = None,
     ) -> None:
         self.window = window
+        self.owner = owner or window
         self.on_set_target = on_set_target
         self.on_show = on_show
         self.on_open_window = on_open_window
-        self.tray = QSystemTrayIcon(self._create_icon(), window)
+        self.tray = QSystemTrayIcon(self._create_icon(), self.owner)
         self.tray.setToolTip("Desktop Sprite")
-        self.tray.setContextMenu(self._create_menu())
+        self.menu = self._create_menu()
+        self.tray.setContextMenu(self.menu)
         self.tray.activated.connect(self._on_activated)
 
     def show(self) -> None:
@@ -34,13 +37,16 @@ class TrayController:
             return
         self.tray.show()
 
+    def set_window(self, window: QWidget) -> None:
+        self.window = window
+
     def quit(self) -> None:
         self.tray.hide()
         self.window.close()
         QApplication.quit()
 
     def _create_menu(self) -> QMenu:
-        menu = QMenu(self.window)
+        menu = QMenu(self.owner)
         if self.on_show is not None:
             show_action = QAction("展示", menu)
             show_action.triggered.connect(self.on_show)

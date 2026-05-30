@@ -89,6 +89,40 @@ def test_config_editor_saves_only_when_requested(tmp_path):
     assert dirty_states == [True, False]
 
 
+def test_config_editor_writes_user_config_without_changing_defaults(tmp_path):
+    _app()
+    config_path, profile_path = _write_config_tree(tmp_path)
+    user_config_path = tmp_path / "user.json"
+    editor = ConfigEditorWidget(config_path, user_config_path)
+    line = next(item for item in editor.findChildren(QLineEdit) if item.text() == "60")
+
+    line.setText("75")
+    line.editingFinished.emit()
+
+    assert editor.save()
+    assert json.loads(config_path.read_text(encoding="utf-8"))["app"]["fps"] == 60
+    assert json.loads(profile_path.read_text(encoding="utf-8"))["pet"]["width"] == 84
+    user_config = json.loads(user_config_path.read_text(encoding="utf-8"))
+    assert user_config["app"]["fps"] == 75
+    assert user_config["pet"]["width"] == 84
+
+
+def test_config_editor_restores_defaults_by_removing_user_config(tmp_path):
+    _app()
+    config_path, _profile_path = _write_config_tree(tmp_path)
+    user_config_path = tmp_path / "user.json"
+    user_config_path.write_text(json.dumps({"app": {"fps": 75}}), encoding="utf-8")
+
+    editor = ConfigEditorWidget(config_path, user_config_path)
+    assert any(item.text() == "75" for item in editor.findChildren(QLineEdit))
+
+    assert editor.restore_defaults()
+
+    assert not user_config_path.exists()
+    assert not editor.is_dirty
+    assert any(item.text() == "60" for item in editor.findChildren(QLineEdit))
+
+
 def test_config_editor_undo_discards_pending_edits(tmp_path):
     _app()
     config_path, _profile_path = _write_config_tree(tmp_path)

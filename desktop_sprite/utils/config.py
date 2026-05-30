@@ -89,12 +89,27 @@ class AppConfig:
     character: CharacterConfig
 
 
-def load_config(path: str | Path | None = None) -> AppConfig:
+def load_config(
+    path: str | Path | None = None,
+    user_path: str | Path | None = None,
+) -> AppConfig:
     config_path = Path(path) if path else Path(__file__).resolve().parents[2] / "config" / "default.json"
     with config_path.open("r", encoding="utf-8") as file:
         data: dict[str, Any] = json.load(file)
 
+    overrides: dict[str, Any] | None = None
+    if user_path is not None:
+        override_path = Path(user_path)
+        if override_path.is_file():
+            with override_path.open("r", encoding="utf-8") as file:
+                overrides = json.load(file)
+            if isinstance(overrides.get("character"), dict):
+                _merge_dict(data.setdefault("character", {}), overrides["character"])
+
     _load_character_profiles(config_path.parent, data)
+    if overrides is not None:
+        _merge_dict(data, overrides)
+
     app_data = data["app"]
     interaction_data = data["interaction"]
     interaction_data.setdefault("target_search_down_distance", 220.0)

@@ -29,7 +29,7 @@ def test_main_window_embeds_config_editor_in_settings(tmp_path):
     window = MainWindow(config_path, on_set_target=lambda: None, on_show=lambda: None)
     window.show_settings()
 
-    assert window.sidebar.currentItem().text() == "设置"
+    assert window.settings_nav.currentItem().text() == "设置"
     assert window.findChild(ConfigEditorWidget) is not None
 
 

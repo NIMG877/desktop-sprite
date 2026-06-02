@@ -1,0 +1,52 @@
+{
+  "entries": [
+    {
+      "entry_id": "spirit-mark-core-001",
+      "item_id": "spirit_mark.sanctum_radiance.core",
+      "details": {
+        "来源": "初始赠礼"
+      }
+    },
+    {
+      "entry_id": "spirit-mark-form-001",
+      "item_id": "spirit_mark.sanctum_radiance.form"
+    },
+    {
+      "entry_id": "spirit-mark-meridian-001",
+      "item_id": "spirit_mark.sanctum_radiance.meridian"
+    },
+    {
+      "entry_id": "spirit-mark-edge-001",
+      "item_id": "spirit_mark.sanctum_radiance.edge"
+    },
+    {
+      "entry_id": "spirit-mark-echo-001",
+      "item_id": "spirit_mark.sanctum_radiance.echo"
+    },
+    {
+      "entry_id": "test-core-stack",
+      "item_id": "test.sanctum_radiance.core",
+      "quantity": 12
+    },
+    {
+      "entry_id": "test-echo-stack",
+      "item_id": "test.sanctum_radiance.echo",
+      "quantity": 5
+    },
+    {
+      "entry_id": "test-form-stack",
+      "item_id": "test.sanctum_radiance.form",
+      "quantity": 8
+    },
+    {
+      "entry_id": "test-meridian-stack",
+      "item_id": "test.sanctum_radiance.meridian",
+      "quantity": 3
+    },
+    {
+      "entry_id": "test-edge-stack",
+      "item_id": "test.sanctum_radiance.edge",
+      "quantity": 16
+    }
+  ]
+}

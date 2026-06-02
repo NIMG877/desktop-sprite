@@ -14,8 +14,16 @@ logs/
 # Plans
 *_plan.md
 
-PBD史莱姆软体模拟技术方案.md
+# ignore files
+/ignore_files/
+
+# system design files
+/system_design/
 
 # User configs
 /config/ui_state.json
 /config/user.json
+/config/inventory.json
+
+# assets
+/assets/

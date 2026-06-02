@@ -6,6 +6,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtWidgets import QApplication, QLineEdit, QPushButton
 
 from desktop_sprite.ui.config_editor import ConfigEditorWidget
+from desktop_sprite.ui.inventory_widget import InventoryWidget
 from desktop_sprite.ui.main_window import MainWindow
 
 
@@ -55,6 +56,25 @@ def test_main_window_creates_config_editor_on_startup(tmp_path):
 
     assert window.findChild(ConfigEditorWidget) is not None
     assert (tmp_path / "ui_state.json").exists()
+
+
+def test_main_window_embeds_inventory_page_in_navigation(tmp_path):
+    _app()
+    config_path = tmp_path / "default.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "app": {"fps": 60},
+                "character": {"profile_files": {}},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    window = MainWindow(config_path, on_set_target=lambda: None, on_show=lambda: None)
+
+    assert isinstance(window.inventory_page, InventoryWidget)
+    assert window.inventory_page.objectName() == "inventoryPage"
 
 
 def test_main_window_has_restart_and_quit_actions(tmp_path):

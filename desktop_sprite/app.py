@@ -7,6 +7,7 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from desktop_sprite.core.character_factory import create_character
+from desktop_sprite.models.inventory import load_inventory
 from desktop_sprite.ui.main_window import MainWindow
 from desktop_sprite.ui.show_overlay import ShowOverlayWindow
 from desktop_sprite.ui.sprite_window import SpriteWindow
@@ -30,6 +31,11 @@ def _parse_args(argv: list[str], config: AppConfig) -> tuple[argparse.Namespace,
 def main() -> int:
     config_path = Path(__file__).resolve().parents[1] / "config" / "default.json"
     user_config_path = config_path.with_name("user.json")
+    inventory = load_inventory(
+        config_path.with_name("items.json"),
+        config_path.with_name("default_inventory.json"),
+        config_path.with_name("inventory.json"),
+    )
     config = load_config(config_path, user_config_path)
     args, qt_args = _parse_args(sys.argv[1:], config)
     configure_logging(config.app.log_level)
@@ -111,6 +117,7 @@ def main() -> int:
         on_restart=restart_pet,
         on_apply_config=apply_runtime_config,
         on_quit=quit_app,
+        inventory_snapshot=inventory,
     )
 
     tray = TrayController(

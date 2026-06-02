@@ -1,0 +1,141 @@
+{
+  "categories": [
+    {
+      "id": "spirit_mark",
+      "name": "灵痕",
+      "order": 0
+    },
+    {
+      "id": "test",
+      "name": "测试",
+      "order": 1
+    }
+  ],
+  "items": [
+    {
+      "id": "spirit_mark.sanctum_radiance.core",
+      "category_id": "spirit_mark",
+      "name": "圣所辉光·灵核",
+      "description": "凝聚于核心的圣所辉光，安静地记录着一次温和的相遇。",
+      "image": "../assets/spirit_mark/sanctum_radiance/core.png",
+      "stackable": false,
+      "details": {
+        "部位": "灵核",
+        "套装": "圣所辉光",
+        "稀有度": "三星",
+        "来源": "初始赠礼"
+      }
+    },
+    {
+      "id": "spirit_mark.sanctum_radiance.form",
+      "category_id": "spirit_mark",
+      "name": "圣所辉光·形骸",
+      "description": "沿着外部轮廓舒展的光痕，让形态显得更加沉静。",
+      "image": "../assets/spirit_mark/sanctum_radiance/form.png",
+      "stackable": false,
+      "details": {
+        "部位": "形骸",
+        "套装": "圣所辉光",
+        "稀有度": "三星",
+        "来源": "初始赠礼"
+      }
+    },
+    {
+      "id": "spirit_mark.sanctum_radiance.meridian",
+      "category_id": "spirit_mark",
+      "name": "圣所辉光·脉络",
+      "description": "细微光线在脉络间流动，留下连贯而柔和的节奏。",
+      "image": "../assets/spirit_mark/sanctum_radiance/meridian.png",
+      "stackable": false,
+      "details": {
+        "部位": "脉络",
+        "套装": "圣所辉光",
+        "稀有度": "三星",
+        "来源": "初始赠礼"
+      }
+    },
+    {
+      "id": "spirit_mark.sanctum_radiance.edge",
+      "category_id": "spirit_mark",
+      "name": "圣所辉光·锋质",
+      "description": "收束在边缘的辉光带着克制的锋芒，并不刺眼。",
+      "image": "../assets/spirit_mark/sanctum_radiance/edge.png",
+      "stackable": false,
+      "details": {
+        "部位": "锋质",
+        "套装": "圣所辉光",
+        "稀有度": "三星",
+        "来源": "初始赠礼"
+      }
+    },
+    {
+      "id": "spirit_mark.sanctum_radiance.echo",
+      "category_id": "spirit_mark",
+      "name": "圣所辉光·余响",
+      "description": "动作结束之后，仍有一小段辉光停留在经过的地方。",
+      "image": "../assets/spirit_mark/sanctum_radiance/echo.png",
+      "stackable": false,
+      "details": {
+        "部位": "余响",
+        "套装": "圣所辉光",
+        "稀有度": "三星",
+        "来源": "初始赠礼"
+      }
+    },
+    {
+      "id": "test.sanctum_radiance.core",
+      "category_id": "test",
+      "name": "测试道具·灵核",
+      "description": "用于验证背包中可堆叠物品的显示效果。",
+      "image": "../assets/test/sanctum_radiance/core.png",
+      "stackable": true,
+      "details": {
+        "用途": "界面测试"
+      }
+    },
+    {
+      "id": "test.sanctum_radiance.echo",
+      "category_id": "test",
+      "name": "测试道具·余响",
+      "description": "另一件可堆叠的测试物品，用于检查网格布局。",
+      "image": "../assets/test/sanctum_radiance/echo.png",
+      "stackable": true,
+      "details": {
+        "用途": "布局测试"
+      }
+    },
+    {
+      "id": "test.sanctum_radiance.form",
+      "category_id": "test",
+      "name": "测试道具·形骸",
+      "description": "用于验证多种测试物品同时出现时的网格排列。",
+      "image": "../assets/test/sanctum_radiance/form.png",
+      "stackable": true,
+      "details": {
+        "用途": "网格测试"
+      }
+    },
+    {
+      "id": "test.sanctum_radiance.meridian",
+      "category_id": "test",
+      "name": "测试道具·脉络",
+      "description": "用于验证滚动区域内的测试物品展示。",
+      "image": "../assets/test/sanctum_radiance/meridian.png",
+      "stackable": true,
+      "details": {
+        "用途": "滚动测试"
+      }
+    },
+    {
+      "id": "test.sanctum_radiance.edge",
+      "category_id": "test",
+      "name": "测试道具·锋质",
+      "description": "用于验证不同数量角标的显示效果。",
+      "image": "../assets/test/sanctum_radiance/edge.png",
+      "stackable": true,
+      "details": {
+        "用途": "角标测试"
+      }
+    }
+  ]
+}

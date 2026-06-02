@@ -19,7 +19,9 @@ from qfluentwidgets import (
     setTheme,
 )
 
+from desktop_sprite.models.inventory import InventorySnapshot
 from desktop_sprite.ui.config_editor import ConfigEditorWidget
+from desktop_sprite.ui.inventory_widget import InventoryWidget
 
 
 class MainWindow(FluentWindow):
@@ -33,6 +35,7 @@ class MainWindow(FluentWindow):
         on_restart: Callable[[], None] | None = None,
         on_apply_config: Callable[[], None] | None = None,
         on_quit: Callable[[], None] | None = None,
+        inventory_snapshot: InventorySnapshot | None = None,
         parent: QWidget | None = None,
     ) -> None:
         setTheme(Theme.DARK)
@@ -59,6 +62,7 @@ class MainWindow(FluentWindow):
 
         self.home_page = self._create_home_page()
         self.realtime_page = self._create_realtime_page()
+        self.inventory_page = InventoryWidget(inventory_snapshot or InventorySnapshot.empty())
         self.settings_page = self._create_settings_page()
 
         self._add_interfaces()
@@ -102,7 +106,7 @@ class MainWindow(FluentWindow):
             (self.home_page, FIF.PLAY, "启动", NavigationItemPosition.TOP),
             (self.realtime_page, FIF.SYNC, "实时触发", NavigationItemPosition.TOP),
             (self._create_placeholder_page("独立任务", "这里可以管理一次性任务、脚本和桌宠行为队列。"), FIF.CHECKBOX, "独立任务", NavigationItemPosition.TOP),
-            (self._create_placeholder_page("一条龙", "这里可以放连续工作流和预设方案。"), FIF.LAYOUT, "一条龙", NavigationItemPosition.TOP),
+            (self.inventory_page, FIF.SHOPPING_CART, "背包", NavigationItemPosition.TOP),
             (self._create_placeholder_page("全自动", "这里可以管理自动运行策略。"), FIF.ROBOT, "全自动", NavigationItemPosition.TOP),
             (self._create_placeholder_page("辅助操控", "这里可以放桌宠移动、展示和目标选择控制。"), FIF.GAME, "辅助操控", NavigationItemPosition.TOP),
             (self._create_placeholder_page("快捷键", "这里可以配置全局快捷键。"), FIF.SPEED_HIGH, "快捷键", NavigationItemPosition.TOP),

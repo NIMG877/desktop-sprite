@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QSize, Qt, Signal
-from PySide6.QtGui import QMouseEvent, QPixmap
+from PySide6.QtCore import QEvent, QPoint, QSize, Qt, Signal
+from PySide6.QtGui import QColor, QMouseEvent, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
+    QApplication,
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -30,9 +32,86 @@ from desktop_sprite.models.inventory import (
 )
 
 
-CARD_WIDTH = 148
-CARD_HEIGHT = 178
-GRID_SPACING = 12
+ITEM_CARD_MIN_SIZE = 80
+ITEM_CARD_MAX_SIZE = 112
+GRID_SPACING = 10
+ITEM_CARD_MARGIN = 8
+
+
+class DraggableSmoothScrollArea(SmoothScrollArea):
+    """Smooth scroll area that also supports mouse drag scrolling."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._drag_start_position: QPoint | None = None
+        self._drag_last_position: QPoint | None = None
+        self._is_drag_scrolling = False
+        self.viewport().installEventFilter(self)
+
+    def setWidget(self, widget: QWidget) -> None:
+        super().setWidget(widget)
+        self._watch_tree(widget)
+
+    def eventFilter(self, watched, event) -> bool:
+        if event.type() == QEvent.Type.ChildAdded:
+            child = event.child()
+            if isinstance(child, QWidget):
+                self._watch_tree(child)
+
+        if not self._is_scroll_surface(watched):
+            return super().eventFilter(watched, event)
+
+        if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
+            position = event.globalPosition().toPoint()
+            self._drag_start_position = position
+            self._drag_last_position = position
+            self._is_drag_scrolling = False
+
+        elif event.type() == QEvent.Type.MouseMove and self._drag_last_position is not None:
+            if not event.buttons() & Qt.MouseButton.LeftButton:
+                self._reset_drag()
+                return super().eventFilter(watched, event)
+
+            position = event.globalPosition().toPoint()
+            if not self._is_drag_scrolling:
+                distance = (position - self._drag_start_position).manhattanLength()
+                if distance < QApplication.startDragDistance():
+                    return super().eventFilter(watched, event)
+                self._is_drag_scrolling = True
+
+            delta = position - self._drag_last_position
+            self._drag_last_position = position
+            self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() - delta.x())
+            self.verticalScrollBar().setValue(self.verticalScrollBar().value() - delta.y())
+            event.accept()
+            return True
+
+        elif event.type() == QEvent.Type.MouseButtonRelease and event.button() == Qt.MouseButton.LeftButton:
+            was_drag_scrolling = self._is_drag_scrolling
+            self._reset_drag()
+            if was_drag_scrolling:
+                event.accept()
+                return True
+
+        return super().eventFilter(watched, event)
+
+    def _is_scroll_surface(self, watched) -> bool:
+        content = self.widget()
+        return (
+            watched is self.viewport()
+            or watched is content
+            or (content is not None and isinstance(watched, QWidget) and content.isAncestorOf(watched))
+        )
+
+    def _watch_tree(self, widget: QWidget) -> None:
+        widget.installEventFilter(self)
+        for child in widget.findChildren(QWidget):
+            child.installEventFilter(self)
+
+    def _reset_drag(self) -> None:
+        self._drag_start_position = None
+        self._drag_last_position = None
+        self._is_drag_scrolling = False
 
 
 class InventoryItemCard(CardWidget):
@@ -48,24 +127,22 @@ class InventoryItemCard(CardWidget):
         self.entry = entry
         self.definition = definition
         self.setObjectName(f"inventoryItemCard_{entry.entry_id}")
-        self.setFixedSize(CARD_WIDTH, CARD_HEIGHT)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._selected = False
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(6)
+        layout.setContentsMargins(ITEM_CARD_MARGIN, ITEM_CARD_MARGIN, ITEM_CARD_MARGIN, ITEM_CARD_MARGIN)
+        layout.setSpacing(0)
 
-        image_container = QWidget(self)
-        image_container.setFixedHeight(112)
-        image_layout = QGridLayout(image_container)
+        self.image_container = QWidget(self)
+        image_layout = QGridLayout(self.image_container)
         image_layout.setContentsMargins(0, 0, 0, 0)
 
-        self.image_label = QLabel(image_container)
+        self.image_label = QLabel(self.image_container)
         self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.image_label.setPixmap(_load_pixmap(definition.image, QSize(112, 112)))
         image_layout.addWidget(self.image_label, 0, 0)
 
-        self.quantity_label = CaptionLabel(image_container)
+        self.quantity_label = CaptionLabel(self.image_container)
         self.quantity_label.setObjectName("inventoryQuantityLabel")
         self.quantity_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.quantity_label.setText(f"x{entry.quantity}")
@@ -79,22 +156,35 @@ class InventoryItemCard(CardWidget):
             0,
             alignment=Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignBottom,
         )
-        layout.addWidget(image_container)
-
-        self.name_label = BodyLabel(definition.name, self)
-        self.name_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.name_label.setWordWrap(True)
-        layout.addWidget(self.name_label, 1)
+        layout.addWidget(self.image_container)
+        self.set_card_size(ITEM_CARD_MAX_SIZE)
         self.set_selected(False)
 
+    def set_card_size(self, edge: int) -> None:
+        self.setFixedSize(edge, edge)
+        image_edge = edge - 2 * ITEM_CARD_MARGIN
+        self.image_container.setFixedSize(image_edge, image_edge)
+        self.image_label.setPixmap(_load_pixmap(self.definition.image, QSize(image_edge, image_edge)))
+
     def set_selected(self, selected: bool) -> None:
-        border = "2px solid #60cdff" if selected else "1px solid rgba(255, 255, 255, 32)"
-        self.setStyleSheet(f"InventoryItemCard {{ border: {border}; border-radius: 8px; }}")
+        self._selected = selected
+        self.update()
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         super().mouseReleaseEvent(event)
         if event.button() == Qt.MouseButton.LeftButton:
             self.entryClicked.emit(self.entry.entry_id)
+
+    def paintEvent(self, event) -> None:
+        super().paintEvent(event)
+        if not self._selected:
+            return
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(QPen(QColor("#60cdff"), 2))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRoundedRect(self.rect().adjusted(1, 1, -1, -1), 7, 7)
 
 
 class InventoryDetailsCard(CardWidget):
@@ -108,16 +198,16 @@ class InventoryDetailsCard(CardWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        self.scroll = SmoothScrollArea(self)
+        self.scroll = DraggableSmoothScrollArea(self)
         self.scroll.setObjectName("inventoryDetailsScroll")
         self.scroll.setWidgetResizable(True)
-        self.scroll.enableTransparentBackground()
         self.content = QWidget(self.scroll)
         self.content.setObjectName("inventoryDetailsContent")
         content_layout = QVBoxLayout(self.content)
         content_layout.setContentsMargins(18, 18, 18, 18)
         content_layout.setSpacing(10)
         self.scroll.setWidget(self.content)
+        self.scroll.enableTransparentBackground()
         layout.addWidget(self.scroll)
 
         self.image_label = QLabel(self.content)
@@ -195,6 +285,7 @@ class InventoryWidget(QWidget):
         self._entries_by_id = {entry.entry_id: entry for entry in snapshot.entries}
         self._categories_by_id = {category.id: category for category in snapshot.categories}
         self._column_count = 0
+        self._card_size = 0
 
         root_layout = QVBoxLayout(self)
         root_layout.setContentsMargins(48, 72, 48, 32)
@@ -211,10 +302,14 @@ class InventoryWidget(QWidget):
         content_layout = QHBoxLayout()
         content_layout.setSpacing(16)
 
-        self.scroll = SmoothScrollArea(self)
+        self.grid_card = CardWidget(self)
+        self.grid_card.setObjectName("inventoryGridCard")
+        grid_card_layout = QVBoxLayout(self.grid_card)
+        grid_card_layout.setContentsMargins(12, 12, 12, 12)
+
+        self.scroll = DraggableSmoothScrollArea(self.grid_card)
         self.scroll.setObjectName("inventoryGridScroll")
         self.scroll.setWidgetResizable(True)
-        self.scroll.enableTransparentBackground()
         self.grid_content = QWidget(self.scroll)
         self.grid_content.setObjectName("inventoryGridContent")
         self.grid_layout = QGridLayout(self.grid_content)
@@ -226,8 +321,10 @@ class InventoryWidget(QWidget):
         self.empty_label.setObjectName("inventoryEmptyLabel")
         self.empty_label.hide()
         self.scroll.setWidget(self.grid_content)
+        self.scroll.enableTransparentBackground()
         self.scroll.viewport().installEventFilter(self)
-        content_layout.addWidget(self.scroll, 1)
+        grid_card_layout.addWidget(self.scroll)
+        content_layout.addWidget(self.grid_card, 1)
 
         self.details_card = InventoryDetailsCard(self)
         content_layout.addWidget(self.details_card)
@@ -288,16 +385,25 @@ class InventoryWidget(QWidget):
             card.entryClicked.connect(self.select_entry)
             self.cards.append(card)
         self._column_count = 0
+        self._card_size = 0
         self._rebuild_grid()
 
     def _rebuild_grid(self) -> None:
-        viewport_width = self.scroll.viewport().width()
-        column_count = max(1, (viewport_width + GRID_SPACING) // (CARD_WIDTH + GRID_SPACING))
-        if column_count == self._column_count:
+        viewport_width = max(1, self.scroll.viewport().width() - self.grid_layout.contentsMargins().right())
+        column_count = max(1, math.ceil((viewport_width + GRID_SPACING) / (ITEM_CARD_MAX_SIZE + GRID_SPACING)))
+        card_size = (viewport_width - GRID_SPACING * (column_count - 1)) // column_count
+        while column_count > 1 and card_size < ITEM_CARD_MIN_SIZE:
+            column_count -= 1
+            card_size = (viewport_width - GRID_SPACING * (column_count - 1)) // column_count
+        card_size = max(ITEM_CARD_MIN_SIZE, min(card_size, ITEM_CARD_MAX_SIZE))
+
+        if column_count == self._column_count and card_size == self._card_size:
             return
         self._clear_grid(delete_widgets=False)
         self._column_count = column_count
+        self._card_size = card_size
         for index, card in enumerate(self.cards):
+            card.set_card_size(card_size)
             self.grid_layout.addWidget(card, index // column_count, index % column_count)
         if not self.cards:
             self.grid_layout.addWidget(self.empty_label, 0, 0)

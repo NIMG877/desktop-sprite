@@ -65,7 +65,7 @@ class MainWindow(FluentWindow):
 
         self._add_interfaces()
         self._ensure_config_editor()
-        self.resize(self._target_initial_size.expandedTo(self.sizeHint()))
+        self._apply_initial_window_size()
 
     def show_settings(self) -> None:
         self._select_settings()
@@ -82,6 +82,20 @@ class MainWindow(FluentWindow):
     def closeEvent(self, event) -> None:
         event.ignore()
         self.hide()
+
+    def _apply_initial_window_size(self) -> None:
+        if self.layout() is not None:
+            self.layout().activate()
+        size = self._target_initial_size.expandedTo(self.minimumSizeHint())
+        size = size.expandedTo(self.minimumSize())
+        screen = self.screen() or QApplication.primaryScreen()
+        if screen is not None:
+            size = size.boundedTo(screen.availableGeometry().size())
+            size = size.expandedTo(self.minimumSize())
+        self.resize(size)
+        handle = self.windowHandle()
+        if handle is not None:
+            handle.resize(size)
 
     def _add_interfaces(self) -> None:
         pages = [

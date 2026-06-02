@@ -77,6 +77,24 @@ def test_main_window_embeds_inventory_page_in_navigation(tmp_path):
     assert window.inventory_page.objectName() == "inventoryPage"
 
 
+def test_main_window_syncs_initial_size_to_native_window(tmp_path):
+    _app()
+    config_path = tmp_path / "default.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "app": {"fps": 60},
+                "character": {"profile_files": {}},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    window = MainWindow(config_path, on_set_target=lambda: None, on_show=lambda: None)
+
+    assert window.windowHandle().size() == window.size()
+
+
 def test_main_window_has_restart_and_quit_actions(tmp_path):
     _app()
     config_path = tmp_path / "default.json"

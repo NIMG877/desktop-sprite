@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import json
+import logging
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
-from PySide6.QtCore import QSize
+from PySide6.QtCore import QByteArray, QSize
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QVBoxLayout, QWidget
 from qfluentwidgets import (
     BodyLabel,
@@ -20,8 +23,11 @@ from qfluentwidgets import (
 )
 
 from desktop_sprite.models.inventory import InventorySnapshot
-from desktop_sprite.ui.config_editor import ConfigEditorWidget
+from desktop_sprite.ui.config_editor import ConfigEditorWidget, UI_STATE_FILENAME
 from desktop_sprite.ui.inventory_widget import InventoryWidget
+
+
+logger = logging.getLogger(__name__)
 
 
 class MainWindow(FluentWindow):
@@ -42,6 +48,7 @@ class MainWindow(FluentWindow):
         super().__init__(parent)
         self.config_path = Path(config_path)
         self.user_config_path = Path(user_config_path) if user_config_path else None
+        self.ui_state_path = self.config_path.parent / UI_STATE_FILENAME
         self.on_set_target = on_set_target
         self.on_show = on_show
         self.on_sleep = on_sleep or (lambda: None)
@@ -66,20 +73,25 @@ class MainWindow(FluentWindow):
         self._add_interfaces()
         self._ensure_config_editor()
         self._apply_initial_window_size()
+        self._saved_geometry = self._load_saved_geometry()
 
     def show_settings(self) -> None:
         self._select_settings()
-        self.show()
-        self.raise_()
-        self.activateWindow()
+        self._show_window()
 
     def open_home(self) -> None:
         self.switchTo(self.home_page)
+        self._show_window()
+
+    def _show_window(self) -> None:
+        if not self.isVisible() and self._saved_geometry is not None:
+            self.restoreGeometry(self._saved_geometry)
         self.show()
         self.raise_()
         self.activateWindow()
 
     def closeEvent(self, event) -> None:
+        self._save_window_geometry()
         event.ignore()
         self.hide()
 
@@ -93,6 +105,48 @@ class MainWindow(FluentWindow):
             size = size.boundedTo(screen.availableGeometry().size())
             size = size.expandedTo(self.minimumSize())
         self.resize(size)
+
+    def _load_saved_geometry(self) -> QByteArray | None:
+        state = self._read_ui_state()
+        main_window_state = state.get("main_window")
+        if not isinstance(main_window_state, dict):
+            return None
+        encoded = main_window_state.get("geometry")
+        if not isinstance(encoded, str):
+            return None
+        try:
+            geometry = QByteArray.fromBase64(encoded.encode("ascii"))
+        except UnicodeEncodeError:
+            return None
+        return geometry if not geometry.isEmpty() else None
+
+    def _save_window_geometry(self) -> None:
+        self._saved_geometry = self.saveGeometry()
+        state = self._read_ui_state()
+        main_window_state = state.setdefault("main_window", {})
+        if not isinstance(main_window_state, dict):
+            main_window_state = {}
+            state["main_window"] = main_window_state
+        main_window_state["geometry"] = bytes(
+            self._saved_geometry.toBase64()
+        ).decode("ascii")
+        try:
+            self.ui_state_path.parent.mkdir(parents=True, exist_ok=True)
+            with self.ui_state_path.open("w", encoding="utf-8") as file:
+                json.dump(state, file, ensure_ascii=False, indent=2)
+                file.write("\n")
+        except OSError:
+            logger.exception("Failed to save main window geometry")
+
+    def _read_ui_state(self) -> dict[str, Any]:
+        if not self.ui_state_path.is_file():
+            return {}
+        try:
+            with self.ui_state_path.open("r", encoding="utf-8") as file:
+                state = json.load(file)
+        except (OSError, json.JSONDecodeError):
+            return {}
+        return state if isinstance(state, dict) else {}
 
     def _add_interfaces(self) -> None:
         pages = [

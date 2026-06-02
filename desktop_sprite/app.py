@@ -74,7 +74,7 @@ def main() -> int:
     def quit_app() -> None:
         close_pet_runtime()
         if main_window is not None:
-            main_window.hide()
+            main_window.close()
         tray.tray.hide()
         app.quit()
 

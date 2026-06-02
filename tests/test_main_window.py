@@ -102,6 +102,38 @@ def test_main_window_applies_initial_logical_size(tmp_path):
     assert window.size() == expected_size
 
 
+def test_main_window_restores_geometry_saved_on_previous_close(tmp_path):
+    app = _app()
+    config_path = tmp_path / "default.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "app": {"fps": 60},
+                "character": {"profile_files": {}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    saved_size = QSize(1000, 640)
+
+    window = MainWindow(config_path, on_set_target=lambda: None, on_show=lambda: None)
+    window.show()
+    window.resize(saved_size)
+    app.processEvents()
+    window.close()
+
+    state = json.loads((tmp_path / "ui_state.json").read_text(encoding="utf-8"))
+    assert state["main_window"]["geometry"]
+    assert state["settings"]["expanded"]
+
+    restored_window = MainWindow(config_path, on_set_target=lambda: None, on_show=lambda: None)
+    restored_window.open_home()
+
+    expected_size = saved_size.boundedTo(restored_window.screen().availableGeometry().size())
+    expected_size = expected_size.expandedTo(restored_window.minimumSize())
+    assert restored_window.size() == expected_size
+
+
 def test_main_window_has_restart_and_quit_actions(tmp_path):
     _app()
     config_path = tmp_path / "default.json"

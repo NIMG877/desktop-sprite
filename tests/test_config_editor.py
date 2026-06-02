@@ -61,6 +61,22 @@ def test_config_editor_discovers_profile_files_and_creates_ui_state(tmp_path):
     assert expanded["characters.pet.flight"] is False
 
 
+def test_config_editor_preserves_main_window_geometry_in_ui_state(tmp_path):
+    _app()
+    config_path, _profile_path = _write_config_tree(tmp_path)
+    state_path = tmp_path / "ui_state.json"
+    state_path.write_text(
+        json.dumps({"main_window": {"geometry": "saved-geometry"}}),
+        encoding="utf-8",
+    )
+
+    editor = ConfigEditorWidget(config_path)
+    editor._set_section_expanded("default", False)
+
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert state["main_window"]["geometry"] == "saved-geometry"
+
+
 def test_config_editor_uses_fluent_numeric_inputs_without_step_buttons(tmp_path):
     _app()
     config_path, _profile_path = _write_config_tree(tmp_path)

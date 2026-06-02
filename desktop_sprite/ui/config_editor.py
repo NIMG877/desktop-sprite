@@ -263,9 +263,12 @@ class ConfigEditorWidget(QWidget):
 
     def _write_ui_state(self, state: dict[str, Any] | None = None) -> None:
         payload = state if state is not None else self._ui_state
+        current_state = self._read_ui_state()
+        current_state["settings"] = payload.get("settings", {})
+        self._ui_state = current_state
         self.ui_state_path.parent.mkdir(parents=True, exist_ok=True)
         with self.ui_state_path.open("w", encoding="utf-8") as file:
-            json.dump(payload, file, ensure_ascii=False, indent=2)
+            json.dump(current_state, file, ensure_ascii=False, indent=2)
             file.write("\n")
 
     def _section_default_states(self) -> dict[str, bool]:

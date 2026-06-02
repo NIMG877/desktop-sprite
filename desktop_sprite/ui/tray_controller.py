@@ -22,7 +22,7 @@ class TrayController:
         owner: QWidget | None = None,
     ) -> None:
         self.window = window
-        self.owner = owner or window
+        self.owner = owner
         self.on_set_target = on_set_target
         self.on_show = on_show
         self.on_open_window = on_open_window

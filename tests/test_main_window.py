@@ -3,6 +3,7 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PySide6.QtCore import QSize
 from PySide6.QtWidgets import QApplication, QLineEdit, QPushButton
 
 from desktop_sprite.ui.config_editor import ConfigEditorWidget
@@ -77,7 +78,7 @@ def test_main_window_embeds_inventory_page_in_navigation(tmp_path):
     assert window.inventory_page.objectName() == "inventoryPage"
 
 
-def test_main_window_syncs_initial_size_to_native_window(tmp_path):
+def test_main_window_applies_initial_logical_size(tmp_path):
     _app()
     config_path = tmp_path / "default.json"
     config_path.write_text(
@@ -92,7 +93,13 @@ def test_main_window_syncs_initial_size_to_native_window(tmp_path):
 
     window = MainWindow(config_path, on_set_target=lambda: None, on_show=lambda: None)
 
-    assert window.windowHandle().size() == window.size()
+    expected_size = QSize(1120, 720)
+    expected_size = expected_size.expandedTo(window.minimumSizeHint())
+    expected_size = expected_size.expandedTo(window.minimumSize())
+    expected_size = expected_size.boundedTo(window.screen().availableGeometry().size())
+    expected_size = expected_size.expandedTo(window.minimumSize())
+
+    assert window.size() == expected_size
 
 
 def test_main_window_has_restart_and_quit_actions(tmp_path):

@@ -93,9 +93,6 @@ class MainWindow(FluentWindow):
             size = size.boundedTo(screen.availableGeometry().size())
             size = size.expandedTo(self.minimumSize())
         self.resize(size)
-        handle = self.windowHandle()
-        if handle is not None:
-            handle.resize(size)
 
     def _add_interfaces(self) -> None:
         pages = [

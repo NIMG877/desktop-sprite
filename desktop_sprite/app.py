@@ -31,11 +31,6 @@ def _parse_args(argv: list[str], config: AppConfig) -> tuple[argparse.Namespace,
 def main() -> int:
     config_path = Path(__file__).resolve().parents[1] / "config" / "default.json"
     user_config_path = config_path.with_name("user.json")
-    inventory = load_inventory(
-        config_path.with_name("items.json"),
-        config_path.with_name("default_inventory.json"),
-        config_path.with_name("inventory.json"),
-    )
     config = load_config(config_path, user_config_path)
     args, qt_args = _parse_args(sys.argv[1:], config)
     configure_logging(config.app.log_level)
@@ -64,6 +59,7 @@ def main() -> int:
         )
 
     character, window, target_selector, show_overlay = create_runtime(config)
+    main_window: MainWindow | None = None
 
     def start_show() -> None:
         if character.start_show():
@@ -77,7 +73,8 @@ def main() -> int:
 
     def quit_app() -> None:
         close_pet_runtime()
-        main_window.hide()
+        if main_window is not None:
+            main_window.hide()
         tray.tray.hide()
         app.quit()
 
@@ -108,24 +105,32 @@ def main() -> int:
         window.apply_config(new_config)
         target_selector.apply_config(new_config)
 
-    main_window = MainWindow(
-        config_path,
-        on_set_target=lambda: target_selector.start(),
-        on_show=start_show,
-        on_sleep=lambda: character.sleep(),
-        user_config_path=user_config_path,
-        on_restart=restart_pet,
-        on_apply_config=apply_runtime_config,
-        on_quit=quit_app,
-        inventory_snapshot=inventory,
-    )
+    def open_main_window() -> None:
+        nonlocal main_window
+        if main_window is None:
+            inventory = load_inventory(
+                config_path.with_name("items.json"),
+                config_path.with_name("default_inventory.json"),
+                config_path.with_name("inventory.json"),
+            )
+            main_window = MainWindow(
+                config_path,
+                on_set_target=lambda: target_selector.start(),
+                on_show=start_show,
+                on_sleep=lambda: character.sleep(),
+                user_config_path=user_config_path,
+                on_restart=restart_pet,
+                on_apply_config=apply_runtime_config,
+                on_quit=quit_app,
+                inventory_snapshot=inventory,
+            )
+        main_window.open_home()
 
     tray = TrayController(
         window,
         on_set_target=lambda: target_selector.start(),
         on_show=start_show,
-        on_open_window=main_window.open_home,
-        owner=main_window,
+        on_open_window=open_main_window,
     )
     tray.show()
     window.show()

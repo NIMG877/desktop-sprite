@@ -28,6 +28,7 @@ class MainWindow(FluentWindow):
         config_path: str | Path,
         on_set_target: Callable[[], None],
         on_show: Callable[[], None],
+        on_sleep: Callable[[], None] | None = None,
         user_config_path: str | Path | None = None,
         on_restart: Callable[[], None] | None = None,
         on_apply_config: Callable[[], None] | None = None,
@@ -40,6 +41,7 @@ class MainWindow(FluentWindow):
         self.user_config_path = Path(user_config_path) if user_config_path else None
         self.on_set_target = on_set_target
         self.on_show = on_show
+        self.on_sleep = on_sleep or (lambda: None)
         self.on_restart = on_restart or QApplication.quit
         self.on_apply_config = on_apply_config or self.on_restart
         self.on_quit = on_quit or QApplication.quit
@@ -161,6 +163,15 @@ class MainWindow(FluentWindow):
                 "选择",
                 self.on_set_target,
                 FIF.GAME,
+            )
+        )
+        layout.addWidget(
+            self._action_card(
+                "让桌宠睡觉",
+                "让当前处于空闲或行走状态的桌宠停下来睡觉。",
+                "睡觉",
+                self.on_sleep,
+                FIF.RINGER,
             )
         )
         layout.addStretch(1)

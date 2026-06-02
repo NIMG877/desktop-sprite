@@ -87,6 +87,33 @@ def test_main_window_has_restart_and_quit_actions(tmp_path):
     assert calls == ["restart", "quit"]
 
 
+def test_main_window_realtime_sleep_action_calls_callback(tmp_path):
+    _app()
+    config_path = tmp_path / "default.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "app": {"fps": 60},
+                "character": {"profile_files": {}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    calls: list[str] = []
+
+    window = MainWindow(
+        config_path,
+        on_set_target=lambda: None,
+        on_show=lambda: None,
+        on_sleep=lambda: calls.append("sleep"),
+    )
+    buttons = {button.text(): button for button in window.findChildren(QPushButton)}
+
+    buttons["睡觉"].click()
+
+    assert calls == ["sleep"]
+
+
 def test_main_window_enables_config_actions_only_when_dirty(tmp_path):
     _app()
     config_path = tmp_path / "default.json"

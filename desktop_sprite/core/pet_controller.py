@@ -181,6 +181,21 @@ class PetController:
         self.pet.support_surface_id = None
         self._transition(PetState.FALL)
 
+    def sleep(self) -> bool:
+        if self._is_show_mode():
+            return False
+        if self.pet.state not in {PetState.IDLE, PetState.WALK, PetState.SLEEP}:
+            return False
+
+        self.path_plan = None
+        self.pet.target_window_id = None
+        self.pet.target_surface_id = None
+        self.pet.velocity.x = 0.0
+        self.mode_controller.set_mode(PetMode.IDLE)
+        self.orchestrator.begin(BehaviorPhaseName.IDLE_WAIT)
+        self._transition(PetState.SLEEP)
+        return True
+
     def set_target_surface_point(self, surface_id: str, anchor_t: float) -> bool:
         self._ensure_runtime_layers()
         if self.mode_controller.is_show():

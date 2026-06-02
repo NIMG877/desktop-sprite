@@ -290,6 +290,41 @@ def test_start_show_locks_mode_and_clears_path_plan():
     assert controller.pet.state == PetState.OPEN_WINGS
 
 
+def test_sleep_stops_walking_and_clears_path_plan():
+    controller, _side = make_controller(window_top_y=120)
+    controller.path_plan = PathPlan(
+        steps=[
+            PathStep(TraversalAction.MOVE, "ground:work_area", "ground:work_area", 140, 1)
+        ],
+        current_index=0,
+        target_window_id=123,
+        snapshot_timestamp=1.0,
+        target_surface_id="ground:work_area",
+        target_anchor_t=140,
+    )
+    controller.pet.target_window_id = 123
+    controller.pet.velocity.x = 40
+
+    assert controller.sleep()
+
+    assert controller.pet.state == PetState.SLEEP
+    assert controller.pet.velocity.x == 0
+    assert controller.path_plan is None
+    assert controller.pet.target_window_id is None
+    assert controller.pet.target_surface_id is None
+    assert controller.mode_controller.mode == PetMode.IDLE
+    assert controller.orchestrator.phase.name == BehaviorPhaseName.IDLE_WAIT
+
+
+def test_sleep_does_not_interrupt_show_mode():
+    controller, _side = make_controller(window_top_y=120)
+    controller.start_show()
+
+    assert not controller.sleep()
+    assert controller.pet.state == PetState.OPEN_WINGS
+    assert controller.mode_controller.mode == PetMode.SHOW
+
+
 def test_show_render_state_separates_canvas_from_pet_body():
     controller, _side = make_controller(window_top_y=120)
     original_x = controller.pet.position.x

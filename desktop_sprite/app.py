@@ -106,6 +106,7 @@ def main() -> int:
         config_path,
         on_set_target=lambda: target_selector.start(),
         on_show=start_show,
+        on_sleep=lambda: character.sleep(),
         user_config_path=user_config_path,
         on_restart=restart_pet,
         on_apply_config=apply_runtime_config,

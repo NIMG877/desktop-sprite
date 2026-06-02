@@ -1,7 +1,0 @@
-<!-- Ikonate, MIT License. Source: https://www.svgviewer.dev/s/18514/list-view -->
-<svg width="24px" height="24px" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-labelledby="listViewIconTitle" stroke="#f5f7f7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none" color="#f5f7f7">
-  <title id="listViewIconTitle">List view</title>
-  <path d="M5 5H19"/>
-  <path d="M5 19H19"/>
-  <rect x="5" y="9" width="14" height="6"/>
-</svg>

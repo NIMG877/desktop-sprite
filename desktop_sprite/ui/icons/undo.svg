@@ -1,7 +1,0 @@
-<!-- Ikonate, MIT License. Source: https://www.svgviewer.dev/s/18642/undo -->
-<svg width="24px" height="24px" viewBox="0 0 24 24" role="img" xmlns="http://www.w3.org/2000/svg" aria-labelledby="undoIconTitle" stroke="#f5f7f7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none" color="#f5f7f7">
-  <title id="undoIconTitle">Undo last action</title>
-  <path d="M8 15H3v-5"/>
-  <path d="M5 13c5-5 12.575-4.275 16 1"/>
-  <path stroke-linecap="round" d="M3 15l2-2"/>
-</svg>

@@ -1,8 +1,0 @@
-<!-- Ikonate, MIT License. Source: https://www.svgviewer.dev/s/18511/list -->
-<svg width="24px" height="24px" viewBox="0 0 24 24" role="img" xmlns="http://www.w3.org/2000/svg" aria-labelledby="listIconTitle" stroke="#f5f7f7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none" color="#f5f7f7">
-  <title id="listIconTitle">List</title>
-  <path d="M10 7L18 7M10 12L18 12M10 17L18 17"/>
-  <line x1="7" y1="7" x2="7" y2="7"/>
-  <line x1="7" y1="12" x2="7" y2="12"/>
-  <line x1="7" y1="17" x2="7" y2="17"/>
-</svg>

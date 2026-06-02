@@ -7,20 +7,25 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QDoubleValidator, QIntValidator
+from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import (
-    QCheckBox,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
+    QAbstractSpinBox,
     QMessageBox,
-    QPlainTextEdit,
-    QScrollArea,
     QSizePolicy,
-    QToolButton,
     QVBoxLayout,
     QWidget,
+)
+from qfluentwidgets import (
+    BodyLabel,
+    DoubleSpinBox,
+    FluentIcon as FIF,
+    LineEdit,
+    PlainTextEdit,
+    SettingCard,
+    SimpleExpandGroupSettingCard,
+    SmoothScrollArea,
+    SpinBox,
+    SwitchButton,
 )
 
 
@@ -62,21 +67,21 @@ class ConfigEditorWidget(QWidget):
         root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(12)
 
-        hint = QLabel("修改后点击保存并应用才会写入配置文件。", self)
-        hint.setObjectName("mutedText")
+        hint = BodyLabel("修改后点击保存并应用才会写入用户配置文件。", self)
         root_layout.addWidget(hint)
 
-        self.scroll = QScrollArea(self)
+        self.scroll = SmoothScrollArea(self)
         self.scroll.setWidgetResizable(True)
-        self.scroll.setObjectName("configScroll")
         self.content = QWidget(self.scroll)
         self.content_layout = QVBoxLayout(self.content)
         self.content_layout.setContentsMargins(0, 0, 12, 0)
-        self.content_layout.setSpacing(4)
+        self.content_layout.setSpacing(12)
         self.scroll.setWidget(self.content)
+        self.scroll.enableTransparentBackground()
+        self.scroll.viewport().setAutoFillBackground(False)
+        self.content.setAutoFillBackground(False)
         root_layout.addWidget(self.scroll, 1)
 
-        self._apply_style()
         self.reload()
 
     @property
@@ -149,13 +154,10 @@ class ConfigEditorWidget(QWidget):
             profile_documents = self.documents[1:]
             if profile_documents:
                 characters_section = self._create_section("characters", "characters", 0, self.content)
-                characters_layout = QVBoxLayout(characters_section.content)
-                characters_layout.setContentsMargins(0, 0, 0, 0)
-                characters_layout.setSpacing(2)
                 for document in profile_documents:
                     profile_path, profile_data = self._profile_root(document)
                     self._add_config_node(
-                        characters_layout,
+                        characters_section,
                         document,
                         profile_path,
                         profile_data,
@@ -319,7 +321,7 @@ class ConfigEditorWidget(QWidget):
 
     def _add_config_node(
         self,
-        layout: QVBoxLayout,
+        container: QVBoxLayout | "_ConfigGroupCard",
         document: _Document,
         path: JsonPath,
         value: Any,
@@ -329,24 +331,29 @@ class ConfigEditorWidget(QWidget):
     ) -> None:
         if isinstance(value, dict):
             key = section_key or ".".join(path)
-            section = self._create_section(title or path[-1], key, indent, layout.parentWidget())
-            content_layout = QVBoxLayout(section.content)
-            content_layout.setContentsMargins(0, 0, 0, 0)
-            content_layout.setSpacing(2)
+            parent = container.parentWidget() if isinstance(container, QVBoxLayout) else container
+            section = self._create_section(title or path[-1], key, indent, parent)
             for child_key, child_value in value.items():
                 child_section_key = f"{key}.{child_key}" if key else child_key
                 self._add_config_node(
-                    content_layout,
+                    section,
                     document,
                     (*path, child_key),
                     child_value,
                     indent=indent + 1,
                     section_key=child_section_key,
                 )
-            layout.addWidget(section)
+            self._add_widget(container, section)
             return
 
-        layout.addWidget(self._create_value_row(document, path, value, indent, layout.parentWidget()))
+        parent = container.parentWidget() if isinstance(container, QVBoxLayout) else container
+        self._add_widget(container, self._create_value_row(document, path, value, indent, parent))
+
+    def _add_widget(self, container: QVBoxLayout | "_ConfigGroupCard", widget: QWidget) -> None:
+        if isinstance(container, QVBoxLayout):
+            container.addWidget(widget)
+        else:
+            container.addGroupWidget(widget)
 
     def _create_section(
         self,
@@ -354,10 +361,13 @@ class ConfigEditorWidget(QWidget):
         key: str,
         indent: int,
         parent: QWidget | None,
-    ) -> "_CollapsibleSection":
+    ) -> "_ConfigGroupCard":
         expanded = bool(self._ui_state.get("settings", {}).get("expanded", {}).get(key, False))
-        section = _CollapsibleSection(title.upper(), indent, expanded, parent)
-        section.toggled.connect(lambda value, section_key=key: self._set_section_expanded(section_key, value))
+        section = _ConfigGroupCard(FIF.FOLDER, title.upper(), indent, parent=parent)
+        section.expandChanged.connect(
+            lambda value, section_key=key: self._set_section_expanded(section_key, value)
+        )
+        section.setExpand(expanded)
         return section
 
     def _set_section_expanded(self, key: str, expanded: bool) -> None:
@@ -375,49 +385,43 @@ class ConfigEditorWidget(QWidget):
         indent: int,
         parent: QWidget | None,
     ) -> QWidget:
-        row = QWidget(parent)
-        row.setObjectName("configRow")
-        layout = QHBoxLayout(row)
-        layout.setContentsMargins(16 + indent * 18, 7, 12, 7)
-        layout.setSpacing(16)
-
-        label = QLabel(path[-1], row)
-        label.setMinimumWidth(220)
-        layout.addWidget(label, 1)
-        layout.addWidget(self._create_value_editor(document, path, value, row), 0)
-        return row
+        editor = self._create_value_editor(document, path, value, parent)
+        return _ValueSettingCard(FIF.EDIT, path[-1], editor, indent, parent)
 
     def _create_value_editor(self, document: _Document, path: JsonPath, value: Any, parent: QWidget) -> QWidget:
         if isinstance(value, bool):
-            checkbox = QCheckBox(parent)
-            checkbox.setChecked(value)
-            checkbox.toggled.connect(lambda checked: self._update_value(document, path, checked))
-            self._track_value_editor(document, path, checkbox, checkbox.setChecked)
-            return checkbox
+            switch = SwitchButton(parent)
+            switch.setChecked(value)
+            switch.checkedChanged.connect(lambda checked: self._update_value(document, path, checked))
+            self._track_value_editor(document, path, switch, switch.setChecked)
+            return switch
 
         if isinstance(value, int):
-            line = QLineEdit(str(value), parent)
-            line.setValidator(QIntValidator(-1_000_000_000, 1_000_000_000, line))
-            line.editingFinished.connect(lambda: self._commit_number(line, document, path, int))
-            self._track_value_editor(document, path, line, lambda new_value, widget=line: widget.setText(str(new_value)))
-            return line
+            spin = _NoWheelSpinBox(parent)
+            spin.setRange(-1_000_000_000, 1_000_000_000)
+            spin.setValue(value)
+            spin.valueChanged.connect(lambda new_value: self._update_value(document, path, new_value))
+            self._track_value_editor(document, path, spin, spin.setValue)
+            return spin
 
         if isinstance(value, float):
-            line = QLineEdit(str(value), parent)
-            validator = QDoubleValidator(-1_000_000_000.0, 1_000_000_000.0, 4, line)
-            validator.setNotation(QDoubleValidator.Notation.StandardNotation)
-            line.setValidator(validator)
-            line.editingFinished.connect(lambda: self._commit_number(line, document, path, float))
-            self._track_value_editor(document, path, line, lambda new_value, widget=line: widget.setText(str(new_value)))
-            return line
+            spin = _NoWheelDoubleSpinBox(parent)
+            spin.setRange(-1_000_000_000.0, 1_000_000_000.0)
+            spin.setDecimals(4)
+            spin.setValue(value)
+            spin.valueChanged.connect(lambda new_value: self._update_value(document, path, new_value))
+            self._track_value_editor(document, path, spin, spin.setValue)
+            return spin
 
         if isinstance(value, str):
-            line = QLineEdit(value, parent)
+            line = LineEdit(parent)
+            line.setText(value)
             line.editingFinished.connect(lambda: self._update_value(document, path, line.text()))
             self._track_value_editor(document, path, line, lambda new_value, widget=line: widget.setText(str(new_value)))
             return line
 
-        editor = QPlainTextEdit(json.dumps(value, ensure_ascii=False, indent=2), parent)
+        editor = PlainTextEdit(parent)
+        editor.setPlainText(json.dumps(value, ensure_ascii=False, indent=2))
         editor.setMinimumHeight(82)
         editor.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         timer = QTimer(editor)
@@ -444,23 +448,7 @@ class ConfigEditorWidget(QWidget):
         self._value_widgets[key] = widget
         self._value_setters[key] = setter
 
-    def _commit_number(
-        self,
-        line: QLineEdit,
-        document: _Document,
-        path: JsonPath,
-        parser: type[int] | type[float],
-    ) -> None:
-        text = line.text().strip()
-        if not text:
-            line.setText(str(self._value_at(document.data, path)))
-            return
-        try:
-            self._update_value(document, path, parser(text))
-        except ValueError:
-            line.setText(str(self._value_at(document.data, path)))
-
-    def _commit_json_text(self, editor: QPlainTextEdit, document: _Document, path: JsonPath) -> None:
+    def _commit_json_text(self, editor: PlainTextEdit, document: _Document, path: JsonPath) -> None:
         try:
             value = json.loads(editor.toPlainText())
         except json.JSONDecodeError:
@@ -485,12 +473,6 @@ class ConfigEditorWidget(QWidget):
         self._dirty = dirty
         self.dirtyChanged.emit(dirty)
 
-    def _value_at(self, source: dict[str, Any], path: JsonPath) -> Any:
-        value: Any = source
-        for key in path:
-            value = value[key]
-        return value
-
     def _reset_document_editors(self, document: _Document) -> None:
         for path, value in self._iter_leaf_values(document.data):
             key = (document.path, path)
@@ -512,111 +494,74 @@ class ConfigEditorWidget(QWidget):
             else:
                 yield current_path, value
 
-    def _apply_style(self) -> None:
-        self.setStyleSheet(
-            """
-            ConfigEditorWidget {
-                background: transparent;
-            }
-            QLabel {
-                color: #f3f3f3;
-                font-size: 14px;
-            }
-            #mutedText {
-                color: #c9c9c9;
-            }
-            #configScroll {
-                background: transparent;
-                border: none;
-            }
-            #configScroll > QWidget > QWidget {
-                background: transparent;
-            }
-            #configRow {
-                background: transparent;
-                min-height: 44px;
-            }
-            #configRow:hover {
-                background: rgba(255, 255, 255, 0.06);
-                border-radius: 6px;
-            }
-            QLineEdit, QPlainTextEdit {
-                background: #2d2d2d;
-                color: #f3f3f3;
-                border: 1px solid #4a4a4a;
-                border-radius: 5px;
-                padding: 4px 8px;
-                selection-background-color: #0078d4;
-            }
-            QLineEdit {
-                min-width: 150px;
-                max-width: 240px;
-                min-height: 30px;
-            }
-            QCheckBox {
-                color: #f3f3f3;
-                min-width: 150px;
-            }
-            #sectionHeader {
-                background: rgba(255, 255, 255, 0.08);
-                color: #f3f3f3;
-                border: 1px solid rgba(255, 255, 255, 0.10);
-                border-radius: 6px;
-                min-height: 32px;
-                text-align: left;
-                font-size: 14px;
-                font-weight: 600;
-            }
-            #sectionHeader:hover {
-                background: rgba(255, 255, 255, 0.12);
-            }
-            QScrollBar:vertical {
-                background: transparent;
-                width: 10px;
-                margin: 2px;
-            }
-            QScrollBar::handle:vertical {
-                background: #5a5a5a;
-                border-radius: 5px;
-                min-height: 36px;
-            }
-            QScrollBar::add-line:vertical,
-            QScrollBar::sub-line:vertical {
-                height: 0;
-            }
-            """
-        )
+class _ConfigGroupCard(SimpleExpandGroupSettingCard):
+    expandChanged = Signal(bool)
+    heightChanged = Signal()
+
+    def __init__(self, icon, title: str, indent: int, parent: QWidget | None = None) -> None:
+        super().__init__(icon, title, parent=parent)
+        self.indent = indent
+        self.card.hBoxLayout.setContentsMargins(16 + indent * 18, 0, 0, 0)
+
+    def setExpand(self, is_expand: bool) -> None:
+        changed = self.isExpand != is_expand
+        super().setExpand(is_expand)
+        if changed:
+            self.expandChanged.emit(is_expand)
+
+    def addGroupWidget(self, widget: QWidget) -> None:
+        super().addGroupWidget(widget)
+        if isinstance(widget, _ConfigGroupCard):
+            widget.heightChanged.connect(self._adjustViewSize)
+
+    def _onExpandValueChanged(self) -> None:
+        super()._onExpandValueChanged()
+        self.heightChanged.emit()
+
+    def _adjustViewSize(self) -> None:
+        super()._adjustViewSize()
+        self.heightChanged.emit()
 
 
-class _CollapsibleSection(QWidget):
-    toggled = Signal(bool)
+class _ValueSettingCard(SettingCard):
+    def __init__(
+        self,
+        icon,
+        title: str,
+        editor: QWidget,
+        indent: int,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(icon, title, parent=parent)
+        self.indent = indent
+        self.hBoxLayout.setContentsMargins(16 + indent * 18, 0, 0, 0)
+        self.editor = editor
+        self.editor.setParent(self)
+        self.hBoxLayout.addWidget(self.editor)
+        self.hBoxLayout.addSpacing(16)
 
-    def __init__(self, title: str, indent: int, expanded: bool, parent: QWidget | None = None) -> None:
+    def paintEvent(self, event) -> None:
+        pass
+
+
+class _NoWheelSpinBox(SpinBox):
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
+        self.setSymbolVisible(False)
+        self.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
 
-        self.button = QToolButton(self)
-        self.button.setObjectName("sectionHeader")
-        self.button.setText(title)
-        self.button.setCheckable(True)
-        self.button.setChecked(expanded)
-        self.button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.button.setArrowType(Qt.ArrowType.DownArrow if expanded else Qt.ArrowType.RightArrow)
-        self.button.setStyleSheet(f"QToolButton {{ padding-left: {12 + indent * 18}px; }}")
-        layout.addWidget(self.button)
+    def wheelEvent(self, event) -> None:
+        event.ignore()
 
-        self.content = QWidget(self)
-        self.content.setVisible(expanded)
-        layout.addWidget(self.content)
 
-        self.button.toggled.connect(self._set_expanded)
+class _NoWheelDoubleSpinBox(DoubleSpinBox):
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setSymbolVisible(False)
+        self.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
 
-    def _set_expanded(self, expanded: bool) -> None:
-        self.content.setVisible(expanded)
-        self.button.setArrowType(Qt.ArrowType.DownArrow if expanded else Qt.ArrowType.RightArrow)
-        self.toggled.emit(expanded)
+    def wheelEvent(self, event) -> None:
+        event.ignore()
 
 
 def _merge_dict(target: dict[str, Any], source: dict[str, Any]) -> None:

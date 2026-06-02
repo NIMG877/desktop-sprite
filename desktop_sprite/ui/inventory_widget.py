@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import math
+from functools import lru_cache
 from pathlib import Path
+from weakref import WeakSet
 
-from PySide6.QtCore import QEvent, QPoint, QSize, Qt, Signal
+from PySide6.QtCore import QEvent, QPoint, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QMouseEvent, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
@@ -36,6 +38,7 @@ ITEM_CARD_MIN_SIZE = 80
 ITEM_CARD_MAX_SIZE = 112
 GRID_SPACING = 10
 ITEM_CARD_MARGIN = 8
+GRID_RESIZE_DEBOUNCE_MS = 60
 
 
 class DraggableSmoothScrollArea(SmoothScrollArea):
@@ -46,6 +49,7 @@ class DraggableSmoothScrollArea(SmoothScrollArea):
         self._drag_start_position: QPoint | None = None
         self._drag_last_position: QPoint | None = None
         self._is_drag_scrolling = False
+        self._watched_widgets: WeakSet[QWidget] = WeakSet()
         self.viewport().installEventFilter(self)
 
     def setWidget(self, widget: QWidget) -> None:
@@ -104,8 +108,14 @@ class DraggableSmoothScrollArea(SmoothScrollArea):
         )
 
     def _watch_tree(self, widget: QWidget) -> None:
+        if widget in self._watched_widgets:
+            return
+        self._watched_widgets.add(widget)
         widget.installEventFilter(self)
         for child in widget.findChildren(QWidget):
+            if child in self._watched_widgets:
+                continue
+            self._watched_widgets.add(child)
             child.installEventFilter(self)
 
     def _reset_drag(self) -> None:
@@ -122,6 +132,7 @@ class InventoryItemCard(CardWidget):
         entry: InventoryEntry,
         definition: ItemDefinition,
         parent: QWidget | None = None,
+        edge: int = ITEM_CARD_MAX_SIZE,
     ) -> None:
         super().__init__(parent)
         self.entry = entry
@@ -157,7 +168,7 @@ class InventoryItemCard(CardWidget):
             alignment=Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignBottom,
         )
         layout.addWidget(self.image_container)
-        self.set_card_size(ITEM_CARD_MAX_SIZE)
+        self.set_card_size(edge)
         self.set_selected(False)
 
     def set_card_size(self, edge: int) -> None:
@@ -284,8 +295,13 @@ class InventoryWidget(QWidget):
         self.cards: list[InventoryItemCard] = []
         self._entries_by_id = {entry.entry_id: entry for entry in snapshot.entries}
         self._categories_by_id = {category.id: category for category in snapshot.categories}
+        self._cards_by_category: dict[str, list[InventoryItemCard]] = {}
         self._column_count = 0
         self._card_size = 0
+        self._grid_rebuild_timer = QTimer(self)
+        self._grid_rebuild_timer.setSingleShot(True)
+        self._grid_rebuild_timer.setInterval(GRID_RESIZE_DEBOUNCE_MS)
+        self._grid_rebuild_timer.timeout.connect(self._rebuild_grid)
 
         root_layout = QVBoxLayout(self)
         root_layout.setContentsMargins(48, 72, 48, 32)
@@ -338,7 +354,7 @@ class InventoryWidget(QWidget):
 
     def eventFilter(self, watched, event) -> bool:
         if watched is self.scroll.viewport() and event.type() == QEvent.Type.Resize:
-            self._rebuild_grid()
+            self._grid_rebuild_timer.start()
         return super().eventFilter(watched, event)
 
     def select_category(self, category_id: str) -> None:
@@ -377,18 +393,51 @@ class InventoryWidget(QWidget):
         )
 
     def _replace_cards(self, entries: tuple[InventoryEntry, ...]) -> None:
-        self._clear_grid(delete_widgets=True)
-        self.cards = []
-        for entry in entries:
-            definition = self.snapshot.definition_for(entry)
-            card = InventoryItemCard(entry, definition, self.grid_content)
-            card.entryClicked.connect(self.select_entry)
-            self.cards.append(card)
+        self._grid_rebuild_timer.stop()
+        self._clear_grid(delete_widgets=False)
+        for card in self.cards:
+            card.hide()
+
+        category_id = self.current_category_id or ""
+        cards = self._cards_by_category.get(category_id)
+        if cards is None:
+            _column_count, card_size = self._grid_metrics()
+            cards = []
+            for entry in entries:
+                definition = self.snapshot.definition_for(entry)
+                card = InventoryItemCard(entry, definition, self.grid_content, edge=card_size)
+                card.entryClicked.connect(self.select_entry)
+                cards.append(card)
+            self._cards_by_category[category_id] = cards
+        self.cards = cards
         self._column_count = 0
         self._card_size = 0
         self._rebuild_grid()
 
     def _rebuild_grid(self) -> None:
+        column_count, card_size = self._grid_metrics()
+
+        if column_count == self._column_count and card_size == self._card_size:
+            return
+
+        if column_count == self._column_count:
+            self._card_size = card_size
+            for card in self.cards:
+                card.set_card_size(card_size)
+            return
+
+        self._clear_grid(delete_widgets=False)
+        self._column_count = column_count
+        self._card_size = card_size
+        for index, card in enumerate(self.cards):
+            if card.width() != card_size:
+                card.set_card_size(card_size)
+            card.show()
+            self.grid_layout.addWidget(card, index // column_count, index % column_count)
+        if not self.cards:
+            self.grid_layout.addWidget(self.empty_label, 0, 0)
+
+    def _grid_metrics(self) -> tuple[int, int]:
         viewport_width = max(1, self.scroll.viewport().width() - self.grid_layout.contentsMargins().right())
         column_count = max(1, math.ceil((viewport_width + GRID_SPACING) / (ITEM_CARD_MAX_SIZE + GRID_SPACING)))
         card_size = (viewport_width - GRID_SPACING * (column_count - 1)) // column_count
@@ -396,17 +445,7 @@ class InventoryWidget(QWidget):
             column_count -= 1
             card_size = (viewport_width - GRID_SPACING * (column_count - 1)) // column_count
         card_size = max(ITEM_CARD_MIN_SIZE, min(card_size, ITEM_CARD_MAX_SIZE))
-
-        if column_count == self._column_count and card_size == self._card_size:
-            return
-        self._clear_grid(delete_widgets=False)
-        self._column_count = column_count
-        self._card_size = card_size
-        for index, card in enumerate(self.cards):
-            card.set_card_size(card_size)
-            self.grid_layout.addWidget(card, index // column_count, index % column_count)
-        if not self.cards:
-            self.grid_layout.addWidget(self.empty_label, 0, 0)
+        return column_count, card_size
 
     def _clear_grid(self, *, delete_widgets: bool) -> None:
         while self.grid_layout.count():
@@ -417,11 +456,21 @@ class InventoryWidget(QWidget):
 
 
 def _load_pixmap(path: Path, size: QSize) -> QPixmap:
-    pixmap = QPixmap(str(path))
+    return _load_scaled_pixmap(str(path), size.width(), size.height())
+
+
+@lru_cache(maxsize=256)
+def _load_scaled_pixmap(path: str, width: int, height: int) -> QPixmap:
+    pixmap = _load_source_pixmap(path)
     if pixmap.isNull():
         return pixmap
     return pixmap.scaled(
-        size,
+        QSize(width, height),
         Qt.AspectRatioMode.KeepAspectRatio,
         Qt.TransformationMode.SmoothTransformation,
     )
+
+
+@lru_cache(maxsize=32)
+def _load_source_pixmap(path: str) -> QPixmap:
+    return QPixmap(path)

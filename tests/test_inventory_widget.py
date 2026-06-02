@@ -3,8 +3,8 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QEvent, QPointF, Qt
-from PySide6.QtGui import QMouseEvent
+from PySide6.QtCore import QEvent, QPointF, QSize, Qt
+from PySide6.QtGui import QMouseEvent, QPixmap, QResizeEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
 
@@ -19,6 +19,9 @@ from desktop_sprite.ui.inventory_widget import (
     ITEM_CARD_MIN_SIZE,
     DraggableSmoothScrollArea,
     InventoryWidget,
+    _load_pixmap,
+    _load_scaled_pixmap,
+    _load_source_pixmap,
 )
 
 
@@ -105,6 +108,49 @@ def test_inventory_widget_cards_are_adaptive_squares_without_names():
     assert all(card.width() == card.height() for card in widget.cards)
     assert all(ITEM_CARD_MIN_SIZE <= card.width() <= ITEM_CARD_MAX_SIZE for card in widget.cards)
     assert all(not hasattr(card, "name_label") for card in widget.cards)
+
+
+def test_inventory_widget_reuses_cards_when_switching_categories():
+    _app()
+    widget = InventoryWidget(_snapshot())
+    spirit_mark_cards = tuple(widget.cards)
+
+    widget.select_category("test")
+    test_cards = tuple(widget.cards)
+    widget.select_category("spirit_mark")
+
+    assert tuple(widget.cards) == spirit_mark_cards
+    assert widget._cards_by_category["test"] == list(test_cards)
+
+
+def test_inventory_widget_debounces_grid_rebuild_on_resize():
+    _app()
+    widget = InventoryWidget(_snapshot())
+    widget._grid_rebuild_timer.stop()
+
+    widget.eventFilter(
+        widget.scroll.viewport(),
+        QResizeEvent(QSize(500, 400), QSize(499, 400)),
+    )
+
+    assert widget._grid_rebuild_timer.isActive()
+
+
+def test_load_pixmap_caches_source_and_scaled_images(tmp_path):
+    _app()
+    _load_source_pixmap.cache_clear()
+    _load_scaled_pixmap.cache_clear()
+    path = tmp_path / "item.png"
+    pixmap = QPixmap(16, 16)
+    pixmap.fill(Qt.GlobalColor.white)
+    assert pixmap.save(str(path))
+
+    _load_pixmap(path, QSize(10, 10))
+    _load_pixmap(path, QSize(10, 10))
+
+    assert _load_source_pixmap.cache_info().misses == 1
+    assert _load_scaled_pixmap.cache_info().misses == 1
+    assert _load_scaled_pixmap.cache_info().hits == 1
 
 
 def test_draggable_scroll_area_scrolls_content_with_mouse_drag():

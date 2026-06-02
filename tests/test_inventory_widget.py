@@ -3,6 +3,8 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PySide6.QtCore import Qt
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
 from desktop_sprite.models.inventory import (
@@ -73,6 +75,24 @@ def test_inventory_widget_shows_quantity_for_stackable_items():
     assert len(widget.cards) == 1
     assert widget.cards[0].quantity_label.text() == "x3"
     assert not widget.cards[0].quantity_label.isHidden()
+
+
+def test_inventory_widget_details_use_scroll_area():
+    _app()
+    widget = InventoryWidget(_snapshot())
+
+    assert widget.details_card.scroll.widget() is widget.details_card.content
+    assert widget.details_card.scroll.widgetResizable()
+
+
+def test_inventory_widget_clicking_card_updates_selected_entry():
+    _app()
+    widget = InventoryWidget(_snapshot())
+    widget.show()
+
+    QTest.mouseClick(widget.cards[1], Qt.MouseButton.LeftButton)
+
+    assert widget.selected_entry_id == "spirit-002"
 
 
 def test_inventory_widget_clears_details_for_empty_category():

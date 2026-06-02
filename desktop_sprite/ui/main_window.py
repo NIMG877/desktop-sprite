@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-from PySide6.QtCore import QTimer, QSize
+from PySide6.QtCore import QSize
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QVBoxLayout, QWidget
 from qfluentwidgets import (
     BodyLabel,
@@ -53,12 +53,10 @@ class MainWindow(FluentWindow):
         self.save_apply_button: PrimaryPushButton | None = None
         self.undo_button: PushButton | None = None
         self.settings_layout: QVBoxLayout | None = None
-        self._initial_size_applied = False
         self._target_initial_size = QSize(1120, 720)
 
         self.setWindowTitle("Desktop Sprite")
         self.setMinimumSize(920, 560)
-        self.resize(self._target_initial_size)
 
         self.home_page = self._create_home_page()
         self.realtime_page = self._create_realtime_page()
@@ -67,6 +65,7 @@ class MainWindow(FluentWindow):
 
         self._add_interfaces()
         self._ensure_config_editor()
+        self.resize(self._target_initial_size.expandedTo(self.sizeHint()))
 
     def show_settings(self) -> None:
         self._select_settings()
@@ -83,23 +82,6 @@ class MainWindow(FluentWindow):
     def closeEvent(self, event) -> None:
         event.ignore()
         self.hide()
-
-    def showEvent(self, event) -> None:
-        super().showEvent(event)
-        if self._initial_size_applied:
-            return
-        self._initial_size_applied = True
-        QTimer.singleShot(0, self._apply_initial_window_size)
-        QTimer.singleShot(60, self._apply_initial_window_size)
-
-    def _apply_initial_window_size(self) -> None:
-        if self.isMaximized() or self.size() == self._target_initial_size:
-            return
-        center = self.frameGeometry().center()
-        self.resize(self._target_initial_size)
-        frame = self.frameGeometry()
-        frame.moveCenter(center)
-        self.move(frame.topLeft())
 
     def _add_interfaces(self) -> None:
         pages = [

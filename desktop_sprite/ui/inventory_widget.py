@@ -36,7 +36,7 @@ GRID_SPACING = 12
 
 
 class InventoryItemCard(CardWidget):
-    clicked = Signal(str)
+    entryClicked = Signal(str)
 
     def __init__(
         self,
@@ -94,7 +94,7 @@ class InventoryItemCard(CardWidget):
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         super().mouseReleaseEvent(event)
         if event.button() == Qt.MouseButton.LeftButton:
-            self.clicked.emit(self.entry.entry_id)
+            self.entryClicked.emit(self.entry.entry_id)
 
 
 class InventoryDetailsCard(CardWidget):
@@ -106,35 +106,46 @@ class InventoryDetailsCard(CardWidget):
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(18, 18, 18, 18)
-        layout.setSpacing(10)
+        layout.setContentsMargins(0, 0, 0, 0)
 
-        self.image_label = QLabel(self)
+        self.scroll = SmoothScrollArea(self)
+        self.scroll.setObjectName("inventoryDetailsScroll")
+        self.scroll.setWidgetResizable(True)
+        self.scroll.enableTransparentBackground()
+        self.content = QWidget(self.scroll)
+        self.content.setObjectName("inventoryDetailsContent")
+        content_layout = QVBoxLayout(self.content)
+        content_layout.setContentsMargins(18, 18, 18, 18)
+        content_layout.setSpacing(10)
+        self.scroll.setWidget(self.content)
+        layout.addWidget(self.scroll)
+
+        self.image_label = QLabel(self.content)
         self.image_label.setObjectName("inventoryDetailsImage")
         self.image_label.setFixedHeight(220)
         self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.image_label)
+        content_layout.addWidget(self.image_label)
 
-        self.name_label = SubtitleLabel("", self)
+        self.name_label = SubtitleLabel("", self.content)
         self.name_label.setObjectName("inventoryDetailsName")
         self.name_label.setWordWrap(True)
-        layout.addWidget(self.name_label)
+        content_layout.addWidget(self.name_label)
 
-        self.category_label = CaptionLabel("", self)
+        self.category_label = CaptionLabel("", self.content)
         self.category_label.setObjectName("inventoryDetailsCategory")
-        layout.addWidget(self.category_label)
+        content_layout.addWidget(self.category_label)
 
-        self.description_label = BodyLabel("", self)
+        self.description_label = BodyLabel("", self.content)
         self.description_label.setObjectName("inventoryDetailsDescription")
         self.description_label.setWordWrap(True)
-        layout.addWidget(self.description_label)
+        content_layout.addWidget(self.description_label)
 
-        self.details_widget = QWidget(self)
+        self.details_widget = QWidget(self.content)
         self.details_layout = QVBoxLayout(self.details_widget)
         self.details_layout.setContentsMargins(0, 8, 0, 0)
         self.details_layout.setSpacing(6)
-        layout.addWidget(self.details_widget)
-        layout.addStretch(1)
+        content_layout.addWidget(self.details_widget)
+        content_layout.addStretch(1)
         self.clear()
 
     def show_entry(
@@ -274,7 +285,7 @@ class InventoryWidget(QWidget):
         for entry in entries:
             definition = self.snapshot.definition_for(entry)
             card = InventoryItemCard(entry, definition, self.grid_content)
-            card.clicked.connect(self.select_entry)
+            card.entryClicked.connect(self.select_entry)
             self.cards.append(card)
         self._column_count = 0
         self._rebuild_grid()

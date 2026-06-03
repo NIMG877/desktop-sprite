@@ -3,7 +3,7 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QEvent, QPointF, QSize, Qt
+from PySide6.QtCore import QCoreApplication, QEvent, QPointF, QSize, Qt
 from PySide6.QtGui import QMouseEvent, QPixmap, QResizeEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
@@ -18,6 +18,7 @@ from desktop_sprite.ui.inventory_widget import (
     ITEM_CARD_MAX_SIZE,
     ITEM_CARD_MIN_SIZE,
     DraggableSmoothScrollArea,
+    InventoryItemCard,
     InventoryWidget,
     _load_pixmap,
     _load_scaled_pixmap,
@@ -198,6 +199,26 @@ def test_inventory_widget_clicking_card_updates_selected_entry():
     QTest.mouseClick(widget.cards[1], Qt.MouseButton.LeftButton)
 
     assert widget.selected_entry_id == "spirit-002"
+
+
+def test_inventory_widget_replaces_card_widgets_when_snapshot_changes():
+    app = _app()
+    widget = InventoryWidget(_snapshot())
+    old_cards = tuple(widget.cards)
+    new_snapshot = InventorySnapshot(
+        widget.snapshot.categories,
+        widget.snapshot.item_definitions,
+        (
+            InventoryEntry("spirit-003", "spirit.core"),
+        ),
+    )
+
+    widget.set_snapshot(new_snapshot)
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    app.processEvents()
+
+    assert [card.entry.entry_id for card in widget.cards] == ["spirit-003"]
+    assert not any(card in widget.grid_content.findChildren(InventoryItemCard) for card in old_cards)
 
 
 def test_inventory_widget_clears_details_for_empty_category():

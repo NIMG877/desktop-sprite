@@ -318,12 +318,12 @@ class InventoryWidget(QWidget):
         content_layout = QHBoxLayout()
         content_layout.setSpacing(16)
 
-        self.grid_card = CardWidget(self)
-        self.grid_card.setObjectName("inventoryGridCard")
-        grid_card_layout = QVBoxLayout(self.grid_card)
-        grid_card_layout.setContentsMargins(12, 12, 12, 12)
+        self.grid_area = QWidget(self)
+        self.grid_area.setObjectName("inventoryGridArea")
+        grid_area_layout = QVBoxLayout(self.grid_area)
+        grid_area_layout.setContentsMargins(0, 0, 0, 0)
 
-        self.scroll = DraggableSmoothScrollArea(self.grid_card)
+        self.scroll = DraggableSmoothScrollArea(self.grid_area)
         self.scroll.setObjectName("inventoryGridScroll")
         self.scroll.setWidgetResizable(True)
         self.grid_content = QWidget(self.scroll)
@@ -339,8 +339,8 @@ class InventoryWidget(QWidget):
         self.scroll.setWidget(self.grid_content)
         self.scroll.enableTransparentBackground()
         self.scroll.viewport().installEventFilter(self)
-        grid_card_layout.addWidget(self.scroll)
-        content_layout.addWidget(self.grid_card, 1)
+        grid_area_layout.addWidget(self.scroll)
+        content_layout.addWidget(self.grid_area, 1)
 
         self.details_card = InventoryDetailsCard(self)
         content_layout.addWidget(self.details_card)
@@ -353,16 +353,20 @@ class InventoryWidget(QWidget):
                 self.select_category(first_category.id)
 
     def set_snapshot(self, snapshot: InventorySnapshot) -> None:
+        previous_category_id = self.current_category_id
+        previous_entry_id = self.selected_entry_id
+        self._discard_cached_cards()
         self.snapshot = snapshot
         self._entries_by_id = {entry.entry_id: entry for entry in snapshot.entries}
         self._categories_by_id = {category.id: category for category in snapshot.categories}
-        self._cards_by_category.clear()
-        self.cards = []
-        if self.current_category_id in self._categories_by_id:
-            self.select_category(self.current_category_id)
+        if previous_category_id in self._categories_by_id:
+            self.select_category(previous_category_id)
+            if previous_entry_id in self._entries_by_id:
+                self.select_entry(previous_entry_id)
         elif snapshot.categories:
             self.select_category(snapshot.categories[0].id)
         else:
+            self.current_category_id = None
             self.selected_entry_id = None
             self.details_card.clear()
 
@@ -468,6 +472,18 @@ class InventoryWidget(QWidget):
             if delete_widgets and widget is not None and widget is not self.empty_label:
                 widget.deleteLater()
 
+    def _discard_cached_cards(self) -> None:
+        self._grid_rebuild_timer.stop()
+        self._clear_grid(delete_widgets=False)
+        for cards in self._cards_by_category.values():
+            for card in cards:
+                card.hide()
+                card.deleteLater()
+        self._cards_by_category.clear()
+        self.cards = []
+        self._column_count = 0
+        self._card_size = 0
+
 
 def _load_pixmap(path: Path, size: QSize) -> QPixmap:
     return _load_scaled_pixmap(str(path), size.width(), size.height())
@@ -483,7 +499,6 @@ def _load_scaled_pixmap(path: str, width: int, height: int) -> QPixmap:
         Qt.AspectRatioMode.KeepAspectRatio,
         Qt.TransformationMode.SmoothTransformation,
     )
-
 
 @lru_cache(maxsize=32)
 def _load_source_pixmap(path: str) -> QPixmap:

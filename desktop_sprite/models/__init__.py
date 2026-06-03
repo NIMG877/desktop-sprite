@@ -4,7 +4,10 @@ from desktop_sprite.models.inventory import (
     InventorySnapshot,
     ItemCategory,
     ItemDefinition,
+    append_inventory_entry,
     load_inventory,
+    save_inventory,
+    spirit_mark_item_id_for_slot,
 )
 from desktop_sprite.models.platform import Platform, PlatformType
 from desktop_sprite.models.spirit_mark import (
@@ -34,8 +37,11 @@ __all__ = [
     "SpiritMarkInventory",
     "Vec2",
     "WindowInfo",
+    "append_inventory_entry",
     "generate_spirit_mark",
     "load_inventory",
     "load_spirit_mark_inventory",
+    "save_inventory",
     "save_spirit_mark_inventory",
+    "spirit_mark_item_id_for_slot",
 ]

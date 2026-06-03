@@ -7,8 +7,19 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from desktop_sprite.core.character_factory import create_character
-from desktop_sprite.models.inventory import load_inventory
-from desktop_sprite.models.spirit_mark import load_spirit_mark_inventory, save_spirit_mark_inventory
+from desktop_sprite.models.inventory import (
+    InventoryEntry,
+    append_inventory_entry,
+    load_inventory,
+    spirit_mark_item_id_for_slot,
+)
+from desktop_sprite.models.spirit_mark import (
+    SpiritMarkGrantRequest,
+    SpiritMarkInventory,
+    generate_spirit_mark,
+    load_spirit_mark_inventory,
+    save_spirit_mark_inventory,
+)
 from desktop_sprite.ui.main_window import MainWindow
 from desktop_sprite.ui.show_overlay import ShowOverlayWindow
 from desktop_sprite.ui.sprite_window import SpriteWindow
@@ -118,6 +129,38 @@ def main() -> int:
                 user_spirit_mark_path,
             )
             spirit_marks = load_spirit_mark_inventory(user_spirit_mark_path)
+
+            def save_updated_spirit_marks(updated: SpiritMarkInventory) -> None:
+                nonlocal spirit_marks
+                spirit_marks = updated
+                save_spirit_mark_inventory(user_spirit_mark_path, updated)
+
+            def request_debug_spirit_mark() -> str:
+                nonlocal inventory, spirit_marks
+                request = SpiritMarkGrantRequest(
+                    source_type="debug",
+                    source_id="management-debug",
+                    source_description="这道灵痕来自管理界面的一次调试请求，用于验证真实生成、入包和装备流程。",
+                    quality_hint="completed",
+                    record_tags=("debug", "management"),
+                )
+                mark = generate_spirit_mark(request)
+                item_id = spirit_mark_item_id_for_slot(inventory, mark.slot_id)
+                append_inventory_entry(
+                    user_inventory_path,
+                    InventoryEntry(mark.entry_id, item_id),
+                )
+                spirit_marks = SpiritMarkInventory((*spirit_marks.marks, mark), spirit_marks.materials)
+                save_spirit_mark_inventory(user_spirit_mark_path, spirit_marks)
+                inventory = load_inventory(
+                    config_path.with_name("items.json"),
+                    user_inventory_path,
+                    user_spirit_mark_path,
+                )
+                if main_window is not None:
+                    main_window.update_inventory_and_spirit_marks(inventory, spirit_marks)
+                return f"已生成灵痕：{mark.name}（{mark.entry_id}）"
+
             main_window = MainWindow(
                 config_path,
                 on_set_target=lambda: target_selector.start(),
@@ -129,7 +172,8 @@ def main() -> int:
                 on_quit=quit_app,
                 inventory_snapshot=inventory,
                 spirit_mark_inventory=spirit_marks,
-                on_spirit_marks_changed=lambda updated: save_spirit_mark_inventory(user_spirit_mark_path, updated),
+                on_spirit_marks_changed=save_updated_spirit_marks,
+                on_debug_request_spirit_mark=request_debug_spirit_mark,
             )
         main_window.open_home()
 

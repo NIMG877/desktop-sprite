@@ -82,6 +82,13 @@ class PetGrowthWidget(QWidget):
         else:
             self.pages.setCurrentWidget(self.attributes_page)
 
+    def set_data(
+        self,
+        inventory_snapshot: InventorySnapshot,
+        spirit_mark_inventory: SpiritMarkInventory,
+    ) -> None:
+        self.equipment_page.set_data(inventory_snapshot, spirit_mark_inventory)
+
 
 class PetAttributesPage(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -136,6 +143,19 @@ class SpiritMarkEquipmentPage(QWidget):
         self.detail_stack.addWidget(self.slot_page)
         root.addWidget(self.detail_stack, 1)
 
+        self.refresh()
+
+    def set_data(
+        self,
+        inventory_snapshot: InventorySnapshot,
+        spirit_mark_inventory: SpiritMarkInventory,
+    ) -> None:
+        self.inventory_snapshot = inventory_snapshot
+        self.spirit_mark_inventory = spirit_mark_inventory
+        self._entries_by_id = {entry.entry_id: entry for entry in inventory_snapshot.entries}
+        self._category_by_id = {category.id: category for category in inventory_snapshot.categories}
+        if self.selected_entry_id not in self._entries_by_id:
+            self.selected_entry_id = None
         self.refresh()
 
     def open_slot(self, slot_id: str) -> None:

@@ -1,6 +1,11 @@
 import json
 
-from desktop_sprite.models.inventory import load_inventory
+from desktop_sprite.models.inventory import (
+    InventoryEntry,
+    append_inventory_entry,
+    load_inventory,
+    spirit_mark_item_id_for_slot,
+)
 
 
 def _write_catalog(tmp_path):
@@ -189,3 +194,22 @@ def test_load_inventory_enriches_existing_spirit_mark_entries_by_entry_id(tmp_pa
     assert snapshot.definition_for(plain_entry).name == "灵核"
     assert ("来源描述", "这道灵痕来自一次手动纪念。") in snapshot.details_for(enriched_entry)
     assert ("装备", "是") in snapshot.details_for(enriched_entry)
+
+
+def test_append_inventory_entry_writes_raw_inventory_file(tmp_path):
+    path = tmp_path / "inventory.json"
+
+    append_inventory_entry(path, InventoryEntry("mark-001", "spirit.core"))
+
+    assert json.loads(path.read_text(encoding="utf-8")) == {
+        "entries": [{"entry_id": "mark-001", "item_id": "spirit.core"}]
+    }
+
+
+def test_spirit_mark_item_id_for_slot_uses_catalog_definition(tmp_path):
+    catalog_path = _write_catalog(tmp_path)
+    inventory_path = _write_inventory(tmp_path / "inventory.json", [])
+
+    snapshot = load_inventory(catalog_path, inventory_path)
+
+    assert spirit_mark_item_id_for_slot(snapshot, "core") == "spirit.core"

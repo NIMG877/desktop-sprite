@@ -7,6 +7,7 @@ from PySide6.QtCore import QSize
 from PySide6.QtWidgets import QApplication, QLineEdit, QPushButton
 
 from desktop_sprite.ui.config_editor import ConfigEditorWidget
+from desktop_sprite.ui.debug_widget import DebugWidget
 from desktop_sprite.ui.growth_widget import PetGrowthWidget
 from desktop_sprite.ui.inventory_widget import InventoryWidget
 from desktop_sprite.ui.main_window import MainWindow
@@ -96,6 +97,25 @@ def test_main_window_replaces_independent_tasks_with_growth_page(tmp_path):
 
     assert isinstance(window.growth_page, PetGrowthWidget)
     assert window.growth_page.objectName() == "petGrowthPage"
+
+
+def test_main_window_replaces_shortcuts_with_debug_page(tmp_path):
+    _app()
+    config_path = tmp_path / "default.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "app": {"fps": 60},
+                "character": {"profile_files": {}},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    window = MainWindow(config_path, on_set_target=lambda: None, on_show=lambda: None)
+
+    assert isinstance(window.debug_page, DebugWidget)
+    assert window.debug_page.objectName() == "debugPage"
 
 
 def test_main_window_applies_initial_logical_size(tmp_path):

@@ -25,6 +25,7 @@ from qfluentwidgets import (
 from desktop_sprite.models.inventory import InventorySnapshot
 from desktop_sprite.models.spirit_mark import SpiritMarkInventory
 from desktop_sprite.ui.config_editor import ConfigEditorWidget, UI_STATE_FILENAME, USER_CONFIG_DIRNAME
+from desktop_sprite.ui.debug_widget import DebugWidget
 from desktop_sprite.ui.growth_widget import PetGrowthWidget
 from desktop_sprite.ui.inventory_widget import InventoryWidget
 
@@ -46,6 +47,7 @@ class MainWindow(FluentWindow):
         inventory_snapshot: InventorySnapshot | None = None,
         spirit_mark_inventory: SpiritMarkInventory | None = None,
         on_spirit_marks_changed: Callable[[SpiritMarkInventory], None] | None = None,
+        on_debug_request_spirit_mark: Callable[[], str] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         setTheme(Theme.DARK)
@@ -78,6 +80,7 @@ class MainWindow(FluentWindow):
             on_spirit_marks_changed,
         )
         self.inventory_page = InventoryWidget(inventory)
+        self.debug_page = DebugWidget(on_debug_request_spirit_mark)
         self.settings_page = self._create_settings_page()
 
         self._add_interfaces()
@@ -166,7 +169,7 @@ class MainWindow(FluentWindow):
             (self.inventory_page, FIF.SHOPPING_CART, "背包", NavigationItemPosition.TOP),
             (self._create_placeholder_page("全自动", "这里可以管理自动运行策略。"), FIF.ROBOT, "全自动", NavigationItemPosition.TOP),
             (self._create_placeholder_page("辅助操控", "这里可以放桌宠移动、展示和目标选择控制。"), FIF.GAME, "辅助操控", NavigationItemPosition.TOP),
-            (self._create_placeholder_page("快捷键", "这里可以配置全局快捷键。"), FIF.SPEED_HIGH, "快捷键", NavigationItemPosition.TOP),
+            (self.debug_page, FIF.SPEED_HIGH, "调试", NavigationItemPosition.TOP),
             (self._create_placeholder_page("通知", "这里可以管理提醒和消息。"), FIF.RINGER, "通知", NavigationItemPosition.TOP),
             (self.settings_page, FIF.SETTING, "设置", NavigationItemPosition.BOTTOM),
         ]
@@ -176,6 +179,14 @@ class MainWindow(FluentWindow):
     def _select_settings(self) -> None:
         self._ensure_config_editor()
         self.switchTo(self.settings_page)
+
+    def update_inventory_and_spirit_marks(
+        self,
+        inventory_snapshot: InventorySnapshot,
+        spirit_mark_inventory: SpiritMarkInventory,
+    ) -> None:
+        self.inventory_page.set_snapshot(inventory_snapshot)
+        self.growth_page.set_data(inventory_snapshot, spirit_mark_inventory)
 
     def _create_home_page(self) -> QWidget:
         page = self._page("homePage")

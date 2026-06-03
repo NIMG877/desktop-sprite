@@ -105,6 +105,63 @@ def load_inventory(
     return InventorySnapshot(categories, definitions, entries)
 
 
+def save_inventory(path: str | Path, entries: tuple[InventoryEntry, ...]) -> None:
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with target.open("w", encoding="utf-8") as file:
+        json.dump(
+            {
+                "entries": [
+                    {
+                        "entry_id": entry.entry_id,
+                        "item_id": entry.item_id,
+                        **({"quantity": entry.quantity} if entry.quantity != 1 else {}),
+                        **({"details": dict(entry.details)} if entry.details else {}),
+                    }
+                    for entry in entries
+                ]
+            },
+            file,
+            ensure_ascii=False,
+            indent=2,
+        )
+        file.write("\n")
+
+
+def append_inventory_entry(path: str | Path, entry: InventoryEntry) -> None:
+    target = Path(path)
+    _ensure_inventory_file(target)
+    data = _read_object(target)
+    raw_entries = _require_list(data, "entries")
+    if any(isinstance(raw_entry, dict) and raw_entry.get("entry_id") == entry.entry_id for raw_entry in raw_entries):
+        raise InventoryValidationError(f"Duplicate inventory entry id: {entry.entry_id}")
+    raw_entry: dict[str, Any] = {
+        "entry_id": entry.entry_id,
+        "item_id": entry.item_id,
+    }
+    if entry.quantity != 1:
+        raw_entry["quantity"] = entry.quantity
+    if entry.details:
+        raw_entry["details"] = dict(entry.details)
+    raw_entries.append(raw_entry)
+    with target.open("w", encoding="utf-8") as file:
+        json.dump(data, file, ensure_ascii=False, indent=2)
+        file.write("\n")
+
+
+def spirit_mark_item_id_for_slot(snapshot: InventorySnapshot, slot_id: str) -> str:
+    slot_name = SPIRIT_MARK_SLOTS[slot_id].name
+    for definition in snapshot.item_definitions.values():
+        if definition.category_id != SPIRIT_MARK_CATEGORY_ID:
+            continue
+        if definition.id.endswith(f".{slot_id}"):
+            return definition.id
+        details = dict(definition.details)
+        if details.get("部位") == slot_name:
+            return definition.id
+    raise InventoryValidationError(f"No spirit mark item definition for slot: {slot_id}")
+
+
 def _load_catalog(path: Path) -> tuple[tuple[ItemCategory, ...], dict[str, ItemDefinition]]:
     data = _read_object(path)
     raw_categories = _require_list(data, "categories")

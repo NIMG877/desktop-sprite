@@ -352,6 +352,20 @@ class InventoryWidget(QWidget):
             if self.current_category_id is None:
                 self.select_category(first_category.id)
 
+    def set_snapshot(self, snapshot: InventorySnapshot) -> None:
+        self.snapshot = snapshot
+        self._entries_by_id = {entry.entry_id: entry for entry in snapshot.entries}
+        self._categories_by_id = {category.id: category for category in snapshot.categories}
+        self._cards_by_category.clear()
+        self.cards = []
+        if self.current_category_id in self._categories_by_id:
+            self.select_category(self.current_category_id)
+        elif snapshot.categories:
+            self.select_category(snapshot.categories[0].id)
+        else:
+            self.selected_entry_id = None
+            self.details_card.clear()
+
     def eventFilter(self, watched, event) -> bool:
         if watched is self.scroll.viewport() and event.type() == QEvent.Type.Resize:
             self._grid_rebuild_timer.start()

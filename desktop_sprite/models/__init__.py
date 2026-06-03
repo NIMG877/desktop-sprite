@@ -8,6 +8,12 @@ from desktop_sprite.models.inventory import (
     load_inventory,
     spirit_mark_item_id_for_slot,
 )
+from desktop_sprite.models.pet_attribute import (
+    PetAttributeDefinition,
+    PetAttributeModifier,
+    PetAttributeSheet,
+    PetAttributeValue,
+)
 from desktop_sprite.models.platform import Platform, PlatformType
 from desktop_sprite.models.spirit_mark import (
     SpiritMark,
@@ -31,6 +37,10 @@ __all__ = [
     "ItemCategory",
     "ItemDefinition",
     "Pet",
+    "PetAttributeDefinition",
+    "PetAttributeModifier",
+    "PetAttributeSheet",
+    "PetAttributeValue",
     "PetState",
     "Platform",
     "PlatformType",

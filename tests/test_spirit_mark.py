@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import pytest
 
 from desktop_sprite.models.spirit_mark import (
+    ALL_STATS,
     SpiritMarkError,
     SpiritMarkGrantRequest,
     SpiritMarkInventory,
@@ -37,7 +38,7 @@ def test_generate_spirit_mark_uses_request_source_and_safe_pet_stats():
     assert mark.source_description == request.source_description
     assert mark.set_id == "stardust_echo"
     assert mark.rarity >= 3
-    assert mark.main_stat.name in {"机动", "稳定", "柔韧", "爆发", "辉光", "余韵", "凝聚", "感知", "亲和", "威仪", "灵巧", "回响"}
+    assert mark.main_stat.name in set(ALL_STATS)
     assert "专注收益" not in {mark.main_stat.name, *(stat.name for stat in mark.sub_stats)}
 
 
@@ -56,7 +57,8 @@ def test_equipping_marks_is_exclusive_per_slot_and_stat_totals_include_two_piece
     assert same_slot.entry_id in {mark.entry_id for mark in equipped}
     assert first.entry_id not in {mark.entry_id for mark in equipped}
     assert len({mark.slot_id for mark in equipped}) == len(equipped)
-    assert inventory.stat_totals()["亲和"] >= 2
+    assert inventory.stat_totals()["灵识:flat"] >= 2
+    assert inventory.attribute_modifiers()
 
 
 def test_favorite_marks_are_protected_from_decompose_and_enhance_increases_level():

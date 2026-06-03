@@ -80,6 +80,7 @@ def test_management_window_is_created_on_first_tray_open(monkeypatch):
     spirit_mark_calls = []
     config = SimpleNamespace(
         app=SimpleNamespace(log_level="INFO"),
+        physics=SimpleNamespace(walk_speed=120, climb_speed=92, jump_speed_x=180, jump_speed_y=-520),
         character=SimpleNamespace(default_type="pet"),
     )
     _FakeMainWindow.instances.clear()

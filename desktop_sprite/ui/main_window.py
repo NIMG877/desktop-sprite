@@ -23,6 +23,7 @@ from qfluentwidgets import (
 )
 
 from desktop_sprite.models.inventory import InventorySnapshot
+from desktop_sprite.models.pet_attribute import PetAttributeSheet
 from desktop_sprite.models.spirit_mark import SpiritMarkInventory
 from desktop_sprite.ui.config_editor import ConfigEditorWidget, UI_STATE_FILENAME, USER_CONFIG_DIRNAME
 from desktop_sprite.ui.debug_widget import DebugWidget
@@ -46,6 +47,7 @@ class MainWindow(FluentWindow):
         on_quit: Callable[[], None] | None = None,
         inventory_snapshot: InventorySnapshot | None = None,
         spirit_mark_inventory: SpiritMarkInventory | None = None,
+        pet_attribute_sheet: PetAttributeSheet | None = None,
         on_spirit_marks_changed: Callable[[SpiritMarkInventory], None] | None = None,
         on_debug_request_spirit_mark: Callable[[], str] | None = None,
         parent: QWidget | None = None,
@@ -77,6 +79,7 @@ class MainWindow(FluentWindow):
         self.growth_page = PetGrowthWidget(
             inventory,
             spirit_mark_inventory or SpiritMarkInventory(),
+            pet_attribute_sheet,
             on_spirit_marks_changed,
         )
         self.inventory_page = InventoryWidget(inventory)

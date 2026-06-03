@@ -1,9 +1,12 @@
 import os
+from dataclasses import replace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
+from desktop_sprite.models.pet_attribute import PetAttributeSheet
 from desktop_sprite.models.inventory import (
     InventoryEntry,
     InventorySnapshot,
@@ -11,11 +14,36 @@ from desktop_sprite.models.inventory import (
     ItemDefinition,
 )
 from desktop_sprite.models.spirit_mark import SpiritMark, SpiritMarkInventory, SpiritMarkStat
-from desktop_sprite.ui.growth_widget import PetGrowthWidget, SpiritMarkEquipmentPage
+from desktop_sprite.ui.growth_widget import (
+    ATTRIBUTE_CATEGORY_TITLES,
+    DraggableSmoothScrollArea,
+    PetGrowthWidget,
+    SpiritMarkEquipmentPage,
+)
+from desktop_sprite.utils.config import (
+    AppConfig,
+    BehaviorConfig,
+    CharacterConfig,
+    InteractionConfig,
+    PetConfig,
+    PhysicsConfig,
+    RuntimeConfig,
+)
 
 
 def _app() -> QApplication:
     return QApplication.instance() or QApplication([])
+
+
+def _config() -> AppConfig:
+    return AppConfig(
+        app=RuntimeConfig(60, True, False, "INFO"),
+        pet=PetConfig(84, 104, 300, 300),
+        physics=PhysicsConfig(1800, 120, 92, 180, -520, 1100, 0.65, 10),
+        behavior=BehaviorConfig(1.0, 2.5, 120, True, 3.5),
+        interaction=InteractionConfig(True, True, True, True, 220, 80),
+        character=CharacterConfig("pet", {"pet": "characters/pet.json"}),
+    )
 
 
 def _snapshot() -> InventorySnapshot:
@@ -51,10 +79,57 @@ def test_growth_widget_has_attributes_and_spirit_mark_sections():
 
     assert widget.objectName() == "petGrowthPage"
     assert widget.pages.currentWidget() is widget.attributes_page
+    assert isinstance(widget.attributes_page.summary_scroll, DraggableSmoothScrollArea)
+    assert isinstance(widget.attributes_page.detail_scroll, DraggableSmoothScrollArea)
+    assert widget.attributes_page.summary_detail_button.text() == "详细属性"
+    assert widget.attributes_page.detail_summary_button.text() == "属性"
 
     widget.section_navigation.setCurrentItem("spiritMarks")
 
     assert widget.pages.currentWidget() is widget.equipment_page
+
+
+def test_growth_widget_attribute_page_reflects_spirit_mark_modifiers():
+    _app()
+    mark = _mark("mark-core-001", equipped=True)
+    mark = replace(mark, main_stat=SpiritMarkStat("机动", 10), sub_stats=())
+    widget = PetGrowthWidget(
+        _snapshot(),
+        SpiritMarkInventory((mark,)),
+        PetAttributeSheet.from_config(_config()),
+    )
+
+    assert widget.attributes_page._summary_value_labels["mobility"].text() == "130"
+    assert "radiance" not in widget.attributes_page._summary_value_labels
+
+
+def test_growth_widget_attribute_details_show_categories_base_bonus_and_tooltips():
+    _app()
+    inventory = SpiritMarkInventory(
+        (
+            replace(
+                _mark("mark-core-001", equipped=True),
+                main_stat=SpiritMarkStat("机动", 12),
+                sub_stats=(SpiritMarkStat("机动", 10, "percent"),),
+            ),
+        )
+    )
+    widget = PetGrowthWidget(_snapshot(), inventory, PetAttributeSheet.from_config(_config()))
+
+    widget.attributes_page.show_details()
+
+    assert len(widget.attributes_page._detail_base_labels) == 16
+    assert set(ATTRIBUTE_CATEGORY_TITLES) == {"basic", "visual", "special"}
+    assert widget.attributes_page._detail_base_labels["mobility"].text() == "120"
+    assert "white" in widget.attributes_page._detail_base_labels["mobility"].styleSheet()
+    assert widget.attributes_page._detail_base_labels["mobility"].alignment() & Qt.AlignmentFlag.AlignRight
+    assert widget.attributes_page._detail_bonus_labels["mobility"].text() == "+24"
+    assert widget.attributes_page._detail_bonus_labels["mobility"].alignment() & Qt.AlignmentFlag.AlignLeft
+    assert "基础水平移动速度" in widget.attributes_page._detail_help_icons["mobility"].toolTip()
+    assert "walk_speed" in widget.attributes_page._detail_help_icons["mobility"].toolTip()
+    assert widget.attributes_page._detail_base_labels["radiance"].text() == "50"
+    assert widget.attributes_page._detail_bonus_labels["radiance"].text() == ""
+    assert not widget.attributes_page._detail_bonus_labels["radiance"].isHidden()
 
 
 def test_spirit_mark_equipment_opens_slot_page_and_lists_only_backpack_marks():

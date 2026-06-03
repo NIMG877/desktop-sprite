@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 
 from desktop_sprite.core.character_factory import create_character
 from desktop_sprite.models.inventory import load_inventory
+from desktop_sprite.models.pet_attribute import PetAttributeSheet
 from desktop_sprite.models.spirit_mark import (
     SpiritMarkGrantRequest,
     SpiritMarkInventory,
@@ -162,6 +163,7 @@ def main() -> int:
                 on_quit=quit_app,
                 inventory_snapshot=inventory,
                 spirit_mark_inventory=spirit_marks,
+                pet_attribute_sheet=PetAttributeSheet.from_config(config),
                 on_spirit_marks_changed=save_updated_spirit_marks,
                 on_debug_request_spirit_mark=request_debug_spirit_mark,
             )

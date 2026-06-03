@@ -11,6 +11,7 @@ from desktop_sprite.models.spirit_mark import (
     SPIRIT_MARK_SETS,
     SPIRIT_MARK_SLOTS,
     SpiritMark,
+    format_spirit_mark_stat,
     load_spirit_mark_inventory,
 )
 
@@ -276,7 +277,7 @@ def _spirit_mark_definition(mark: SpiritMark, base_definition: ItemDefinition) -
             ("套装风格", spirit_set.style),
             ("部位", slot.name),
             ("套装", spirit_set.name),
-            ("主词条", f"{mark.main_stat.name} +{mark.main_stat.value}"),
+            ("主词条", format_spirit_mark_stat(mark.main_stat)),
             ("副词条", _format_sub_stats(mark.sub_stats)),
             ("强化等级", f"+{mark.level}/{mark.max_level}"),
             ("稀有度", f"{mark.rarity} 星"),
@@ -301,7 +302,7 @@ def _spirit_mark_entry_details(mark: SpiritMark) -> Details:
 def _format_sub_stats(stats: tuple[Any, ...]) -> str:
     if not stats:
         return "无"
-    return "、".join(f"{stat.name} +{stat.value}" for stat in stats)
+    return "、".join(format_spirit_mark_stat(stat) for stat in stats)
 
 
 def _read_object(path: Path) -> dict[str, Any]:

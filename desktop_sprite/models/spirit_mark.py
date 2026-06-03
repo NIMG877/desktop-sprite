@@ -7,6 +7,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from desktop_sprite.models.pet_attribute import (
+    PET_ATTRIBUTE_DEFINITIONS,
+    PET_ATTRIBUTE_DEFINITIONS_BY_ID,
+    PET_ATTRIBUTE_ID_BY_NAME,
+    BonusType,
+    PetAttributeModifier,
+    attribute_id_for_name,
+)
+
 
 SPIRIT_MARK_CATEGORY_ID = "spirit_mark"
 
@@ -24,6 +33,8 @@ class SpiritMarkSet:
     name: str
     style: str
     two_piece_stat: str
+    two_piece_value: int
+    two_piece_bonus_type: BonusType
     four_piece_description: str
 
 
@@ -31,6 +42,7 @@ class SpiritMarkSet:
 class SpiritMarkStat:
     name: str
     value: int
+    bonus_type: BonusType = "flat"
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,14 +155,51 @@ class SpiritMarkInventory:
     def stat_totals(self) -> dict[str, int]:
         totals: dict[str, int] = {}
         for mark in self.equipped_marks():
-            totals[mark.main_stat.name] = totals.get(mark.main_stat.name, 0) + mark.main_stat.value
+            main_key = _stat_total_key(mark.main_stat)
+            totals[main_key] = totals.get(main_key, 0) + mark.main_stat.value
             for stat in mark.sub_stats:
-                totals[stat.name] = totals.get(stat.name, 0) + stat.value
+                key = _stat_total_key(stat)
+                totals[key] = totals.get(key, 0) + stat.value
         for set_id, count in self.set_counts().items():
             set_definition = SPIRIT_MARK_SETS.get(set_id)
             if set_definition is not None and count >= 2:
-                totals[set_definition.two_piece_stat] = totals.get(set_definition.two_piece_stat, 0) + 2
+                stat = SpiritMarkStat(
+                    set_definition.two_piece_stat,
+                    set_definition.two_piece_value,
+                    set_definition.two_piece_bonus_type,
+                )
+                key = _stat_total_key(stat)
+                totals[key] = totals.get(key, 0) + stat.value
         return totals
+
+    def formatted_stat_totals(self) -> tuple[str, ...]:
+        lines: list[str] = []
+        for key, value in sorted(self.stat_totals().items()):
+            name, bonus_type = _split_stat_total_key(key)
+            lines.append(format_spirit_mark_stat(SpiritMarkStat(name, value, bonus_type)))
+        return tuple(lines)
+
+    def attribute_modifiers(self) -> tuple[PetAttributeModifier, ...]:
+        modifiers: list[PetAttributeModifier] = []
+        for mark in self.equipped_marks():
+            modifiers.append(_stat_modifier(mark.main_stat, source_id=mark.entry_id))
+            modifiers.extend(_stat_modifier(stat, source_id=mark.entry_id) for stat in mark.sub_stats)
+        for set_id, count in self.set_counts().items():
+            set_definition = SPIRIT_MARK_SETS.get(set_id)
+            if set_definition is None or count < 2:
+                continue
+            modifiers.append(
+                _stat_modifier(
+                    SpiritMarkStat(
+                        set_definition.two_piece_stat,
+                        set_definition.two_piece_value,
+                        set_definition.two_piece_bonus_type,
+                    ),
+                    source_id=f"set:{set_id}:2",
+                    source_type="spirit_mark_set",
+                )
+            )
+        return tuple(modifier for modifier in modifiers if modifier.attribute_id)
 
     def set_counts(self) -> dict[str, int]:
         counts: dict[str, int] = {}
@@ -178,22 +227,22 @@ SPIRIT_MARK_SLOTS: dict[str, SpiritMarkSlot] = {
 }
 
 SPIRIT_MARK_SETS: dict[str, SpiritMarkSet] = {
-    "silent_guardian": SpiritMarkSet("silent_guardian", "静默守护", "安静、陪伴、守护", "亲和", "待机、陪伴或守护状态下，桌宠动作更安静，氛围表现更稳定。"),
-    "stardust_echo": SpiritMarkSet("stardust_echo", "星尘余响", "光效、轨迹、残影", "余韵", "桌宠动作结束后会留下更明显的轨迹、残影或粒子表现。"),
-    "windfarer": SpiritMarkSet("windfarer", "破风远行", "移动、巡游、探索", "机动", "桌宠巡游、移动或空间活动范围更大，行动路径更丰富。"),
-    "falling_echo": SpiritMarkSet("falling_echo", "坠落回响", "落地、回弹、重量感", "稳定", "桌宠落地、停驻或动作收尾时表现更平稳。"),
-    "flowing_mirage": SpiritMarkSet("flowing_mirage", "幻形流转", "变形、流动、动作衔接", "柔韧", "桌宠动作衔接更自然，形态变化或身体摆动更流畅。"),
+    "silent_guardian": SpiritMarkSet("silent_guardian", "静默守护", "安静、陪伴、守护", "灵识", 2, "flat", "待机、陪伴或守护状态下，桌宠精力基础更稳定。"),
+    "stardust_echo": SpiritMarkSet("stardust_echo", "星尘余响", "光效、轨迹、残影", "留痕", 2, "flat", "桌宠动作结束后会留下更明显的轨迹、残影或粒子表现。"),
+    "windfarer": SpiritMarkSet("windfarer", "破风远行", "移动、巡游、探索", "机动", 2, "percent", "桌宠巡游、移动或空间活动范围更大，行动路径更丰富。"),
+    "falling_echo": SpiritMarkSet("falling_echo", "坠落回响", "落地、回弹、重量感", "腾跃", 2, "flat", "桌宠落地、停驻或动作收尾时表现更平稳。"),
+    "flowing_mirage": SpiritMarkSet("flowing_mirage", "幻形流转", "变形、流动、动作衔接", "调律", 2, "flat", "桌宠动作衔接更自然，特殊能力启动与收束更流畅。"),
 }
 
 PRIMARY_STAT_POOLS: dict[str, tuple[str, ...]] = {
-    "core": ("凝聚", "稳定", "辉光", "威仪"),
-    "form": ("稳定", "柔韧", "凝聚", "亲和"),
-    "meridian": ("柔韧", "回响", "感知", "灵巧"),
-    "edge": ("爆发", "机动", "威仪", "灵巧"),
-    "echo": ("余韵", "辉光", "回响", "感知"),
+    "core": ("元气", "灵识", "异能", "调律"),
+    "form": ("机动", "腾跃", "元气", "饱腹"),
+    "meridian": ("攀附", "调律", "生息", "凝神"),
+    "edge": ("机动", "腾跃", "巡游", "迸发"),
+    "echo": ("辉映", "留痕", "共鸣", "灵韵"),
 }
 
-ALL_STATS = ("机动", "稳定", "柔韧", "爆发", "辉光", "余韵", "凝聚", "感知", "亲和", "威仪", "灵巧", "回响")
+ALL_STATS = tuple(definition.name for definition in PET_ATTRIBUTE_DEFINITIONS)
 STYLE_SET_HINTS = {
     "ambient": "silent_guardian",
     "quiet": "silent_guardian",
@@ -219,12 +268,10 @@ def generate_spirit_mark(
     rarity = _select_rarity(request.rarity_hint, request.quality_hint, rng)
     fractured = request.quality_hint in {"interrupted", "failed", "fractured"}
     main_name = rng.choice(PRIMARY_STAT_POOLS[slot_id])
+    main_bonus_type = _select_bonus_type(main_name, rng)
     sub_pool = [stat for stat in ALL_STATS if stat != main_name]
     sub_count = max(1, min(4, rarity - 1))
-    sub_stats = tuple(
-        SpiritMarkStat(name, rng.randint(1, rarity + 2))
-        for name in rng.sample(sub_pool, k=sub_count)
-    )
+    sub_stats = _roll_sub_stats(tuple(rng.sample(sub_pool, k=sub_count)), rarity, rng)
     slot = SPIRIT_MARK_SLOTS[slot_id]
     spirit_set = SPIRIT_MARK_SETS[set_id]
     entry_id = request.entry_id or _build_entry_id(now, rng)
@@ -234,7 +281,7 @@ def generate_spirit_mark(
         slot_id=slot_id,
         set_id=set_id,
         rarity=rarity,
-        main_stat=SpiritMarkStat(main_name, rarity * 3 + rng.randint(0, 2)),
+        main_stat=SpiritMarkStat(main_name, _roll_main_stat_value(rarity, main_bonus_type, rng), main_bonus_type),
         sub_stats=sub_stats,
         source_type=request.source_type,
         source_id=request.source_id,
@@ -247,6 +294,11 @@ def generate_spirit_mark(
 
 def max_level_for_rarity(rarity: int) -> int:
     return 4 + max(1, min(5, rarity)) * 2
+
+
+def format_spirit_mark_stat(stat: SpiritMarkStat) -> str:
+    suffix = "%" if stat.bonus_type == "percent" else ""
+    return f"{stat.name} +{stat.value}{suffix}"
 
 
 def load_spirit_mark_inventory(
@@ -345,11 +397,79 @@ def spirit_mark_to_dict(mark: SpiritMark) -> dict[str, Any]:
 
 
 def _stat_from_dict(data: dict[str, Any]) -> SpiritMarkStat:
-    return SpiritMarkStat(str(data["name"]), int(data["value"]))
+    return SpiritMarkStat(
+        str(data["name"]),
+        int(data["value"]),
+        _normalize_bonus_type(data.get("bonus_type", "flat")),
+    )
 
 
 def _stat_to_dict(stat: SpiritMarkStat) -> dict[str, Any]:
-    return {"name": stat.name, "value": stat.value}
+    data: dict[str, Any] = {"name": stat.name, "value": stat.value}
+    if stat.bonus_type != "flat":
+        data["bonus_type"] = stat.bonus_type
+    return data
+
+
+def _stat_total_key(stat: SpiritMarkStat) -> str:
+    return f"{stat.name}:{stat.bonus_type}"
+
+
+def _split_stat_total_key(key: str) -> tuple[str, BonusType]:
+    name, _separator, raw_bonus_type = key.rpartition(":")
+    return name, _normalize_bonus_type(raw_bonus_type)
+
+
+def _stat_modifier(
+    stat: SpiritMarkStat,
+    *,
+    source_id: str,
+    source_type: str = "spirit_mark",
+) -> PetAttributeModifier:
+    attribute_id = attribute_id_for_name(stat.name) or ""
+    return PetAttributeModifier(
+        attribute_id=attribute_id,
+        value=stat.value,
+        bonus_type=stat.bonus_type,
+        source_id=source_id,
+        source_type=source_type,
+    )
+
+
+def _roll_sub_stats(names: tuple[str, ...], rarity: int, rng: random.Random) -> tuple[SpiritMarkStat, ...]:
+    stats: list[SpiritMarkStat] = []
+    for name in names:
+        bonus_type = _select_bonus_type(name, rng)
+        stats.append(SpiritMarkStat(name, _roll_stat_value(rarity, bonus_type, rng), bonus_type))
+    return tuple(stats)
+
+
+def _select_bonus_type(name: str, rng: random.Random) -> BonusType:
+    attribute_id = PET_ATTRIBUTE_ID_BY_NAME.get(name)
+    definition = PET_ATTRIBUTE_DEFINITIONS_BY_ID.get(attribute_id or "")
+    if definition is None:
+        return "flat"
+    if definition.allowed_bonus_types == ("percent",):
+        return "percent"
+    if definition.allowed_bonus_types == ("flat",):
+        return "flat"
+    return "percent" if rng.random() < 0.28 else "flat"
+
+
+def _roll_main_stat_value(rarity: int, bonus_type: BonusType, rng: random.Random) -> int:
+    if bonus_type == "percent":
+        return rarity * 2 + rng.randint(0, 1)
+    return rarity * 3 + rng.randint(0, 2)
+
+
+def _roll_stat_value(rarity: int, bonus_type: BonusType, rng: random.Random) -> int:
+    if bonus_type == "percent":
+        return rng.randint(1, max(2, rarity))
+    return rng.randint(1, rarity + 2)
+
+
+def _normalize_bonus_type(value: Any) -> BonusType:
+    return "percent" if value == "percent" else "flat"
 
 
 def _select_set_id(request: SpiritMarkGrantRequest, rng: random.Random) -> str:

@@ -10,6 +10,7 @@ from desktop_sprite.models.pet_attribute import (
 from desktop_sprite.models.state import PetState
 from desktop_sprite.utils.config import (
     AppConfig,
+    AttributesConfig,
     BehaviorConfig,
     CharacterConfig,
     InteractionConfig,
@@ -17,6 +18,24 @@ from desktop_sprite.utils.config import (
     PhysicsConfig,
     RuntimeConfig,
 )
+
+
+def _attributes() -> AttributesConfig:
+    return AttributesConfig(
+        wander=100,
+        vigor=210,
+        recovery=5,
+        awareness=100,
+        focus=2,
+        satiety=100,
+        spark=5,
+        radiance=50,
+        trail=0,
+        resonance=0,
+        aura=50,
+        arcana=100,
+        attunement=100,
+    )
 
 
 def _config() -> AppConfig:
@@ -27,6 +46,7 @@ def _config() -> AppConfig:
         behavior=BehaviorConfig(1.0, 2.5, 120, True, 3.5),
         interaction=InteractionConfig(True, True, True, True, 220, 80),
         character=CharacterConfig("pet", {"pet": "characters/pet.json"}),
+        attributes=_attributes(),
     )
 
 
@@ -45,6 +65,40 @@ def test_pet_attribute_sheet_reads_base_values_from_config_and_applies_modifiers
     assert sheet.value_for("mobility").formatted_formula() == "120 +12 +10%(+12)"
     assert sheet.value_for("leap").base_value == 350
     assert sheet.value_for("spark").formatted_total() == "8%"
+
+
+def test_pet_attribute_sheet_reads_configured_attribute_base_values():
+    config = AppConfig(
+        app=RuntimeConfig(60, True, False, "INFO"),
+        pet=PetConfig(84, 104, 300, 300),
+        physics=PhysicsConfig(1800, 120, 92, 180, -520, 1100, 0.65, 10),
+        behavior=BehaviorConfig(1.0, 2.5, 120, True, 3.5),
+        interaction=InteractionConfig(True, True, True, True, 220, 80),
+        character=CharacterConfig("pet", {"pet": "characters/pet.json"}),
+        attributes=AttributesConfig(
+            wander=130,
+            vigor=260,
+            recovery=8,
+            awareness=140,
+            focus=4,
+            satiety=120,
+            spark=9,
+            radiance=66,
+            trail=12,
+            resonance=18,
+            aura=77,
+            arcana=135,
+            attunement=125,
+        ),
+    )
+
+    sheet = PetAttributeSheet.from_config(config)
+
+    assert sheet.value_for("wander").base_value == 130
+    assert sheet.value_for("vigor").base_value == 260
+    assert sheet.value_for("spark").base_value == 9
+    assert sheet.value_for("radiance").base_value == 66
+    assert sheet.value_for("arcana").base_value == 135
 
 
 def test_pet_attribute_sheet_can_add_and_remove_buff_modifiers_by_source():

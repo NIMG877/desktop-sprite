@@ -22,6 +22,7 @@ from desktop_sprite.ui.growth_widget import (
 )
 from desktop_sprite.utils.config import (
     AppConfig,
+    AttributesConfig,
     BehaviorConfig,
     CharacterConfig,
     InteractionConfig,
@@ -29,6 +30,24 @@ from desktop_sprite.utils.config import (
     PhysicsConfig,
     RuntimeConfig,
 )
+
+
+def _attributes() -> AttributesConfig:
+    return AttributesConfig(
+        wander=100,
+        vigor=210,
+        recovery=5,
+        awareness=100,
+        focus=2,
+        satiety=100,
+        spark=5,
+        radiance=50,
+        trail=0,
+        resonance=0,
+        aura=50,
+        arcana=100,
+        attunement=100,
+    )
 
 
 def _app() -> QApplication:
@@ -43,6 +62,7 @@ def _config() -> AppConfig:
         behavior=BehaviorConfig(1.0, 2.5, 120, True, 3.5),
         interaction=InteractionConfig(True, True, True, True, 220, 80),
         character=CharacterConfig("pet", {"pet": "characters/pet.json"}),
+        attributes=_attributes(),
     )
 
 

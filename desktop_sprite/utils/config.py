@@ -65,6 +65,23 @@ class BehaviorConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class AttributesConfig:
+    wander: float
+    vigor: float
+    recovery: float
+    awareness: float
+    focus: float
+    satiety: float
+    spark: float
+    radiance: float
+    trail: float
+    resonance: float
+    aura: float
+    arcana: float
+    attunement: float
+
+
+@dataclass(frozen=True, slots=True)
 class InteractionConfig:
     draggable: bool
     throw_enabled: bool
@@ -87,6 +104,7 @@ class AppConfig:
     behavior: BehaviorConfig
     interaction: InteractionConfig
     character: CharacterConfig
+    attributes: AttributesConfig
 
 
 def load_config(
@@ -119,6 +137,10 @@ def load_config(
     flight_data = pet_data.pop("flight", {})
     wing_data = pet_data.pop("wings", {})
     hover_data = pet_data.pop("hover", {})
+    physics_data = dict(data["physics"])
+    for motion_key in ("walk_speed", "climb_speed", "jump_speed_x", "jump_speed_y"):
+        if motion_key in pet_data:
+            physics_data[motion_key] = pet_data.pop(motion_key)
 
     return AppConfig(
         app=RuntimeConfig(
@@ -133,10 +155,11 @@ def load_config(
             wings=PetWingConfig(**wing_data),
             hover=PetHoverConfig(**hover_data),
         ),
-        physics=PhysicsConfig(**data["physics"]),
+        physics=PhysicsConfig(**physics_data),
         behavior=BehaviorConfig(**data["behavior"]),
         interaction=InteractionConfig(**interaction_data),
         character=CharacterConfig(**data["character"]),
+        attributes=AttributesConfig(**data["attributes"]),
     )
 
 

@@ -6,6 +6,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtWidgets import QApplication, QAbstractSpinBox, QSpinBox
 from qfluentwidgets import SimpleExpandGroupSettingCard
 
+from desktop_sprite.utils.config import load_config
 from desktop_sprite.ui.config_editor import ConfigEditorWidget, _ConfigGroupCard, _ValueSettingCard
 
 
@@ -18,7 +19,7 @@ def _write_config_tree(tmp_path):
     profile_dir.mkdir()
     profile_path = profile_dir / "pet.json"
     profile_path.write_text(
-        json.dumps({"pet": {"width": 84, "flight": {"speed": 380}}}),
+        json.dumps({"pet": {"width": 84, "walk_speed": 140, "flight": {"speed": 380}}}),
         encoding="utf-8",
     )
     config_path = tmp_path / "default.json"
@@ -33,6 +34,82 @@ def _write_config_tree(tmp_path):
         encoding="utf-8",
     )
     return config_path, profile_path
+
+
+def test_load_config_maps_character_pet_motion_fields_to_physics(tmp_path):
+    profile_dir = tmp_path / "characters"
+    profile_dir.mkdir()
+    (profile_dir / "pet.json").write_text(
+        json.dumps(
+            {
+                "pet": {
+                    "width": 84,
+                    "height": 104,
+                    "default_spawn_x": 300,
+                    "default_spawn_y": 300,
+                    "walk_speed": 140,
+                    "climb_speed": 96,
+                    "jump_speed_x": 210,
+                    "jump_speed_y": -560,
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    config_path = tmp_path / "default.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "app": {"fps": 60, "always_on_top": True, "debug_draw": False, "log_level": "INFO"},
+                "pet": {"width": 1, "height": 1, "default_spawn_x": 0, "default_spawn_y": 0},
+                "physics": {
+                    "gravity": 1800,
+                    "max_fall_speed": 1100,
+                    "drag_throw_factor": 0.65,
+                    "edge_snap_distance": 10,
+                },
+                "behavior": {
+                    "idle_min_seconds": 1.0,
+                    "idle_max_seconds": 2.5,
+                    "sleep_after_seconds": 120,
+                    "prefer_foreground_window": True,
+                    "target_repick_seconds": 3.5,
+                },
+                "attributes": {
+                    "wander": 100,
+                    "vigor": 210,
+                    "recovery": 5,
+                    "awareness": 100,
+                    "focus": 2,
+                    "satiety": 100,
+                    "spark": 5,
+                    "radiance": 50,
+                    "trail": 0,
+                    "resonance": 0,
+                    "aura": 50,
+                    "arcana": 100,
+                    "attunement": 100,
+                },
+                "interaction": {
+                    "draggable": True,
+                    "throw_enabled": True,
+                    "click_reaction": True,
+                    "mouse_hover_reaction": True,
+                    "target_search_down_distance": 220,
+                    "target_search_up_distance": 80,
+                },
+                "character": {"default_type": "pet", "profile_files": {"pet": "characters/pet.json"}},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+
+    assert config.physics.walk_speed == 140
+    assert config.physics.climb_speed == 96
+    assert config.physics.jump_speed_x == 210
+    assert config.physics.jump_speed_y == -560
 
 
 def test_config_editor_discovers_profile_files_and_creates_ui_state(tmp_path):

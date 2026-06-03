@@ -4,6 +4,10 @@
     "height": 104,
     "default_spawn_x": 300,
     "default_spawn_y": 300,
+    "walk_speed": 120,
+    "climb_speed": 92,
+    "jump_speed_x": 180,
+    "jump_speed_y": -520,
     "flight": {
       "speed": 380,
       "landing_speed": 210

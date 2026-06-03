@@ -82,6 +82,21 @@ def test_management_window_is_created_on_first_tray_open(monkeypatch):
         app=SimpleNamespace(log_level="INFO"),
         physics=SimpleNamespace(walk_speed=120, climb_speed=92, jump_speed_x=180, jump_speed_y=-520),
         character=SimpleNamespace(default_type="pet"),
+        attributes=SimpleNamespace(
+            wander=100,
+            vigor=210,
+            recovery=5,
+            awareness=100,
+            focus=2,
+            satiety=100,
+            spark=5,
+            radiance=50,
+            trail=0,
+            resonance=0,
+            aura=50,
+            arcana=100,
+            attunement=100,
+        ),
     )
     _FakeMainWindow.instances.clear()
     _FakeTrayController.instance = None

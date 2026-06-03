@@ -7,20 +7,31 @@
   },
   "physics": {
     "gravity": 1800,
-    "walk_speed": 120,
-    "climb_speed": 92,
-    "jump_speed_x": 180,
-    "jump_speed_y": -520,
-    "max_fall_speed": 1100,
+    "max_fall_speed": 1800,
     "drag_throw_factor": 0.65,
     "edge_snap_distance": 10
   },
   "behavior": {
     "idle_min_seconds": 1.0,
     "idle_max_seconds": 2.5,
-    "sleep_after_seconds": 120,
+    "sleep_after_seconds": 100,
     "prefer_foreground_window": true,
     "target_repick_seconds": 3.5
+  },
+  "attributes": {
+    "wander": 100,
+    "vigor": 100,
+    "recovery": 2,
+    "awareness": 100,
+    "focus": 1,
+    "satiety": 100,
+    "spark": 5,
+    "radiance": 0,
+    "trail": 0,
+    "resonance": 0,
+    "aura": 0,
+    "arcana": 100,
+    "attunement": 100
   },
   "interaction": {
     "draggable": true,

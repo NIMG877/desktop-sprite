@@ -98,19 +98,19 @@ class PetAttributeSheet:
             "mobility": float(config.physics.walk_speed),
             "cling": float(config.physics.climb_speed),
             "leap": _derive_leap_value(config),
-            "wander": 100.0,
-            "vigor": 210.0,
-            "recovery": 5.0,
-            "awareness": 100.0,
-            "focus": 2.0,
-            "satiety": 100.0,
-            "spark": 5.0,
-            "radiance": 50.0,
-            "trail": 0.0,
-            "resonance": 0.0,
-            "aura": 50.0,
-            "arcana": 100.0,
-            "attunement": 100.0,
+            "wander": float(config.attributes.wander),
+            "vigor": float(config.attributes.vigor),
+            "recovery": float(config.attributes.recovery),
+            "awareness": float(config.attributes.awareness),
+            "focus": float(config.attributes.focus),
+            "satiety": float(config.attributes.satiety),
+            "spark": float(config.attributes.spark),
+            "radiance": float(config.attributes.radiance),
+            "trail": float(config.attributes.trail),
+            "resonance": float(config.attributes.resonance),
+            "aura": float(config.attributes.aura),
+            "arcana": float(config.attributes.arcana),
+            "attunement": float(config.attributes.attunement),
         }
         return cls(
             tuple(
@@ -186,9 +186,9 @@ class PetEffectiveStats:
         mobility = _attribute_ratio(sheet, "mobility", config.physics.walk_speed)
         cling = _attribute_ratio(sheet, "cling", config.physics.climb_speed)
         leap = _attribute_ratio(sheet, "leap", _derive_leap_value(config))
-        wander = _attribute_ratio(sheet, "wander", 100.0)
-        arcana = _attribute_ratio(sheet, "arcana", 100.0)
-        attunement = _attribute_ratio(sheet, "attunement", 100.0)
+        wander = _attribute_ratio(sheet, "wander", config.attributes.wander)
+        arcana = _attribute_ratio(sheet, "arcana", config.attributes.arcana)
+        attunement = _attribute_ratio(sheet, "attunement", config.attributes.attunement)
 
         wander_interval_scale = 1.0 / wander
         return cls(
@@ -209,14 +209,14 @@ class PetEffectiveStats:
             wing_close_seconds=max(config.pet.wings.close_seconds / attunement, 0.05),
             hover_amplitude=max(config.pet.hover.amplitude * arcana, 0.0),
             hover_frequency=max(config.pet.hover.frequency * attunement, 0.05),
-            max_stamina=max(_attribute_total(sheet, "vigor", 210.0), 1.0),
-            base_stamina=max(_attribute_base(sheet, "vigor", 210.0), 1.0),
-            stamina_recovery=max(_attribute_total(sheet, "recovery", 5.0), 0.0),
-            max_energy=max(_attribute_total(sheet, "awareness", 100.0), 1.0),
-            base_energy=max(_attribute_base(sheet, "awareness", 100.0), 1.0),
-            energy_recovery=max(_attribute_total(sheet, "focus", 2.0), 0.0),
-            satiety=max(_attribute_total(sheet, "satiety", 100.0), 1.0),
-            base_satiety=max(_attribute_base(sheet, "satiety", 100.0), 1.0),
+            max_stamina=max(_attribute_total(sheet, "vigor", config.attributes.vigor), 1.0),
+            base_stamina=max(_attribute_base(sheet, "vigor", config.attributes.vigor), 1.0),
+            stamina_recovery=max(_attribute_total(sheet, "recovery", config.attributes.recovery), 0.0),
+            max_energy=max(_attribute_total(sheet, "awareness", config.attributes.awareness), 1.0),
+            base_energy=max(_attribute_base(sheet, "awareness", config.attributes.awareness), 1.0),
+            energy_recovery=max(_attribute_total(sheet, "focus", config.attributes.focus), 0.0),
+            satiety=max(_attribute_total(sheet, "satiety", config.attributes.satiety), 1.0),
+            base_satiety=max(_attribute_base(sheet, "satiety", config.attributes.satiety), 1.0),
         )
 
 

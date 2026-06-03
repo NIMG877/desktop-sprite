@@ -2,9 +2,17 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
+
+from desktop_sprite.models.spirit_mark import (
+    SPIRIT_MARK_CATEGORY_ID,
+    SPIRIT_MARK_SETS,
+    SPIRIT_MARK_SLOTS,
+    SpiritMark,
+    load_spirit_mark_inventory,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -72,6 +80,8 @@ def load_inventory(
     items_path: str | Path,
     default_inventory_path: str | Path,
     inventory_path: str | Path | None = None,
+    default_spirit_mark_path: str | Path | None = None,
+    spirit_mark_path: str | Path | None = None,
 ) -> InventorySnapshot:
     catalog_path = Path(items_path)
     try:
@@ -88,6 +98,13 @@ def load_inventory(
     except (OSError, json.JSONDecodeError, InventoryValidationError) as exc:
         logger.error("Failed to load inventory %s: %s", selected_path, exc)
         return snapshot
+    definitions, entries = _apply_spirit_mark_details(
+        catalog_path,
+        definitions,
+        entries,
+        default_spirit_mark_path,
+        spirit_mark_path,
+    )
     return InventorySnapshot(categories, definitions, entries)
 
 
@@ -168,6 +185,90 @@ def _load_entries(
             )
         )
     return tuple(entries)
+
+
+def _apply_spirit_mark_details(
+    catalog_path: Path,
+    definitions: dict[str, ItemDefinition],
+    entries: tuple[InventoryEntry, ...],
+    default_spirit_mark_path: str | Path | None,
+    spirit_mark_path: str | Path | None,
+) -> tuple[dict[str, ItemDefinition], tuple[InventoryEntry, ...]]:
+    default_path = Path(default_spirit_mark_path) if default_spirit_mark_path is not None else catalog_path.with_name("default_spirit_marks.json")
+    user_path = Path(spirit_mark_path) if spirit_mark_path is not None else catalog_path.with_name("spirit_marks.json")
+    try:
+        spirit_inventory = load_spirit_mark_inventory(default_path, user_path)
+    except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+        logger.error("Failed to load spirit marks %s: %s", user_path if user_path.is_file() else default_path, exc)
+        return definitions, entries
+    if not spirit_inventory.marks:
+        return definitions, entries
+
+    merged_definitions = dict(definitions)
+    marks_by_entry_id = {mark.entry_id: mark for mark in spirit_inventory.marks}
+    enriched_entries: list[InventoryEntry] = []
+    for entry in entries:
+        mark = marks_by_entry_id.get(entry.entry_id)
+        if mark is None:
+            enriched_entries.append(entry)
+            continue
+        definition = definitions[entry.item_id]
+        if definition.category_id != SPIRIT_MARK_CATEGORY_ID:
+            enriched_entries.append(entry)
+            continue
+        instance_definition = _spirit_mark_definition(mark, definition)
+        merged_definitions[instance_definition.id] = instance_definition
+        enriched_entries.append(
+            replace(
+                entry,
+                item_id=instance_definition.id,
+                details=(*entry.details, *_spirit_mark_entry_details(mark)),
+            )
+        )
+    return merged_definitions, tuple(enriched_entries)
+
+
+def _spirit_mark_definition(mark: SpiritMark, base_definition: ItemDefinition) -> ItemDefinition:
+    slot = SPIRIT_MARK_SLOTS[mark.slot_id]
+    spirit_set = SPIRIT_MARK_SETS[mark.set_id]
+    return ItemDefinition(
+        id=f"{base_definition.id}#{mark.entry_id}",
+        category_id=SPIRIT_MARK_CATEGORY_ID,
+        name=mark.name,
+        description=mark.source_description or f"{spirit_set.style}风格的{slot.name}灵痕。",
+        image=base_definition.image,
+        stackable=False,
+        details=(
+            ("来源描述", mark.source_description or "未记录来源"),
+            ("套装风格", spirit_set.style),
+            ("部位", slot.name),
+            ("套装", spirit_set.name),
+            ("主词条", f"{mark.main_stat.name} +{mark.main_stat.value}"),
+            ("副词条", _format_sub_stats(mark.sub_stats)),
+            ("强化等级", f"+{mark.level}/{mark.max_level}"),
+            ("稀有度", f"{mark.rarity} 星"),
+            ("收藏", "是" if mark.favorite else "否"),
+            ("装备", "是" if mark.equipped else "否"),
+            ("裂灵痕", "是" if mark.fractured else "否"),
+        ),
+    )
+
+
+def _spirit_mark_entry_details(mark: SpiritMark) -> Details:
+    details: list[tuple[str, str]] = []
+    if mark.source_type:
+        details.append(("来源类型", mark.source_type))
+    if mark.created_at:
+        details.append(("生成时间", mark.created_at))
+    if mark.record_tags:
+        details.append(("记录标签", "、".join(mark.record_tags)))
+    return tuple(details)
+
+
+def _format_sub_stats(stats: tuple[Any, ...]) -> str:
+    if not stats:
+        return "无"
+    return "、".join(f"{stat.name} +{stat.value}" for stat in stats)
 
 
 def _read_object(path: Path) -> dict[str, Any]:

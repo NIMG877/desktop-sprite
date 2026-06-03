@@ -77,6 +77,7 @@ class _FakeMainWindow:
 
 def test_management_window_is_created_on_first_tray_open(monkeypatch):
     inventory_calls = []
+    spirit_mark_calls = []
     config = SimpleNamespace(
         app=SimpleNamespace(log_level="INFO"),
         character=SimpleNamespace(default_type="pet"),
@@ -97,6 +98,8 @@ def test_management_window_is_created_on_first_tray_open(monkeypatch):
     monkeypatch.setattr(app_module, "TrayController", _FakeTrayController)
     monkeypatch.setattr(app_module, "MainWindow", _FakeMainWindow)
     monkeypatch.setattr(app_module, "load_inventory", lambda *_args: inventory_calls.append(1))
+    monkeypatch.setattr(app_module, "load_spirit_mark_inventory", lambda *_args: spirit_mark_calls.append(1))
+    monkeypatch.setattr(app_module, "save_spirit_mark_inventory", lambda *_args: None)
 
     assert app_module.main() == 0
     assert _FakeMainWindow.instances == []
@@ -109,3 +112,4 @@ def test_management_window_is_created_on_first_tray_open(monkeypatch):
     assert len(_FakeMainWindow.instances) == 1
     assert _FakeMainWindow.instances[0].open_count == 2
     assert inventory_calls == [1]
+    assert spirit_mark_calls == [1]

@@ -23,7 +23,9 @@ from qfluentwidgets import (
 )
 
 from desktop_sprite.models.inventory import InventorySnapshot
+from desktop_sprite.models.spirit_mark import SpiritMarkInventory
 from desktop_sprite.ui.config_editor import ConfigEditorWidget, UI_STATE_FILENAME
+from desktop_sprite.ui.growth_widget import PetGrowthWidget
 from desktop_sprite.ui.inventory_widget import InventoryWidget
 
 
@@ -42,6 +44,8 @@ class MainWindow(FluentWindow):
         on_apply_config: Callable[[], None] | None = None,
         on_quit: Callable[[], None] | None = None,
         inventory_snapshot: InventorySnapshot | None = None,
+        spirit_mark_inventory: SpiritMarkInventory | None = None,
+        on_spirit_marks_changed: Callable[[SpiritMarkInventory], None] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         setTheme(Theme.DARK)
@@ -67,7 +71,13 @@ class MainWindow(FluentWindow):
 
         self.home_page = self._create_home_page()
         self.realtime_page = self._create_realtime_page()
-        self.inventory_page = InventoryWidget(inventory_snapshot or InventorySnapshot.empty())
+        inventory = inventory_snapshot or InventorySnapshot.empty()
+        self.growth_page = PetGrowthWidget(
+            inventory,
+            spirit_mark_inventory or SpiritMarkInventory(),
+            on_spirit_marks_changed,
+        )
+        self.inventory_page = InventoryWidget(inventory)
         self.settings_page = self._create_settings_page()
 
         self._add_interfaces()
@@ -152,7 +162,7 @@ class MainWindow(FluentWindow):
         pages = [
             (self.home_page, FIF.PLAY, "启动", NavigationItemPosition.TOP),
             (self.realtime_page, FIF.SYNC, "实时触发", NavigationItemPosition.TOP),
-            (self._create_placeholder_page("独立任务", "这里可以管理一次性任务、脚本和桌宠行为队列。"), FIF.CHECKBOX, "独立任务", NavigationItemPosition.TOP),
+            (self.growth_page, FIF.CHECKBOX, "养成", NavigationItemPosition.TOP),
             (self.inventory_page, FIF.SHOPPING_CART, "背包", NavigationItemPosition.TOP),
             (self._create_placeholder_page("全自动", "这里可以管理自动运行策略。"), FIF.ROBOT, "全自动", NavigationItemPosition.TOP),
             (self._create_placeholder_page("辅助操控", "这里可以放桌宠移动、展示和目标选择控制。"), FIF.GAME, "辅助操控", NavigationItemPosition.TOP),

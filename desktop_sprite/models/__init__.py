@@ -7,6 +7,14 @@ from desktop_sprite.models.inventory import (
     load_inventory,
 )
 from desktop_sprite.models.platform import Platform, PlatformType
+from desktop_sprite.models.spirit_mark import (
+    SpiritMark,
+    SpiritMarkGrantRequest,
+    SpiritMarkInventory,
+    generate_spirit_mark,
+    load_spirit_mark_inventory,
+    save_spirit_mark_inventory,
+)
 from desktop_sprite.models.state import Facing, Pet, PetState
 from desktop_sprite.models.window_info import WindowInfo
 
@@ -21,7 +29,13 @@ __all__ = [
     "Platform",
     "PlatformType",
     "Rect",
+    "SpiritMark",
+    "SpiritMarkGrantRequest",
+    "SpiritMarkInventory",
     "Vec2",
     "WindowInfo",
+    "generate_spirit_mark",
     "load_inventory",
+    "load_spirit_mark_inventory",
+    "save_spirit_mark_inventory",
 ]

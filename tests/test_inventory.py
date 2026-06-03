@@ -133,3 +133,66 @@ def test_broken_catalog_returns_fully_empty_snapshot(tmp_path):
     assert snapshot.categories == ()
     assert snapshot.item_definitions == {}
     assert snapshot.entries == ()
+
+
+def test_load_inventory_enriches_existing_spirit_mark_entries_by_entry_id(tmp_path):
+    catalog_path = _write_catalog(tmp_path)
+    default_path = _write_inventory(
+        tmp_path / "default_inventory.json",
+        [
+            {"entry_id": "mark-001", "item_id": "spirit.core"},
+            {"entry_id": "mark-without-traits", "item_id": "spirit.core"},
+        ],
+    )
+    spirit_path = tmp_path / "default_spirit_marks.json"
+    spirit_path.write_text(
+        json.dumps(
+            {
+                "marks": [
+                    {
+                        "entry_id": "mark-001",
+                        "name": "静默守护·灵核",
+                        "slot_id": "core",
+                        "set_id": "silent_guardian",
+                        "rarity": 3,
+                        "main_stat": {"name": "稳定", "value": 9},
+                        "sub_stats": [{"name": "亲和", "value": 4}],
+                        "level": 1,
+                        "source_type": "manual",
+                        "source_description": "这道灵痕来自一次手动纪念。",
+                        "created_at": "2026-06-03T00:00:00+08:00",
+                        "favorite": True,
+                        "equipped": True,
+                    },
+                    {
+                        "entry_id": "not-in-inventory",
+                        "name": "不会显示·灵核",
+                        "slot_id": "core",
+                        "set_id": "silent_guardian",
+                        "rarity": 3,
+                        "main_stat": {"name": "稳定", "value": 9},
+                    }
+                ],
+                "materials": {},
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    snapshot = load_inventory(
+        catalog_path,
+        default_path,
+        default_spirit_mark_path=spirit_path,
+        spirit_mark_path=tmp_path / "missing_user_spirit_marks.json",
+    )
+
+    spirit_entries = snapshot.entries_for_category("spirit_mark")
+    enriched_entry = next(entry for entry in spirit_entries if entry.entry_id == "mark-001")
+    plain_entry = next(entry for entry in spirit_entries if entry.entry_id == "mark-without-traits")
+
+    assert [entry.entry_id for entry in spirit_entries] == ["mark-001", "mark-without-traits"]
+    assert snapshot.definition_for(enriched_entry).name == "静默守护·灵核"
+    assert snapshot.definition_for(plain_entry).name == "灵核"
+    assert ("来源描述", "这道灵痕来自一次手动纪念。") in snapshot.details_for(enriched_entry)
+    assert ("装备", "是") in snapshot.details_for(enriched_entry)

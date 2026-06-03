@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 
 from desktop_sprite.core.character_factory import create_character
 from desktop_sprite.models.inventory import load_inventory
+from desktop_sprite.models.spirit_mark import load_spirit_mark_inventory, save_spirit_mark_inventory
 from desktop_sprite.ui.main_window import MainWindow
 from desktop_sprite.ui.show_overlay import ShowOverlayWindow
 from desktop_sprite.ui.sprite_window import SpriteWindow
@@ -108,11 +109,16 @@ def main() -> int:
     def open_main_window() -> None:
         nonlocal main_window
         if main_window is None:
+            default_spirit_mark_path = config_path.with_name("default_spirit_marks.json")
+            user_spirit_mark_path = config_path.with_name("spirit_marks.json")
             inventory = load_inventory(
                 config_path.with_name("items.json"),
                 config_path.with_name("default_inventory.json"),
                 config_path.with_name("inventory.json"),
+                default_spirit_mark_path,
+                user_spirit_mark_path,
             )
+            spirit_marks = load_spirit_mark_inventory(default_spirit_mark_path, user_spirit_mark_path)
             main_window = MainWindow(
                 config_path,
                 on_set_target=lambda: target_selector.start(),
@@ -123,6 +129,8 @@ def main() -> int:
                 on_apply_config=apply_runtime_config,
                 on_quit=quit_app,
                 inventory_snapshot=inventory,
+                spirit_mark_inventory=spirit_marks,
+                on_spirit_marks_changed=lambda updated: save_spirit_mark_inventory(user_spirit_mark_path, updated),
             )
         main_window.open_home()
 

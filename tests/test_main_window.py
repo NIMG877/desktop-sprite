@@ -52,12 +52,12 @@ def test_main_window_creates_config_editor_on_startup(tmp_path):
     window = MainWindow(config_path, on_set_target=lambda: None, on_show=lambda: None)
 
     assert window.findChild(ConfigEditorWidget) is not None
-    assert (tmp_path / "ui_state.json").exists()
+    assert (tmp_path / "user" / "ui_state.json").exists()
 
     window.show_settings()
 
     assert window.findChild(ConfigEditorWidget) is not None
-    assert (tmp_path / "ui_state.json").exists()
+    assert (tmp_path / "user" / "ui_state.json").exists()
 
 
 def test_main_window_embeds_inventory_page_in_navigation(tmp_path):
@@ -142,7 +142,7 @@ def test_main_window_restores_geometry_saved_on_previous_close(tmp_path):
     app.processEvents()
     window.close()
 
-    state = json.loads((tmp_path / "ui_state.json").read_text(encoding="utf-8"))
+    state = json.loads((tmp_path / "user" / "ui_state.json").read_text(encoding="utf-8"))
     assert state["main_window"]["geometry"]
     assert state["settings"]["expanded"]
 

@@ -31,7 +31,8 @@ def _parse_args(argv: list[str], config: AppConfig) -> tuple[argparse.Namespace,
 
 def main() -> int:
     config_path = Path(__file__).resolve().parents[1] / "config" / "default.json"
-    user_config_path = config_path.with_name("user.json")
+    user_config_dir = config_path.parent / "user"
+    user_config_path = user_config_dir / "user.json"
     config = load_config(config_path, user_config_path)
     args, qt_args = _parse_args(sys.argv[1:], config)
     configure_logging(config.app.log_level)
@@ -109,16 +110,14 @@ def main() -> int:
     def open_main_window() -> None:
         nonlocal main_window
         if main_window is None:
-            default_spirit_mark_path = config_path.with_name("default_spirit_marks.json")
-            user_spirit_mark_path = config_path.with_name("spirit_marks.json")
+            user_inventory_path = user_config_dir / "inventory.json"
+            user_spirit_mark_path = user_config_dir / "spirit_marks.json"
             inventory = load_inventory(
                 config_path.with_name("items.json"),
-                config_path.with_name("default_inventory.json"),
-                config_path.with_name("inventory.json"),
-                default_spirit_mark_path,
+                user_inventory_path,
                 user_spirit_mark_path,
             )
-            spirit_marks = load_spirit_mark_inventory(default_spirit_mark_path, user_spirit_mark_path)
+            spirit_marks = load_spirit_mark_inventory(user_spirit_mark_path)
             main_window = MainWindow(
                 config_path,
                 on_set_target=lambda: target_selector.start(),

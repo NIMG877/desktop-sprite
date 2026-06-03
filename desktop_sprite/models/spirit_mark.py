@@ -250,12 +250,10 @@ def max_level_for_rarity(rarity: int) -> int:
 
 
 def load_spirit_mark_inventory(
-    default_path: str | Path,
-    user_path: str | Path | None = None,
+    path: str | Path,
 ) -> SpiritMarkInventory:
-    selected_path = Path(user_path) if user_path is not None and Path(user_path).is_file() else Path(default_path)
-    if not selected_path.is_file():
-        return SpiritMarkInventory()
+    selected_path = Path(path)
+    _ensure_spirit_mark_file(selected_path)
     with selected_path.open("r", encoding="utf-8") as file:
         data = json.load(file)
     return spirit_mark_inventory_from_dict(data)
@@ -293,6 +291,15 @@ def spirit_mark_inventory_to_dict(inventory: SpiritMarkInventory) -> dict[str, A
             "set_dust": inventory.materials.set_dust,
         },
     }
+
+
+def _ensure_spirit_mark_file(path: Path) -> None:
+    if path.is_file():
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as file:
+        json.dump(spirit_mark_inventory_to_dict(SpiritMarkInventory()), file, ensure_ascii=False, indent=2)
+        file.write("\n")
 
 
 def spirit_mark_from_dict(data: dict[str, Any]) -> SpiritMark:

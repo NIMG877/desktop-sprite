@@ -78,9 +78,7 @@ class InventoryValidationError(ValueError):
 
 def load_inventory(
     items_path: str | Path,
-    default_inventory_path: str | Path,
     inventory_path: str | Path | None = None,
-    default_spirit_mark_path: str | Path | None = None,
     spirit_mark_path: str | Path | None = None,
 ) -> InventorySnapshot:
     catalog_path = Path(items_path)
@@ -91,8 +89,8 @@ def load_inventory(
         return InventorySnapshot.empty()
 
     snapshot = InventorySnapshot(categories, definitions)
-    user_path = Path(inventory_path) if inventory_path is not None else None
-    selected_path = user_path if user_path is not None and user_path.is_file() else Path(default_inventory_path)
+    selected_path = Path(inventory_path) if inventory_path is not None else catalog_path.parent / "user" / "inventory.json"
+    _ensure_inventory_file(selected_path)
     try:
         entries = _load_entries(selected_path, definitions)
     except (OSError, json.JSONDecodeError, InventoryValidationError) as exc:
@@ -102,7 +100,6 @@ def load_inventory(
         catalog_path,
         definitions,
         entries,
-        default_spirit_mark_path,
         spirit_mark_path,
     )
     return InventorySnapshot(categories, definitions, entries)
@@ -191,15 +188,17 @@ def _apply_spirit_mark_details(
     catalog_path: Path,
     definitions: dict[str, ItemDefinition],
     entries: tuple[InventoryEntry, ...],
-    default_spirit_mark_path: str | Path | None,
     spirit_mark_path: str | Path | None,
 ) -> tuple[dict[str, ItemDefinition], tuple[InventoryEntry, ...]]:
-    default_path = Path(default_spirit_mark_path) if default_spirit_mark_path is not None else catalog_path.with_name("default_spirit_marks.json")
-    user_path = Path(spirit_mark_path) if spirit_mark_path is not None else catalog_path.with_name("spirit_marks.json")
+    selected_path = (
+        Path(spirit_mark_path)
+        if spirit_mark_path is not None
+        else catalog_path.parent / "user" / "spirit_marks.json"
+    )
     try:
-        spirit_inventory = load_spirit_mark_inventory(default_path, user_path)
+        spirit_inventory = load_spirit_mark_inventory(selected_path)
     except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
-        logger.error("Failed to load spirit marks %s: %s", user_path if user_path.is_file() else default_path, exc)
+        logger.error("Failed to load spirit marks %s: %s", selected_path, exc)
         return definitions, entries
     if not spirit_inventory.marks:
         return definitions, entries
@@ -274,6 +273,15 @@ def _format_sub_stats(stats: tuple[Any, ...]) -> str:
 def _read_object(path: Path) -> dict[str, Any]:
     with path.open("r", encoding="utf-8") as file:
         return _require_object(json.load(file), str(path))
+
+
+def _ensure_inventory_file(path: Path) -> None:
+    if path.is_file():
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as file:
+        json.dump({"entries": []}, file, ensure_ascii=False, indent=2)
+        file.write("\n")
 
 
 def _require_object(value: Any, label: str) -> dict[str, Any]:

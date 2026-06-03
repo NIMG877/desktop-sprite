@@ -31,6 +31,7 @@ from qfluentwidgets import (
 
 JsonPath = tuple[str, ...]
 UI_STATE_FILENAME = "ui_state.json"
+USER_CONFIG_DIRNAME = "user"
 
 
 @dataclass(slots=True)
@@ -56,7 +57,7 @@ class ConfigEditorWidget(QWidget):
         super().__init__(parent)
         self.config_path = Path(config_path)
         self.user_config_path = Path(user_config_path) if user_config_path else None
-        self.ui_state_path = self.config_path.parent / UI_STATE_FILENAME
+        self.ui_state_path = self.config_path.parent / USER_CONFIG_DIRNAME / UI_STATE_FILENAME
         self.documents: list[_Document] = []
         self._value_setters: dict[tuple[Path, JsonPath], Callable[[Any], None]] = {}
         self._value_widgets: dict[tuple[Path, JsonPath], QWidget] = {}

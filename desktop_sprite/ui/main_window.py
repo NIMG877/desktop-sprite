@@ -24,7 +24,7 @@ from qfluentwidgets import (
 
 from desktop_sprite.models.inventory import InventorySnapshot
 from desktop_sprite.models.spirit_mark import SpiritMarkInventory
-from desktop_sprite.ui.config_editor import ConfigEditorWidget, UI_STATE_FILENAME
+from desktop_sprite.ui.config_editor import ConfigEditorWidget, UI_STATE_FILENAME, USER_CONFIG_DIRNAME
 from desktop_sprite.ui.growth_widget import PetGrowthWidget
 from desktop_sprite.ui.inventory_widget import InventoryWidget
 
@@ -52,7 +52,7 @@ class MainWindow(FluentWindow):
         super().__init__(parent)
         self.config_path = Path(config_path)
         self.user_config_path = Path(user_config_path) if user_config_path else None
-        self.ui_state_path = self.config_path.parent / UI_STATE_FILENAME
+        self.ui_state_path = self.config_path.parent / USER_CONFIG_DIRNAME / UI_STATE_FILENAME
         self.on_set_target = on_set_target
         self.on_show = on_show
         self.on_sleep = on_sleep or (lambda: None)

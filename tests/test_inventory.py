@@ -45,10 +45,10 @@ def _write_inventory(path, entries):
     return path
 
 
-def test_load_inventory_uses_default_entries_and_merges_instance_details(tmp_path):
+def test_load_inventory_uses_inventory_entries_and_merges_instance_details(tmp_path):
     catalog_path = _write_catalog(tmp_path)
-    default_path = _write_inventory(
-        tmp_path / "default_inventory.json",
+    inventory_path = _write_inventory(
+        tmp_path / "inventory.json",
         [
             {
                 "entry_id": "spirit-001",
@@ -59,7 +59,7 @@ def test_load_inventory_uses_default_entries_and_merges_instance_details(tmp_pat
         ],
     )
 
-    snapshot = load_inventory(catalog_path, default_path, tmp_path / "inventory.json")
+    snapshot = load_inventory(catalog_path, inventory_path)
 
     assert [category.id for category in snapshot.categories] == ["spirit_mark", "test"]
     assert [entry.entry_id for entry in snapshot.entries_for_category("test")] == ["stack-001"]
@@ -70,30 +70,24 @@ def test_load_inventory_uses_default_entries_and_merges_instance_details(tmp_pat
     )
 
 
-def test_load_inventory_prefers_user_inventory_when_present(tmp_path):
+def test_load_inventory_creates_empty_inventory_when_missing(tmp_path):
     catalog_path = _write_catalog(tmp_path)
-    default_path = _write_inventory(
-        tmp_path / "default_inventory.json",
-        [{"entry_id": "spirit-001", "item_id": "spirit.core"}],
-    )
-    user_path = _write_inventory(
-        tmp_path / "inventory.json",
-        [{"entry_id": "stack-001", "item_id": "test.stack", "quantity": 7}],
-    )
+    inventory_path = tmp_path / "inventory.json"
 
-    snapshot = load_inventory(catalog_path, default_path, user_path)
+    snapshot = load_inventory(catalog_path, inventory_path)
 
-    assert [entry.entry_id for entry in snapshot.entries] == ["stack-001"]
+    assert snapshot.entries == ()
+    assert json.loads(inventory_path.read_text(encoding="utf-8")) == {"entries": []}
 
 
 def test_invalid_inventory_keeps_catalog_and_returns_empty_entries(tmp_path):
     catalog_path = _write_catalog(tmp_path)
-    default_path = _write_inventory(
-        tmp_path / "default_inventory.json",
+    inventory_path = _write_inventory(
+        tmp_path / "inventory.json",
         [{"entry_id": "bad-stack", "item_id": "spirit.core", "quantity": 2}],
     )
 
-    snapshot = load_inventory(catalog_path, default_path)
+    snapshot = load_inventory(catalog_path, inventory_path)
 
     assert [category.id for category in snapshot.categories] == ["spirit_mark", "test"]
     assert snapshot.item_definitions
@@ -102,22 +96,22 @@ def test_invalid_inventory_keeps_catalog_and_returns_empty_entries(tmp_path):
 
 def test_unknown_inventory_item_returns_empty_entries(tmp_path):
     catalog_path = _write_catalog(tmp_path)
-    default_path = _write_inventory(
-        tmp_path / "default_inventory.json",
+    inventory_path = _write_inventory(
+        tmp_path / "inventory.json",
         [{"entry_id": "unknown", "item_id": "missing"}],
     )
 
-    snapshot = load_inventory(catalog_path, default_path)
+    snapshot = load_inventory(catalog_path, inventory_path)
 
     assert snapshot.entries == ()
 
 
 def test_broken_inventory_keeps_catalog_and_returns_empty_entries(tmp_path):
     catalog_path = _write_catalog(tmp_path)
-    default_path = tmp_path / "default_inventory.json"
-    default_path.write_text("{", encoding="utf-8")
+    inventory_path = tmp_path / "inventory.json"
+    inventory_path.write_text("{", encoding="utf-8")
 
-    snapshot = load_inventory(catalog_path, default_path)
+    snapshot = load_inventory(catalog_path, inventory_path)
 
     assert [category.id for category in snapshot.categories] == ["spirit_mark", "test"]
     assert snapshot.entries == ()
@@ -126,9 +120,9 @@ def test_broken_inventory_keeps_catalog_and_returns_empty_entries(tmp_path):
 def test_broken_catalog_returns_fully_empty_snapshot(tmp_path):
     catalog_path = tmp_path / "items.json"
     catalog_path.write_text("{", encoding="utf-8")
-    default_path = _write_inventory(tmp_path / "default_inventory.json", [])
+    inventory_path = _write_inventory(tmp_path / "inventory.json", [])
 
-    snapshot = load_inventory(catalog_path, default_path)
+    snapshot = load_inventory(catalog_path, inventory_path)
 
     assert snapshot.categories == ()
     assert snapshot.item_definitions == {}
@@ -137,14 +131,14 @@ def test_broken_catalog_returns_fully_empty_snapshot(tmp_path):
 
 def test_load_inventory_enriches_existing_spirit_mark_entries_by_entry_id(tmp_path):
     catalog_path = _write_catalog(tmp_path)
-    default_path = _write_inventory(
-        tmp_path / "default_inventory.json",
+    inventory_path = _write_inventory(
+        tmp_path / "inventory.json",
         [
             {"entry_id": "mark-001", "item_id": "spirit.core"},
             {"entry_id": "mark-without-traits", "item_id": "spirit.core"},
         ],
     )
-    spirit_path = tmp_path / "default_spirit_marks.json"
+    spirit_path = tmp_path / "spirit_marks.json"
     spirit_path.write_text(
         json.dumps(
             {
@@ -182,9 +176,8 @@ def test_load_inventory_enriches_existing_spirit_mark_entries_by_entry_id(tmp_pa
 
     snapshot = load_inventory(
         catalog_path,
-        default_path,
-        default_spirit_mark_path=spirit_path,
-        spirit_mark_path=tmp_path / "missing_user_spirit_marks.json",
+        inventory_path,
+        spirit_path,
     )
 
     spirit_entries = snapshot.entries_for_category("spirit_mark")

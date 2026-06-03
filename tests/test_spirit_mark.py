@@ -80,3 +80,12 @@ def test_spirit_mark_inventory_round_trips_json(tmp_path):
     loaded = load_spirit_mark_inventory(path)
 
     assert loaded.marks == (mark,)
+
+
+def test_load_spirit_mark_inventory_creates_empty_file_when_missing(tmp_path):
+    path = tmp_path / "spirit_marks.json"
+
+    loaded = load_spirit_mark_inventory(path)
+
+    assert loaded == SpiritMarkInventory()
+    assert path.is_file()

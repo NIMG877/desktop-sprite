@@ -21,12 +21,7 @@ logs/
 /system_design/
 
 # User configs
-/config/ui_state.json
-/config/user.json
-/config/inventory.json
-/config/default_inventory.json
-/config/default_spirit_marks.json
-/config/spirit_marks.json
+/config/user/
 
 # assets
 /assets/

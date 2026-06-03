@@ -50,7 +50,7 @@ def test_config_editor_discovers_profile_files_and_creates_ui_state(tmp_path):
     assert "CHARACTERS" in section_titles
     assert "PET" in section_titles
 
-    state = json.loads((tmp_path / "ui_state.json").read_text(encoding="utf-8"))
+    state = json.loads((tmp_path / "user" / "ui_state.json").read_text(encoding="utf-8"))
     expanded = state["settings"]["expanded"]
     assert expanded["default"] is True
     assert expanded["default.app"] is True
@@ -64,7 +64,8 @@ def test_config_editor_discovers_profile_files_and_creates_ui_state(tmp_path):
 def test_config_editor_preserves_main_window_geometry_in_ui_state(tmp_path):
     _app()
     config_path, _profile_path = _write_config_tree(tmp_path)
-    state_path = tmp_path / "ui_state.json"
+    state_path = tmp_path / "user" / "ui_state.json"
+    state_path.parent.mkdir()
     state_path.write_text(
         json.dumps({"main_window": {"geometry": "saved-geometry"}}),
         encoding="utf-8",

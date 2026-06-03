@@ -85,6 +85,11 @@ class SpriteWindow(QWidget):
         render_state = self.character.render_state()
         if render_state.body is None or render_state.animation is None:
             return
+        effective_stats = getattr(self.character, "effective_stats", None)
+        if callable(effective_stats):
+            stats = effective_stats()
+            self.pose_builder.wing_open_seconds = stats.wing_open_seconds
+            self.pose_builder.wing_close_seconds = stats.wing_close_seconds
         animation = render_state.animation
         pose = self.pose_builder.build(
             render_state.body,
@@ -380,6 +385,7 @@ class DebugOverlayWindow(QWidget):
             # f"floor={floor_y:.0f} over={overflow:.0f}",
             f"scale={scale:.1f}",
             f"v=({pet.velocity.x:.0f},{pet.velocity.y:.0f})",
+            *self._resource_debug_lines(),
             f"platform={pet.support_surface_id or '-'}",
             # f"p_name={self._support_window_title()}",
         ]
@@ -402,6 +408,19 @@ class DebugOverlayWindow(QWidget):
             if index - 1 >= path_plan.current_index:
                 lines.extend(f"  {line}" for line in self._step_debug_lines(step))
         return lines
+
+    def _resource_debug_lines(self) -> list[str]:
+        resources = getattr(self.character, "resources", None)
+        effective_stats = getattr(self.character, "effective_stats", None)
+        if resources is None or not callable(effective_stats):
+            return []
+
+        stats = effective_stats()
+        return [
+            f"vigor={resources.stamina:.0f}/{stats.max_stamina:.0f}",
+            f"awareness={resources.energy:.0f}/{stats.max_energy:.0f}",
+            f"satiety={resources.satiety:.0f}/{stats.satiety:.0f}",
+        ]
 
     def _debug_info_rect(self, width: int, height: int) -> QRectF:
         pet = self.character.render_state().body

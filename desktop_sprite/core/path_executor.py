@@ -83,7 +83,7 @@ class PathExecutor:
             controller.pet.velocity.x = 0.0
             return True
         direction = 1 if distance > 0 else -1
-        controller.pet.velocity.x = direction * controller.config.physics.walk_speed
+        controller.pet.velocity.x = direction * controller.runtime_physics().walk_speed
         controller.pet.facing = Facing.RIGHT if direction > 0 else Facing.LEFT
         controller._transition(PetState.WALK)
         return False
@@ -93,14 +93,14 @@ class PathExecutor:
             return self._move_along_axis(
                 target_t - self.controller.pet.height,
                 axis="y",
-                speed=self.controller.config.physics.climb_speed,
+                speed=self.controller.runtime_physics().climb_speed,
                 state=PetState.CLIMB,
                 surface_id=surface.id,
             )
         return self._move_along_axis(
             target_t,
             axis="x",
-            speed=self.controller.config.physics.walk_speed,
+            speed=self.controller.runtime_physics().walk_speed,
             state=PetState.WALK,
             surface_id=surface.id,
         )
@@ -217,9 +217,10 @@ class PathExecutor:
         start_y = controller.pet.position.y
         dx = target_x - start_x
         dy = target_y - start_y
-        g = max(controller.config.physics.gravity, 1.0)
-        max_vx = max(abs(controller.config.physics.jump_speed_x), 1.0)
-        min_up_vy = min(controller.config.physics.jump_speed_y, -1.0)
+        physics = controller.runtime_physics()
+        g = max(physics.gravity, 1.0)
+        max_vx = max(abs(physics.jump_speed_x), 1.0)
+        min_up_vy = min(physics.jump_speed_y, -1.0)
 
         # Pick a feasible flight time from horizontal travel, then derive vertical speed.
         t = max(abs(dx) / max_vx, 0.18)

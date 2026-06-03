@@ -1,10 +1,11 @@
 from desktop_sprite.core.behavior_state_machine import BehaviorStateMachine
 from desktop_sprite.core.behavior_orchestrator import BehaviorOrchestrator, BehaviorPhaseName
 from desktop_sprite.core.pathfinding import PathFinder, PathPlan, PathStep, TraversalAction
-from desktop_sprite.core.pet_controller import HoverAbility, PetController, SHOW_HOVER_SECONDS
+from desktop_sprite.core.pet_controller import HoverAbility, PetController, SHOW_HOVER_SECONDS, WingAbility
 from desktop_sprite.core.pet_mode import ModeController, PetMode
 from desktop_sprite.environment.environment_snapshot import EnvironmentSnapshot
 from desktop_sprite.models.geometry import Rect, Vec2
+from desktop_sprite.models.pet_attribute import PetAttributeModifier, PetAttributeSheet
 from desktop_sprite.models.platform import Platform, PlatformType
 from desktop_sprite.models.state import Pet, PetState
 from desktop_sprite.models.window_info import WindowInfo
@@ -99,6 +100,28 @@ def test_walk_toward_x_does_not_snap_at_edge_distance():
     assert not reached
     assert controller.pet.position.x == 100
     assert controller.pet.velocity.x > 0
+
+
+def test_controller_uses_attribute_sheet_for_movement_and_special_timing():
+    controller, _side = make_controller(window_top_y=120)
+    sheet = PetAttributeSheet.from_config(controller.config).with_modifiers(
+        (
+            PetAttributeModifier("mobility", 50, "percent"),
+            PetAttributeModifier("attunement", 100),
+        )
+    )
+
+    controller.set_attribute_sheet(sheet)
+    controller.pet.position.x = 100
+    controller.pet.velocity.x = 0
+
+    controller._walk_toward_x(140)
+
+    assert controller.pet.velocity.x == 180
+
+    controller._start_open_wings()
+    assert isinstance(controller._active_pet_ability, WingAbility)
+    assert controller._active_pet_ability.duration == 0.5
 
 
 def test_walking_does_not_end_just_because_previous_goal_time_expired():
@@ -217,7 +240,7 @@ def test_controller_executes_fall_step_from_surface_edge():
 def test_random_wander_prefers_current_platform_via_path_plan(monkeypatch):
     controller, _side = make_controller(window_top_y=120)
     support = controller.snapshot.platform_by_id("ground:work_area")
-    monkeypatch.setattr("desktop_sprite.core.pet_controller.random.random", lambda: 0.1)
+    monkeypatch.setattr("desktop_sprite.core.pet_controller.random.random", lambda: 0.9)
     monkeypatch.setattr("desktop_sprite.core.pet_controller.random.uniform", lambda left, right: right)
 
     controller._start_random_wander(support)
@@ -323,6 +346,56 @@ def test_sleep_does_not_interrupt_show_mode():
     assert not controller.sleep()
     assert controller.pet.state == PetState.OPEN_WINGS
     assert controller.mode_controller.mode == PetMode.SHOW
+
+
+def test_low_energy_auto_sleep_wakes_only_after_higher_threshold():
+    controller, _side = make_controller(window_top_y=120)
+    sheet = PetAttributeSheet.from_config(controller.config)
+    controller.set_attribute_sheet(sheet)
+    stats = controller.effective_stats()
+    controller.resources.energy = stats.base_energy * 0.09
+    controller.pet.state = PetState.IDLE
+    controller.pet.support_surface_id = "ground:work_area"
+
+    controller._update_behavior(0.016)
+
+    assert controller.pet.state == PetState.SLEEP
+    assert controller._auto_sleeping
+
+    controller.resources.energy = stats.base_energy * 0.44
+    controller._update_behavior(0.016)
+
+    assert controller.pet.state == PetState.SLEEP
+
+    controller.resources.energy = stats.base_energy * 0.46
+    controller._update_behavior(0.016)
+
+    assert controller.pet.state == PetState.IDLE
+    assert not controller._auto_sleeping
+
+
+def test_low_stamina_rest_uses_higher_exit_threshold():
+    controller, _side = make_controller(window_top_y=120)
+    controller.set_attribute_sheet(PetAttributeSheet.from_config(controller.config))
+    stats = controller.effective_stats()
+    controller.resources.stamina = stats.base_stamina * 0.10
+    controller.pet.state = PetState.IDLE
+    controller.pet.support_surface_id = "ground:work_area"
+
+    controller._update_behavior(0.016)
+
+    assert controller.pet.state == PetState.IDLE
+    assert controller._resource_resting
+
+    controller.resources.stamina = stats.base_stamina * 0.39
+    controller._update_behavior(0.016)
+
+    assert controller._resource_resting
+
+    controller.resources.stamina = stats.base_stamina * 0.41
+    controller._update_behavior(0.016)
+
+    assert not controller._resource_resting
 
 
 def test_show_render_state_separates_canvas_from_pet_body():

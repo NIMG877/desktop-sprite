@@ -3,7 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Literal
 
-from desktop_sprite.utils.config import AppConfig
+from desktop_sprite.models.state import PetState
+from desktop_sprite.utils.config import AppConfig, PhysicsConfig
 
 
 BonusType = Literal["flat", "percent"]
@@ -158,6 +159,167 @@ class PetAttributeSheet:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class PetEffectiveStats:
+    physics: PhysicsConfig
+    idle_min_seconds: float
+    idle_max_seconds: float
+    reachable_wander_probability: float
+    min_wander_distance_factor: float
+    flight_speed: float
+    landing_speed: float
+    wing_open_seconds: float
+    wing_close_seconds: float
+    hover_amplitude: float
+    hover_frequency: float
+    max_stamina: float
+    base_stamina: float
+    stamina_recovery: float
+    max_energy: float
+    base_energy: float
+    energy_recovery: float
+    satiety: float
+    base_satiety: float
+
+    @classmethod
+    def from_sheet(cls, config: AppConfig, sheet: PetAttributeSheet) -> "PetEffectiveStats":
+        mobility = _attribute_ratio(sheet, "mobility", config.physics.walk_speed)
+        cling = _attribute_ratio(sheet, "cling", config.physics.climb_speed)
+        leap = _attribute_ratio(sheet, "leap", _derive_leap_value(config))
+        wander = _attribute_ratio(sheet, "wander", 100.0)
+        arcana = _attribute_ratio(sheet, "arcana", 100.0)
+        attunement = _attribute_ratio(sheet, "attunement", 100.0)
+
+        wander_interval_scale = 1.0 / wander
+        return cls(
+            physics=replace(
+                config.physics,
+                walk_speed=max(config.physics.walk_speed * mobility, 1.0),
+                climb_speed=max(config.physics.climb_speed * cling, 1.0),
+                jump_speed_x=config.physics.jump_speed_x * leap,
+                jump_speed_y=config.physics.jump_speed_y * leap,
+            ),
+            idle_min_seconds=max(config.behavior.idle_min_seconds * wander_interval_scale, 0.1),
+            idle_max_seconds=max(config.behavior.idle_max_seconds * wander_interval_scale, 0.1),
+            reachable_wander_probability=_clamp(0.5 * wander, 0.05, 0.95),
+            min_wander_distance_factor=_clamp(0.8 * wander, 0.25, 2.0),
+            flight_speed=max(config.pet.flight.speed * arcana, 1.0),
+            landing_speed=max(config.pet.flight.landing_speed * arcana, 1.0),
+            wing_open_seconds=max(config.pet.wings.open_seconds / attunement, 0.05),
+            wing_close_seconds=max(config.pet.wings.close_seconds / attunement, 0.05),
+            hover_amplitude=max(config.pet.hover.amplitude * arcana, 0.0),
+            hover_frequency=max(config.pet.hover.frequency * attunement, 0.05),
+            max_stamina=max(_attribute_total(sheet, "vigor", 210.0), 1.0),
+            base_stamina=max(_attribute_base(sheet, "vigor", 210.0), 1.0),
+            stamina_recovery=max(_attribute_total(sheet, "recovery", 5.0), 0.0),
+            max_energy=max(_attribute_total(sheet, "awareness", 100.0), 1.0),
+            base_energy=max(_attribute_base(sheet, "awareness", 100.0), 1.0),
+            energy_recovery=max(_attribute_total(sheet, "focus", 2.0), 0.0),
+            satiety=max(_attribute_total(sheet, "satiety", 100.0), 1.0),
+            base_satiety=max(_attribute_base(sheet, "satiety", 100.0), 1.0),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class PetResourceInfluence:
+    movement_factor: float
+    climb_factor: float
+    jump_factor: float
+    wander_factor: float
+    special_factor: float
+    recovery_factor: float
+    sleep_pressure: float
+    feeding_pressure: float
+    should_sleep: bool
+    should_wake: bool
+    should_rest: bool
+    should_stop_rest: bool
+    should_seek_food: bool
+    should_stop_seek_food: bool
+
+    @classmethod
+    def from_resources(
+        cls,
+        resources: "PetRuntimeResources",
+        stats: PetEffectiveStats,
+    ) -> "PetResourceInfluence":
+        stamina_ratio = resources.stamina_ratio(stats)
+        energy_ratio = resources.energy_ratio(stats)
+        satiety_ratio = resources.satiety_ratio(stats)
+
+        stamina_ready = _smooth_ratio(stamina_ratio, 0.15, 0.60)
+        stamina_burst = _smooth_ratio(stamina_ratio, 0.20, 0.75)
+        energy_ready = _smooth_ratio(energy_ratio, 0.15, 0.70)
+        special_ready = _smooth_ratio(energy_ratio, 0.20, 0.80)
+        satiety_ready = _smooth_ratio(satiety_ratio, 0.10, 0.55)
+
+        return cls(
+            movement_factor=_clamp((0.70 + 0.30 * stamina_ready) * (0.85 + 0.15 * satiety_ready), 0.25, 1.0),
+            climb_factor=_clamp((0.35 + 0.65 * stamina_burst) * (0.85 + 0.15 * satiety_ready), 0.25, 1.0),
+            jump_factor=_clamp((0.40 + 0.60 * stamina_burst) * (0.90 + 0.10 * satiety_ready), 0.25, 1.0),
+            wander_factor=_clamp(
+                (0.15 + 0.85 * energy_ready)
+                * (0.25 + 0.75 * stamina_ready)
+                * (0.35 + 0.65 * satiety_ready),
+                0.0,
+                1.0,
+            ),
+            special_factor=_clamp((0.10 + 0.90 * special_ready) * (0.50 + 0.50 * satiety_ready), 0.0, 1.0),
+            recovery_factor=_clamp(0.25 + 0.75 * satiety_ready, 0.25, 1.0),
+            sleep_pressure=_clamp(1.0 - _smooth_ratio(energy_ratio, 0.10, 0.45), 0.0, 1.0),
+            feeding_pressure=_clamp(1.0 - _smooth_ratio(satiety_ratio, 0.10, 0.40), 0.0, 1.0),
+            should_sleep=energy_ratio <= 0.10,
+            should_wake=energy_ratio >= 0.45,
+            should_rest=stamina_ratio <= 0.15,
+            should_stop_rest=stamina_ratio >= 0.40,
+            should_seek_food=satiety_ratio <= 0.10,
+            should_stop_seek_food=satiety_ratio >= 0.35,
+        )
+
+
+@dataclass(slots=True)
+class PetRuntimeResources:
+    stamina: float
+    energy: float
+    satiety: float
+
+    @classmethod
+    def from_stats(cls, stats: PetEffectiveStats) -> "PetRuntimeResources":
+        return cls(stats.max_stamina, stats.max_energy, stats.satiety)
+
+    def clamp_to_stats(self, stats: PetEffectiveStats) -> None:
+        self.stamina = _clamp(self.stamina, 0.0, stats.max_stamina)
+        self.energy = _clamp(self.energy, 0.0, stats.max_energy)
+        self.satiety = _clamp(self.satiety, 0.0, stats.satiety)
+
+    def tick(self, state: PetState, dt: float, stats: PetEffectiveStats) -> None:
+        elapsed = max(dt, 0.0)
+        influence = PetResourceInfluence.from_resources(self, stats)
+        if state == PetState.SLEEP:
+            self.energy += stats.energy_recovery * influence.recovery_factor * elapsed
+            self.stamina += stats.stamina_recovery * influence.recovery_factor * elapsed
+        elif state in {PetState.IDLE, PetState.DRAGGED}:
+            self.stamina += stats.stamina_recovery * influence.recovery_factor * 0.5 * elapsed
+            self.energy -= 0.1 * (1.0 + influence.feeding_pressure * 0.35) * elapsed
+        else:
+            self.stamina -= _stamina_cost_for_state(state) * elapsed
+            self.energy -= 0.25 * (1.0 + influence.feeding_pressure * 0.35) * elapsed
+        self.satiety -= _satiety_cost_for_state(state) * (100.0 / max(stats.base_satiety, 1.0)) * elapsed
+        self.clamp_to_stats(stats)
+
+    def influence(self, stats: PetEffectiveStats) -> PetResourceInfluence:
+        return PetResourceInfluence.from_resources(self, stats)
+
+    def stamina_ratio(self, stats: PetEffectiveStats) -> float:
+        return self.stamina / max(stats.base_stamina, 1.0)
+
+    def energy_ratio(self, stats: PetEffectiveStats) -> float:
+        return self.energy / max(stats.base_energy, 1.0)
+
+    def satiety_ratio(self, stats: PetEffectiveStats) -> float:
+        return self.satiety / max(stats.base_satiety, 1.0)
+
+
 PET_ATTRIBUTE_DEFINITIONS: tuple[PetAttributeDefinition, ...] = (
     PetAttributeDefinition("mobility", "机动", "Mobility", "基础水平移动速度", "walk_speed", "config.physics.walk_speed", ("flat", "percent")),
     PetAttributeDefinition("cling", "攀附", "Cling", "垂直/边缘移动速度", "climb_speed", "config.physics.climb_speed", ("flat", "percent")),
@@ -187,6 +349,60 @@ def attribute_id_for_name(name: str) -> str | None:
 
 def _derive_leap_value(config: AppConfig) -> float:
     return (abs(float(config.physics.jump_speed_x)) + abs(float(config.physics.jump_speed_y))) / 2.0
+
+
+def _attribute_total(sheet: PetAttributeSheet, attribute_id: str, fallback: float) -> float:
+    try:
+        return sheet.value_for(attribute_id).total
+    except KeyError:
+        return fallback
+
+
+def _attribute_base(sheet: PetAttributeSheet, attribute_id: str, fallback: float) -> float:
+    try:
+        return sheet.value_for(attribute_id).base_value
+    except KeyError:
+        return fallback
+
+
+def _attribute_ratio(sheet: PetAttributeSheet, attribute_id: str, fallback: float) -> float:
+    value = _attribute_total(sheet, attribute_id, fallback)
+    return _clamp(value / max(abs(fallback), 1.0), 0.25, 3.0)
+
+
+def _stamina_cost_for_state(state: PetState) -> float:
+    if state == PetState.CLIMB:
+        return 2.5
+    if state == PetState.JUMP:
+        return 2.0
+    if state in {PetState.FLY, PetState.HOVER, PetState.WING_LAND}:
+        return 1.8
+    if state == PetState.WALK:
+        return 1.0
+    return 0.5
+
+
+def _satiety_cost_for_state(state: PetState) -> float:
+    if state == PetState.SLEEP:
+        return 0.008
+    if state in {PetState.IDLE, PetState.DRAGGED}:
+        return 0.012
+    if state in {PetState.CLIMB, PetState.JUMP, PetState.FLY, PetState.HOVER, PetState.WING_LAND}:
+        return 0.035
+    if state == PetState.WALK:
+        return 0.02
+    return 0.016
+
+
+def _smooth_ratio(value: float, start: float, end: float) -> float:
+    if end <= start:
+        return 1.0 if value >= end else 0.0
+    normalized = _clamp((value - start) / (end - start), 0.0, 1.0)
+    return normalized * normalized * (3.0 - 2.0 * normalized)
+
+
+def _clamp(value: float, minimum: float, maximum: float) -> float:
+    return min(max(value, minimum), maximum)
 
 
 def _format_attribute_number(value: float, value_format: AttributeValueFormat) -> str:

@@ -16,14 +16,18 @@ from desktop_sprite.core.pet_mode import ModeController, PetMode
 from desktop_sprite.environment.desktop_environment import DesktopEnvironment
 from desktop_sprite.environment.environment_snapshot import EnvironmentSnapshot
 from desktop_sprite.models.geometry import Vec2
+from desktop_sprite.models.pet_attribute import (
+    PetAttributeSheet,
+    PetEffectiveStats,
+    PetResourceInfluence,
+    PetRuntimeResources,
+)
 from desktop_sprite.models.platform import Platform, PlatformType
 from desktop_sprite.models.state import Facing, Pet, PetState
-from desktop_sprite.utils.config import AppConfig
+from desktop_sprite.utils.config import AppConfig, PhysicsConfig
 
 
-LOCAL_WANDER_PROBABILITY = 0.5
 WALK_TARGET_ARRIVAL_DISTANCE = 0.8
-MIN_WANDER_DISTANCE_FACTOR = 0.8
 SHOW_RENDER_SCALE_X = 4.6
 SHOW_RENDER_SCALE_Y = 3.8
 SHOW_HOVER_SECONDS = 0.5
@@ -75,6 +79,9 @@ class PetController:
 
     def __init__(self, config: AppConfig) -> None:
         self.config = config
+        self.attribute_sheet = PetAttributeSheet.from_config(config)
+        self._effective_stats = PetEffectiveStats.from_sheet(config, self.attribute_sheet)
+        self.resources = PetRuntimeResources.from_stats(self._effective_stats)
         self._own_window_handle: int | None = None
         self.pet = Pet(
             position=Vec2(config.pet.default_spawn_x, config.pet.default_spawn_y),
@@ -83,7 +90,7 @@ class PetController:
             height=config.pet.height,
         )
         self.environment = DesktopEnvironment(config.pet.width, config.pet.height)
-        self.physics = PhysicsEngine(config.physics, apply_state_transitions=False)
+        self.physics = PhysicsEngine(self._effective_stats.physics, apply_state_transitions=False)
         self.pathfinder = PathFinder()
         self.path_executor = PathExecutor(self)
         self.path_plan: PathPlan | None = None
@@ -98,6 +105,9 @@ class PetController:
         self._drag_offset = Vec2()
         self._show_context: ShowContext | None = None
         self._active_pet_ability: PetAbility | None = None
+        self._auto_sleeping = False
+        self._resource_resting = False
+        self._seeking_food = False
         self._pick_new_idle_goal()
 
     def set_own_window_handle(self, hwnd: int | None) -> None:
@@ -106,8 +116,10 @@ class PetController:
 
     def apply_config(self, config: AppConfig) -> None:
         size_changed = self.pet.width != config.pet.width or self.pet.height != config.pet.height
+        modifiers = getattr(self, "attribute_sheet", PetAttributeSheet.from_config(self.config)).modifiers
         self.config = config
-        self.physics.config = config.physics
+        self.attribute_sheet = PetAttributeSheet.from_config(config).with_modifiers(modifiers)
+        self._refresh_effective_stats()
         if size_changed:
             self.pet.width = config.pet.width
             self.pet.height = config.pet.height
@@ -117,12 +129,39 @@ class PetController:
             self.path_plan = None
         self._state_goal_until = min(self._state_goal_until, time.monotonic())
 
+    def set_attribute_sheet(self, attribute_sheet: PetAttributeSheet) -> None:
+        self.attribute_sheet = attribute_sheet
+        self._refresh_effective_stats()
+
+    def _refresh_effective_stats(self) -> None:
+        self._effective_stats = PetEffectiveStats.from_sheet(self.config, self.attribute_sheet)
+        if not hasattr(self, "resources"):
+            self.resources = PetRuntimeResources.from_stats(self._effective_stats)
+        else:
+            self.resources.clamp_to_stats(self._effective_stats)
+        if hasattr(self, "physics"):
+            self.physics.config = self.runtime_physics()
+
+    def effective_stats(self) -> PetEffectiveStats:
+        stats = getattr(self, "_effective_stats", None)
+        if stats is None:
+            sheet = getattr(self, "attribute_sheet", PetAttributeSheet.from_config(self.config))
+            stats = PetEffectiveStats.from_sheet(self.config, sheet)
+            self._effective_stats = stats
+        return stats
+
+    def runtime_physics(self) -> PhysicsConfig:
+        stats = self.effective_stats()
+        return replace_physics_movement(stats.physics, self._resource_influence())
+
     def tick(self, dt: float) -> None:
         self._ensure_runtime_layers()
+        self.physics.config = self.runtime_physics()
         self.orchestrator.tick(dt)
         self._refresh_environment_if_needed()
         if self.mode_controller.is_show():
             self._update_show(dt)
+            self._tick_resources(dt)
             self.pet.state_time += dt
             self.animation.set_state(self.pet.state)
             self.animation.update(dt)
@@ -132,6 +171,7 @@ class PetController:
         old_support_surface_id = self.pet.support_surface_id
         motion_events = self.physics.update(self.pet, self.snapshot, dt)
         self._apply_motion_events(motion_events)
+        self._tick_resources(dt)
         self._landed_on_platform_last_tick = (
             old_support_surface_id is None
             and self.pet.support_surface_id is not None
@@ -206,7 +246,7 @@ class PetController:
             snapshot=self.snapshot,
             target_surface_id=surface_id,
             target_anchor_t=anchor_t,
-            physics=self.config.physics,
+            physics=self.runtime_physics(),
             target_window_id=target.source_id if target else None,
         )
         if plan is None:
@@ -268,6 +308,9 @@ class PetController:
         if self._is_show_mode():
             return
         if self.pet.state == PetState.DRAGGED:
+            return
+
+        if self._apply_resource_behavior():
             return
 
         if getattr(self, "_landed_on_platform_last_tick", False):
@@ -441,7 +484,12 @@ class PetController:
             self.pet.position = Vec2(context.start_x, context.start_y)
             return
         if phase == BehaviorPhaseName.SHOW_FLY:
-            self._start_flight_to(context.hover_x, context.hover_y, state=PetState.FLY, speed=self.config.pet.flight.speed)
+            self._start_flight_to(
+                context.hover_x,
+                context.hover_y,
+                state=PetState.FLY,
+                speed=self.effective_stats().flight_speed * self._resource_influence().special_factor,
+            )
             return
         if phase == BehaviorPhaseName.SHOW_HOVER:
             self._start_hover(context.hover_x, context.hover_y, SHOW_HOVER_SECONDS + SHOW_TITLE_SECONDS)
@@ -455,7 +503,7 @@ class PetController:
                 context.land_x,
                 context.land_y,
                 state=PetState.WING_LAND,
-                speed=self.config.pet.flight.landing_speed,
+                speed=self.effective_stats().landing_speed * self._resource_influence().special_factor,
             )
             return
         if phase == BehaviorPhaseName.SHOW_CLOSE_WINGS:
@@ -465,12 +513,14 @@ class PetController:
     def _start_open_wings(self) -> None:
         self._transition(PetState.OPEN_WINGS)
         self.pet.velocity = Vec2()
-        self._active_pet_ability = WingAbility(PetState.OPEN_WINGS, self.config.pet.wings.open_seconds)
+        duration = self.effective_stats().wing_open_seconds / max(self._resource_influence().special_factor, 0.25)
+        self._active_pet_ability = WingAbility(PetState.OPEN_WINGS, duration)
 
     def _start_close_wings(self) -> None:
         self._transition(PetState.CLOSE_WINGS)
         self.pet.velocity = Vec2()
-        self._active_pet_ability = WingAbility(PetState.CLOSE_WINGS, self.config.pet.wings.close_seconds)
+        duration = self.effective_stats().wing_close_seconds / max(self._resource_influence().special_factor, 0.25)
+        self._active_pet_ability = WingAbility(PetState.CLOSE_WINGS, duration)
 
     def _start_flight_to(self, target_x: float, target_y: float, *, state: PetState, speed: float) -> None:
         self._transition(state)
@@ -528,9 +578,13 @@ class PetController:
 
     def _update_hover_ability(self, ability: HoverAbility, dt: float) -> bool:
         ability.elapsed += max(dt, 0.0)
+        influence = self._resource_influence()
         self.pet.position = Vec2(
             ability.base_x,
-            ability.base_y + math.sin(ability.elapsed * self.config.pet.hover.frequency) * self.config.pet.hover.amplitude,
+            ability.base_y
+            + math.sin(ability.elapsed * self.effective_stats().hover_frequency * max(influence.special_factor, 0.25))
+            * self.effective_stats().hover_amplitude
+            * influence.special_factor,
         )
         if ability.duration is None:
             return False
@@ -564,9 +618,9 @@ class PetController:
                 target_bottom = step.land_point[1] + self.pet.height
             elif step.land_t is not None:
                 target_bottom = step.land_t
-        horizontal_close = abs(target_x - self.pet.position.x) <= self.config.physics.edge_snap_distance * 2
+        horizontal_close = abs(target_x - self.pet.position.x) <= self.runtime_physics().edge_snap_distance * 2
         bottom_gap = self.pet.bottom - target_bottom
-        can_touch_now = abs(bottom_gap) <= self.config.physics.edge_snap_distance * 3
+        can_touch_now = abs(bottom_gap) <= self.runtime_physics().edge_snap_distance * 3
         if not horizontal_close or not can_touch_now:
             return
 
@@ -600,17 +654,17 @@ class PetController:
 
         if self.pet.state == PetState.WALK:
             if self.pet.center_x < support.rect.left + self.pet.width * 0.65:
-                self.pet.velocity.x = abs(self.config.physics.walk_speed)
+                self.pet.velocity.x = abs(self.runtime_physics().walk_speed)
                 self.pet.facing = Facing.RIGHT
             elif self.pet.center_x > support.rect.right - self.pet.width * 0.65:
-                self.pet.velocity.x = -abs(self.config.physics.walk_speed)
+                self.pet.velocity.x = -abs(self.runtime_physics().walk_speed)
                 self.pet.facing = Facing.LEFT
 
     def _start_random_wander(self, support: Platform) -> bool:
         if self._is_show_mode():
             return True
         plan = None
-        if random.random() > LOCAL_WANDER_PROBABILITY:
+        if random.random() < self.effective_stats().reachable_wander_probability * self._resource_influence().wander_factor:
             plan = self._random_reachable_platform_plan(support)
         if plan is None:
             plan = self._random_point_plan(support)
@@ -622,7 +676,7 @@ class PetController:
         return True
 
     def _random_reachable_platform_plan(self, support: Platform) -> PathPlan | None:
-        graph = self.pathfinder.build_surface_graph(self.pet, self.snapshot, self.config.physics)
+        graph = self.pathfinder.build_surface_graph(self.pet, self.snapshot, self.runtime_physics())
         reachable = self._reachable_surface_ids(support.id, graph)
         candidates = [
             platform
@@ -648,7 +702,7 @@ class PetController:
             snapshot=self.snapshot,
             target_surface_id=platform.id,
             target_anchor_t=target_x,
-            physics=self.config.physics,
+            physics=self.runtime_physics(),
             target_window_id=platform.source_id,
         )
 
@@ -678,7 +732,10 @@ class PetController:
         if abs(right - left) <= WALK_TARGET_ARRIVAL_DISTANCE:
             return left
 
-        min_distance = min(self.pet.width * MIN_WANDER_DISTANCE_FACTOR, max((right - left) / 2, 0.0))
+        min_distance = min(
+            self.pet.width * self.effective_stats().min_wander_distance_factor,
+            max((right - left) / 2, 0.0),
+        )
         candidates = [
             target
             for target in (random.uniform(left, right) for _ in range(8))
@@ -694,8 +751,8 @@ class PetController:
 
     def _pick_new_idle_goal(self) -> None:
         self._state_goal_until = time.monotonic() + random.uniform(
-            self.config.behavior.idle_min_seconds,
-            self.config.behavior.idle_max_seconds,
+            self.effective_stats().idle_min_seconds,
+            max(self.effective_stats().idle_max_seconds, self.effective_stats().idle_min_seconds),
         )
 
     def _transition(self, state: PetState) -> None:
@@ -751,8 +808,68 @@ class PetController:
             snapshot=self.snapshot,
             pathfinder=self.pathfinder,
             path_plan=self.path_plan,
-            physics=self.config.physics,
+            physics=self.runtime_physics(),
             mode=self.mode_controller.mode,
             phase=self.orchestrator.phase.name,
             phase_elapsed=self.orchestrator.phase.elapsed,
         )
+
+    def _tick_resources(self, dt: float) -> None:
+        if not hasattr(self, "resources"):
+            self.resources = PetRuntimeResources.from_stats(self.effective_stats())
+        self.resources.tick(self.pet.state, dt, self.effective_stats())
+
+    def _resource_influence(self) -> PetResourceInfluence:
+        resources = getattr(self, "resources", None)
+        if resources is None:
+            return PetRuntimeResources.from_stats(self.effective_stats()).influence(self.effective_stats())
+        return resources.influence(self.effective_stats())
+
+    def _apply_resource_behavior(self) -> bool:
+        influence = self._resource_influence()
+        if self.pet.state == PetState.SLEEP:
+            if getattr(self, "_auto_sleeping", False) and influence.should_wake:
+                self._auto_sleeping = False
+                self._transition(PetState.IDLE)
+                self._pick_new_idle_goal()
+            return True
+
+        if influence.should_sleep and self.pet.state in {PetState.IDLE, PetState.WALK}:
+            self._auto_sleeping = True
+            self.sleep()
+            return True
+
+        if getattr(self, "_resource_resting", False):
+            if influence.should_stop_rest:
+                self._resource_resting = False
+                self._pick_new_idle_goal()
+                return False
+            self.path_plan = None
+            self.pet.velocity.x = 0.0
+            self._transition(PetState.IDLE)
+            return True
+
+        if influence.should_rest and self.pet.state in {PetState.IDLE, PetState.WALK} and self.path_plan is None:
+            self._resource_resting = True
+            self.pet.velocity.x = 0.0
+            self._transition(PetState.IDLE)
+            self._pick_new_idle_goal()
+            return True
+
+        self._seeking_food = influence.should_seek_food or (
+            getattr(self, "_seeking_food", False) and not influence.should_stop_seek_food
+        )
+        return False
+
+
+def replace_physics_movement(physics: PhysicsConfig, influence: PetResourceInfluence) -> PhysicsConfig:
+    return PhysicsConfig(
+        gravity=physics.gravity,
+        walk_speed=max(physics.walk_speed * influence.movement_factor, 1.0),
+        climb_speed=max(physics.climb_speed * influence.climb_factor, 1.0),
+        jump_speed_x=physics.jump_speed_x * influence.jump_factor,
+        jump_speed_y=physics.jump_speed_y * influence.jump_factor,
+        max_fall_speed=physics.max_fall_speed,
+        drag_throw_factor=physics.drag_throw_factor,
+        edge_snap_distance=physics.edge_snap_distance,
+    )

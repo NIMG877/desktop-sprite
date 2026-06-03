@@ -40,7 +40,11 @@ def main() -> int:
     config_path = Path(__file__).resolve().parents[1] / "config" / "default.json"
     user_config_dir = config_path.parent / "user"
     user_config_path = user_config_dir / "user.json"
+    user_inventory_path = user_config_dir / "inventory.json"
+    user_spirit_mark_path = user_config_dir / "spirit_marks.json"
     config = load_config(config_path, user_config_path)
+    inventory = None
+    spirit_marks = load_spirit_mark_inventory(user_spirit_mark_path)
     args, qt_args = _parse_args(sys.argv[1:], config)
     configure_logging(config.app.log_level)
 
@@ -58,6 +62,11 @@ def main() -> int:
 
     def create_runtime(runtime_config: AppConfig):
         runtime_character = create_character(runtime_config, character_type=args.character)
+        set_attribute_sheet = getattr(runtime_character, "set_attribute_sheet", None)
+        if callable(set_attribute_sheet):
+            set_attribute_sheet(
+                PetAttributeSheet.from_config(runtime_config).with_modifiers(spirit_marks.attribute_modifiers())
+            )
         runtime_window = SpriteWindow(runtime_character, runtime_config)
         runtime_character.set_own_window_handle(int(runtime_window.winId()))
         return (
@@ -115,21 +124,23 @@ def main() -> int:
         target_selector.apply_config(new_config)
 
     def open_main_window() -> None:
-        nonlocal main_window
+        nonlocal inventory, main_window
         if main_window is None:
-            user_inventory_path = user_config_dir / "inventory.json"
-            user_spirit_mark_path = user_config_dir / "spirit_marks.json"
             inventory = load_inventory(
                 config_path.with_name("items.json"),
                 user_inventory_path,
                 user_spirit_mark_path,
             )
-            spirit_marks = load_spirit_mark_inventory(user_spirit_mark_path)
 
             def save_updated_spirit_marks(updated: SpiritMarkInventory) -> None:
                 nonlocal spirit_marks
                 spirit_marks = updated
                 save_spirit_mark_inventory(user_spirit_mark_path, updated)
+                set_attribute_sheet = getattr(character, "set_attribute_sheet", None)
+                if callable(set_attribute_sheet):
+                    set_attribute_sheet(
+                        PetAttributeSheet.from_config(config).with_modifiers(updated.attribute_modifiers())
+                    )
 
             def request_debug_spirit_mark() -> str:
                 nonlocal inventory, spirit_marks

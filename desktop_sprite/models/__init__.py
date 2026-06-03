@@ -13,6 +13,9 @@ from desktop_sprite.models.pet_attribute import (
     PetAttributeModifier,
     PetAttributeSheet,
     PetAttributeValue,
+    PetEffectiveStats,
+    PetResourceInfluence,
+    PetRuntimeResources,
 )
 from desktop_sprite.models.platform import Platform, PlatformType
 from desktop_sprite.models.spirit_mark import (
@@ -41,6 +44,9 @@ __all__ = [
     "PetAttributeModifier",
     "PetAttributeSheet",
     "PetAttributeValue",
+    "PetEffectiveStats",
+    "PetResourceInfluence",
+    "PetRuntimeResources",
     "PetState",
     "Platform",
     "PlatformType",

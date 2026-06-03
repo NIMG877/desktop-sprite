@@ -105,29 +105,6 @@ def load_inventory(
     return InventorySnapshot(categories, definitions, entries)
 
 
-def save_inventory(path: str | Path, entries: tuple[InventoryEntry, ...]) -> None:
-    target = Path(path)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    with target.open("w", encoding="utf-8") as file:
-        json.dump(
-            {
-                "entries": [
-                    {
-                        "entry_id": entry.entry_id,
-                        "item_id": entry.item_id,
-                        **({"quantity": entry.quantity} if entry.quantity != 1 else {}),
-                        **({"details": dict(entry.details)} if entry.details else {}),
-                    }
-                    for entry in entries
-                ]
-            },
-            file,
-            ensure_ascii=False,
-            indent=2,
-        )
-        file.write("\n")
-
-
 def append_inventory_entry(path: str | Path, entry: InventoryEntry) -> None:
     target = Path(path)
     _ensure_inventory_file(target)

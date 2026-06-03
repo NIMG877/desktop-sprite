@@ -186,13 +186,6 @@ class SpiritMarkEquipmentPage(QWidget):
         self.selected_entry_id = mark.entry_id
         self._commit_changes()
 
-    def unequip_slot(self, slot_id: str) -> None:
-        mark = self._equipped_by_slot().get(slot_id)
-        if mark is None:
-            return
-        self.spirit_mark_inventory = self.spirit_mark_inventory.unequip(mark.entry_id)
-        self._commit_changes()
-
     def refresh(self) -> None:
         self._refresh_overview()
         self._refresh_summary()
@@ -475,7 +468,3 @@ def _metric_card(name: str, value: str, parent: QWidget) -> CardWidget:
     layout.addStretch(1)
     return card
 
-
-def _mark_list_text(mark: SpiritMark) -> str:
-    equipped = " · 已装备" if mark.equipped else ""
-    return f"{mark.name}  {SPIRIT_MARK_SLOTS[mark.slot_id].name}  {mark.rarity}星{equipped}"

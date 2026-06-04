@@ -22,6 +22,8 @@ from desktop_sprite.ui.growth_widget import (
     SpiritMarkEquipmentPage,
 )
 from desktop_sprite.utils.config import (
+    AIConfig,
+    AIPersonaConfig,
     AppConfig,
     AttributesConfig,
     BehaviorConfig,
@@ -64,6 +66,12 @@ def _config() -> AppConfig:
         interaction=InteractionConfig(True, True, True, True, 220, 80),
         character=CharacterConfig("pet", {"pet": "characters/pet.json"}),
         attributes=_attributes(),
+        ai=AIConfig(
+            enabled=False, base_url="https://x", model="gpt-x", api_key="",
+            request_timeout_s=30.0, max_inflight=1, throttle_overrides={},
+            history_max_lines=200, bubble_visible_seconds=3.0,
+        ),
+        ai_persona=AIPersonaConfig(system_prompt="你是一只温顺的桌宠小翼。", default_fallback="（沉默）"),
     )
 
 

@@ -97,6 +97,64 @@ class CharacterConfig:
     default_type: str
     profile_files: dict[str, str]
 
+
+@dataclass(frozen=True, slots=True)
+class AIConfig:
+    enabled: bool
+    base_url: str
+    model: str
+    api_key: str
+    request_timeout_s: float
+    max_inflight: int
+    throttle_overrides: dict[str, int]
+    history_max_lines: int
+    bubble_visible_seconds: float
+
+    def __post_init__(self) -> None:
+        if not 1.0 <= self.request_timeout_s <= 120.0:
+            raise ValueError(f"ai.request_timeout_s out of range: {self.request_timeout_s}")
+        if not 1 <= self.max_inflight <= 4:
+            raise ValueError(f"ai.max_inflight out of range: {self.max_inflight}")
+        if not 10 <= self.history_max_lines <= 5000:
+            raise ValueError(f"ai.history_max_lines out of range: {self.history_max_lines}")
+        if not 0.5 <= self.bubble_visible_seconds <= 30.0:
+            raise ValueError(f"ai.bubble_visible_seconds out of range: {self.bubble_visible_seconds}")
+        for uc_id, ms in self.throttle_overrides.items():
+            if ms < 0:
+                raise ValueError(f"ai.throttle_overrides[{uc_id!r}] must be >= 0")
+
+
+_AI_DEFAULTS: dict[str, Any] = {
+    "enabled": False,
+    "base_url": "https://api.openai.com/v1",
+    "model": "gpt-4o-mini",
+    "api_key": "",
+    "request_timeout_s": 30.0,
+    "max_inflight": 1,
+    "throttle_overrides": {},
+    "history_max_lines": 200,
+    "bubble_visible_seconds": 3.0,
+}
+
+_AI_KNOWN_KEYS: frozenset[str] = frozenset(_AI_DEFAULTS.keys())
+
+
+@dataclass(frozen=True, slots=True)
+class AIPersonaConfig:
+    system_prompt: str
+    default_fallback: str
+
+    def __post_init__(self) -> None:
+        if not self.system_prompt:
+            raise ValueError("ai_persona.system_prompt must be non-empty")
+
+
+_PERSONA_DEFAULTS: dict[str, Any] = {
+    "system_prompt": "你是一只温顺的桌宠小翼。",
+    "default_fallback": "（沉默）",
+}
+
+
 @dataclass(frozen=True, slots=True)
 class AppConfig:
     app: RuntimeConfig
@@ -106,6 +164,8 @@ class AppConfig:
     interaction: InteractionConfig
     character: CharacterConfig
     attributes: AttributesConfig
+    ai: AIConfig
+    ai_persona: AIPersonaConfig
 
 
 def load_config(
@@ -141,6 +201,25 @@ def load_config(
     physics_data = dict(data["physics"])
     _migrate_pet_motion_keys(pet_data, physics_data)
 
+    # ai 段：缺省/严格校验/合并
+    ai_raw = dict(data.get("ai") or {})
+    unknown_ai = set(ai_raw) - _AI_KNOWN_KEYS
+    if unknown_ai:
+        raise ValueError(f"ai block has unknown keys: {sorted(unknown_ai)}")
+    ai_merged = {**_AI_DEFAULTS, **ai_raw}
+    ai_merged["throttle_overrides"] = {
+        **{k: int(v) for k, v in _AI_DEFAULTS["throttle_overrides"].items()},
+        **{k: int(v) for k, v in ai_merged.get("throttle_overrides", {}).items()},
+    }
+
+    # ai_persona 段：从 character profile merge 出来（profile 已 merge 进 data）
+    persona_raw = data.get("ai_persona") or {}
+    if not isinstance(persona_raw, dict):
+        raise ValueError("ai_persona must be a dict if present")
+    if "system_prompt" in persona_raw and not persona_raw["system_prompt"]:
+        raise ValueError("ai_persona.system_prompt must be non-empty if provided")
+    persona_merged = {**_PERSONA_DEFAULTS, **persona_raw}
+
     return AppConfig(
         app=RuntimeConfig(
             fps=app_data["fps"],
@@ -159,6 +238,8 @@ def load_config(
         interaction=InteractionConfig(**interaction_data),
         character=CharacterConfig(**data["character"]),
         attributes=AttributesConfig(**data["attributes"]),
+        ai=AIConfig(**ai_merged),
+        ai_persona=AIPersonaConfig(**persona_merged),
     )
 
 

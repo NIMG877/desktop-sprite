@@ -9,6 +9,8 @@ from desktop_sprite.models.pet_attribute import (
 )
 from desktop_sprite.models.state import PetState
 from desktop_sprite.utils.config import (
+    AIConfig,
+    AIPersonaConfig,
     AppConfig,
     AttributesConfig,
     BehaviorConfig,
@@ -47,6 +49,12 @@ def _config() -> AppConfig:
         interaction=InteractionConfig(True, True, True, True, 220, 80),
         character=CharacterConfig("pet", {"pet": "characters/pet.json"}),
         attributes=_attributes(),
+        ai=AIConfig(
+            enabled=False, base_url="https://x", model="gpt-x", api_key="",
+            request_timeout_s=30.0, max_inflight=1, throttle_overrides={},
+            history_max_lines=200, bubble_visible_seconds=3.0,
+        ),
+        ai_persona=AIPersonaConfig(system_prompt="你是一只温顺的桌宠小翼。", default_fallback="（沉默）"),
     )
 
 
@@ -90,6 +98,12 @@ def test_pet_attribute_sheet_reads_configured_attribute_base_values():
             arcana=135,
             attunement=125,
         ),
+        ai=AIConfig(
+            enabled=False, base_url="https://x", model="gpt-x", api_key="",
+            request_timeout_s=30.0, max_inflight=1, throttle_overrides={},
+            history_max_lines=200, bubble_visible_seconds=3.0,
+        ),
+        ai_persona=AIPersonaConfig(system_prompt="你是一只温顺的桌宠小翼。", default_fallback="（沉默）"),
     )
 
     sheet = PetAttributeSheet.from_config(config)

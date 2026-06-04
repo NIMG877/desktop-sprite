@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from desktop_sprite.utils.safe_io import merge_dict
+
 
 @dataclass(frozen=True, slots=True)
 class RuntimeConfig:
@@ -121,11 +123,11 @@ def load_config(
             with override_path.open("r", encoding="utf-8") as file:
                 overrides = json.load(file)
             if isinstance(overrides.get("character"), dict):
-                _merge_dict(data.setdefault("character", {}), overrides["character"])
+                merge_dict(data.setdefault("character", {}), overrides["character"])
 
     _load_character_profiles(config_path.parent, data)
     if overrides is not None:
-        _merge_dict(data, overrides)
+        merge_dict(data, overrides)
 
     app_data = data["app"]
     interaction_data = data["interaction"]
@@ -167,7 +169,7 @@ def _load_character_profiles(config_root: Path, data: dict[str, Any]) -> None:
         profile_path = config_root / relative_path
         with profile_path.open("r", encoding="utf-8") as file:
             profile_data: dict[str, Any] = json.load(file)
-        _merge_dict(data, profile_data)
+        merge_dict(data, profile_data)
 
 
 # Motion-key set that historically lived under the `pet` segment and
@@ -196,11 +198,3 @@ def _migrate_pet_motion_keys(pet_data: dict[str, Any], physics_data: dict[str, A
     for key in _PET_MOTION_KEYS:
         if key in pet_data:
             physics_data[key] = pet_data.pop(key)
-
-
-def _merge_dict(target: dict[str, Any], source: dict[str, Any]) -> None:
-    for key, value in source.items():
-        if isinstance(value, dict) and isinstance(target.get(key), dict):
-            _merge_dict(target[key], value)
-        else:
-            target[key] = value

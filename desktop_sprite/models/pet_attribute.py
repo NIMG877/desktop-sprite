@@ -5,6 +5,7 @@ from typing import Literal
 
 from desktop_sprite.models.state import PetState
 from desktop_sprite.utils.config import AppConfig, PhysicsConfig
+from desktop_sprite.utils.math_helpers import clamp, smoothstep
 
 
 BonusType = Literal["flat", "percent"]
@@ -205,8 +206,8 @@ class PetEffectiveStats:
             ),
             idle_min_seconds=max(config.behavior.idle_min_seconds * wander_interval_scale, 0.1),
             idle_max_seconds=max(config.behavior.idle_max_seconds * wander_interval_scale, 0.1),
-            reachable_wander_probability=_clamp(0.5 * wander, 0.05, 0.95),
-            min_wander_distance_factor=_clamp(0.8 * wander, 0.25, 2.0),
+            reachable_wander_probability=clamp(0.5 * wander, 0.05, 0.95),
+            min_wander_distance_factor=clamp(0.8 * wander, 0.25, 2.0),
             flight_speed=max(config.pet.flight.speed * arcana, 1.0),
             landing_speed=max(config.pet.flight.landing_speed * arcana, 1.0),
             wing_open_seconds=max(config.pet.wings.open_seconds / attunement, 0.05),
@@ -258,20 +259,20 @@ class PetResourceInfluence:
         satiety_ready = _smooth_ratio(satiety_ratio, 0.10, 0.55)
 
         return cls(
-            movement_factor=_clamp((0.70 + 0.30 * stamina_ready) * (0.85 + 0.15 * satiety_ready), 0.25, 1.0),
-            climb_factor=_clamp((0.35 + 0.65 * stamina_burst) * (0.85 + 0.15 * satiety_ready), 0.25, 1.0),
-            jump_factor=_clamp((0.40 + 0.60 * stamina_burst) * (0.90 + 0.10 * satiety_ready), 0.25, 1.0),
-            wander_factor=_clamp(
+            movement_factor=clamp((0.70 + 0.30 * stamina_ready) * (0.85 + 0.15 * satiety_ready), 0.25, 1.0),
+            climb_factor=clamp((0.35 + 0.65 * stamina_burst) * (0.85 + 0.15 * satiety_ready), 0.25, 1.0),
+            jump_factor=clamp((0.40 + 0.60 * stamina_burst) * (0.90 + 0.10 * satiety_ready), 0.25, 1.0),
+            wander_factor=clamp(
                 (0.15 + 0.85 * energy_ready)
                 * (0.25 + 0.75 * stamina_ready)
                 * (0.35 + 0.65 * satiety_ready),
                 0.0,
                 1.0,
             ),
-            special_factor=_clamp((0.10 + 0.90 * special_ready) * (0.50 + 0.50 * satiety_ready), 0.0, 1.0),
-            recovery_factor=_clamp(0.25 + 0.75 * satiety_ready, 0.25, 1.0),
-            sleep_pressure=_clamp(1.0 - _smooth_ratio(energy_ratio, 0.10, 0.45), 0.0, 1.0),
-            feeding_pressure=_clamp(1.0 - _smooth_ratio(satiety_ratio, 0.10, 0.40), 0.0, 1.0),
+            special_factor=clamp((0.10 + 0.90 * special_ready) * (0.50 + 0.50 * satiety_ready), 0.0, 1.0),
+            recovery_factor=clamp(0.25 + 0.75 * satiety_ready, 0.25, 1.0),
+            sleep_pressure=clamp(1.0 - _smooth_ratio(energy_ratio, 0.10, 0.45), 0.0, 1.0),
+            feeding_pressure=clamp(1.0 - _smooth_ratio(satiety_ratio, 0.10, 0.40), 0.0, 1.0),
             should_sleep=energy_ratio <= 0.10,
             should_wake=energy_ratio >= 0.45,
             should_rest=stamina_ratio <= 0.15,
@@ -292,9 +293,9 @@ class PetRuntimeResources:
         return cls(stats.max_stamina, stats.max_energy, stats.satiety)
 
     def clamp_to_stats(self, stats: PetEffectiveStats) -> None:
-        self.stamina = _clamp(self.stamina, 0.0, stats.max_stamina)
-        self.energy = _clamp(self.energy, 0.0, stats.max_energy)
-        self.satiety = _clamp(self.satiety, 0.0, stats.satiety)
+        self.stamina = clamp(self.stamina, 0.0, stats.max_stamina)
+        self.energy = clamp(self.energy, 0.0, stats.max_energy)
+        self.satiety = clamp(self.satiety, 0.0, stats.satiety)
 
     def tick(self, state: PetState, dt: float, stats: PetEffectiveStats) -> None:
         elapsed = max(dt, 0.0)
@@ -371,7 +372,7 @@ def _attribute_base(sheet: PetAttributeSheet, attribute_id: str, fallback: float
 
 def _attribute_ratio(sheet: PetAttributeSheet, attribute_id: str, fallback: float) -> float:
     value = _attribute_total(sheet, attribute_id, fallback)
-    return _clamp(value / max(abs(fallback), 1.0), 0.25, 3.0)
+    return clamp(value / max(abs(fallback), 1.0), 0.25, 3.0)
 
 
 def _stamina_cost_for_state(state: PetState) -> float:
@@ -401,12 +402,7 @@ def _satiety_cost_for_state(state: PetState) -> float:
 def _smooth_ratio(value: float, start: float, end: float) -> float:
     if end <= start:
         return 1.0 if value >= end else 0.0
-    normalized = _clamp((value - start) / (end - start), 0.0, 1.0)
-    return normalized * normalized * (3.0 - 2.0 * normalized)
-
-
-def _clamp(value: float, minimum: float, maximum: float) -> float:
-    return min(max(value, minimum), maximum)
+    return smoothstep((value - start) / (end - start))
 
 
 def _format_attribute_number(value: float, value_format: AttributeValueFormat) -> str:

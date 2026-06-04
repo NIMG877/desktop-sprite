@@ -23,8 +23,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from desktop_sprite.environment.environment_snapshot import EnvironmentSnapshot
-from desktop_sprite.models.platform import Platform
-from desktop_sprite.models.platform_topology import PlatformTopology
 from desktop_sprite.models.state import Facing, Pet, PetState
 from desktop_sprite.utils.config import PhysicsConfig
 
@@ -226,6 +224,3 @@ class PhysicsEngine:
             pet.velocity.y = 0.0
             pet.support_surface_id = "ground:work_area"
             events.landed_on = "ground:work_area"
-
-    def _top_platform_id_for(self, side: Platform) -> str:
-        return PlatformTopology.top_id_for_side(side)

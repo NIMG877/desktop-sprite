@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-import json
-import logging
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
 
 from PySide6.QtCore import QByteArray, QSize
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QVBoxLayout, QWidget
@@ -30,9 +27,7 @@ from desktop_sprite.ui.config_editor import ConfigEditorWidget, UI_STATE_FILENAM
 from desktop_sprite.ui.debug_widget import DebugWidget
 from desktop_sprite.ui.growth_widget import PetGrowthWidget
 from desktop_sprite.ui.inventory_widget import InventoryWidget
-
-
-logger = logging.getLogger(__name__)
+from desktop_sprite.ui.ui_state_store import UiStateStore
 
 
 # Display label → qfluentwidgets.Theme enum. The keys are also the strings
@@ -148,7 +143,7 @@ class MainWindow(FluentWindow):
         self.resize(size)
 
     def _load_saved_geometry(self) -> QByteArray | None:
-        state = self._read_ui_state()
+        state = self._ui_state_store.read()
         main_window_state = state.get("main_window")
         if not isinstance(main_window_state, dict):
             return None
@@ -163,31 +158,16 @@ class MainWindow(FluentWindow):
 
     def _save_window_geometry(self) -> None:
         self._saved_geometry = self.saveGeometry()
-        state = self._read_ui_state()
-        main_window_state = state.setdefault("main_window", {})
-        if not isinstance(main_window_state, dict):
-            main_window_state = {}
-            state["main_window"] = main_window_state
-        main_window_state["geometry"] = bytes(
-            self._saved_geometry.toBase64()
-        ).decode("ascii")
-        try:
-            self.ui_state_path.parent.mkdir(parents=True, exist_ok=True)
-            with self.ui_state_path.open("w", encoding="utf-8") as file:
-                json.dump(state, file, ensure_ascii=False, indent=2)
-                file.write("\n")
-        except OSError:
-            logger.exception("Failed to save main window geometry")
+        encoded = bytes(self._saved_geometry.toBase64()).decode("ascii")
 
-    def _read_ui_state(self) -> dict[str, Any]:
-        if not self.ui_state_path.is_file():
-            return {}
-        try:
-            with self.ui_state_path.open("r", encoding="utf-8") as file:
-                state = json.load(file)
-        except (OSError, json.JSONDecodeError):
-            return {}
-        return state if isinstance(state, dict) else {}
+        def mutate(state: dict) -> None:
+            state.setdefault("main_window", {})["geometry"] = encoded
+
+        self._ui_state_store.update(mutate)
+
+    @property
+    def _ui_state_store(self) -> UiStateStore:
+        return UiStateStore(self.ui_state_path)
 
     def _add_interfaces(self) -> None:
         pages = [
@@ -286,19 +266,16 @@ class MainWindow(FluentWindow):
         return _THEME_OPTIONS[0][0]
 
     def _load_saved_theme(self) -> Theme:
-        state = self._read_ui_state()
+        state = self._ui_state_store.read()
         return self._theme_for_label(state.get("theme")) or Theme.DARK
 
     def _save_theme(self, theme: Theme) -> None:
-        state = self._read_ui_state()
-        state["theme"] = self._label_for_theme(theme)
-        try:
-            self.ui_state_path.parent.mkdir(parents=True, exist_ok=True)
-            with self.ui_state_path.open("w", encoding="utf-8") as file:
-                json.dump(state, file, ensure_ascii=False, indent=2)
-                file.write("\n")
-        except OSError:
-            logger.exception("Failed to save theme to ui_state.json")
+        label = self._label_for_theme(theme)
+
+        def mutate(state: dict) -> None:
+            state["theme"] = label
+
+        self._ui_state_store.update(mutate)
 
     @staticmethod
     def _theme_for_label(label: object) -> Theme | None:

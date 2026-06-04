@@ -61,6 +61,24 @@ def write_json_atomic(path: Path, data: Any, *, ensure_ascii: bool = False, inde
         raise
 
 
+def merge_dict(target: dict[str, Any], source: dict[str, Any]) -> None:
+    """Deep-merge ``source`` into ``target`` in place.
+
+    Only nested ``dict`` values are merged recursively; every other
+    type (lists, scalars) is overwritten by ``source``. The same rule
+    applies for top-level keys, so this is the right shape for the
+    JSON config merge in :func:`desktop_sprite.utils.config.load_config`
+    and the user-overlay merge in
+    :class:`desktop_sprite.ui.config_editor.ConfigEditorWidget`.
+    """
+
+    for key, value in source.items():
+        if isinstance(value, dict) and isinstance(target.get(key), dict):
+            merge_dict(target[key], value)
+        else:
+            target[key] = value
+
+
 @dataclass
 class _Captured:
     path: Path

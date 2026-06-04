@@ -4,14 +4,24 @@ import math
 from dataclasses import dataclass
 
 from desktop_sprite.models.state import Facing, Pet, PetState
+from desktop_sprite.utils.math_helpers import clamp, lerp, smoothstep
 
 
-def clamp(value: float, minimum: float, maximum: float) -> float:
-    return min(max(value, minimum), maximum)
-
-
-def lerp(a: float, b: float, t: float) -> float:
-    return a + (b - a) * t
+__all__ = [
+    "BodyPose",
+    "EyePose",
+    "LimbPose",
+    "PoseBuilder",
+    "PosePoint",
+    "PoseRect",
+    "RenderPose",
+    "ScarfPose",
+    "ShadowPose",
+    "WingPose",
+    "clamp",
+    "lerp",
+    "smoothstep",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -568,11 +578,7 @@ class PoseBuilder:
 
         if p < downstroke_duration:
             t = p / downstroke_duration
-            return lerp(up_peak, down_peak, self._smoothstep(t))
+            return lerp(up_peak, down_peak, smoothstep(t))
 
         t = (p - downstroke_duration) / (1.0 - downstroke_duration)
-        return lerp(down_peak, up_peak, self._smoothstep(t))
-
-    def _smoothstep(self, value: float) -> float:
-        t = clamp(value, 0.0, 1.0)
-        return t * t * (3.0 - 2.0 * t)
+        return lerp(down_peak, up_peak, smoothstep(t))

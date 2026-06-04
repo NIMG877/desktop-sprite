@@ -28,6 +28,8 @@ from qfluentwidgets import (
     SwitchButton,
 )
 
+from desktop_sprite.utils.safe_io import merge_dict
+
 
 JsonPath = tuple[str, ...]
 UI_STATE_FILENAME = "ui_state.json"
@@ -226,12 +228,12 @@ class ConfigEditorWidget(QWidget):
             for key, value in user_data.items()
             if key in document_data
         }
-        _merge_dict(document_data, matching)
+        merge_dict(document_data, matching)
 
     def _user_config_data(self) -> dict[str, Any]:
         data = copy.deepcopy(self.documents[0].data)
         for document in self.documents[1:]:
-            _merge_dict(data, document.data)
+            merge_dict(data, document.data)
         return data
 
     def _load_or_create_ui_state(self) -> dict[str, Any]:
@@ -566,13 +568,5 @@ class _NoWheelDoubleSpinBox(DoubleSpinBox):
 
     def wheelEvent(self, event) -> None:
         event.ignore()
-
-
-def _merge_dict(target: dict[str, Any], source: dict[str, Any]) -> None:
-    for key, value in source.items():
-        if isinstance(value, dict) and isinstance(target.get(key), dict):
-            _merge_dict(target[key], value)
-        else:
-            target[key] = value
 
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QPoint, QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen, QPolygonF
+from PySide6.QtGui import QColor, QPainter, QPen, QPolygonF
 
 from desktop_sprite.ui.render_pose import LimbPose, PosePoint, PoseRect, RenderPose
 
@@ -89,36 +89,6 @@ class PetRenderer:
 
         self._draw_primary_feathers(painter, root, side, span, lift, drop, wing_alpha, openness, flap)
         self._draw_secondary_feathers(painter, root, side, span, lift, drop, wing_alpha, openness, flap)
-
-    def _draw_wing_base(
-        self,
-        painter: QPainter,
-        root: PosePoint,
-        side: int,
-        span: float,
-        lift: float,
-        drop: float,
-        opacity: int,
-    ) -> None:
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor(245, 249, 255, round(opacity * 0.46)))
-        path = QPainterPath(self._point(root))
-        path.cubicTo(
-            QPointF(root.x + side * span * 0.20, root.y + lift * 0.95),
-            QPointF(root.x + side * span * 0.58, root.y + lift * 1.08),
-            QPointF(root.x + side * span * 0.88, root.y + lift),
-        )
-        path.cubicTo(
-            QPointF(root.x + side * span * 0.82, root.y + drop * 0.55),
-            QPointF(root.x + side * span * 0.42, root.y + drop * 0.92),
-            QPointF(root.x + side * span * 0.06, root.y + drop * 0.62),
-        )
-        path.cubicTo(
-            QPointF(root.x + side * span * 0.02, root.y + drop * 0.36),
-            QPointF(root.x + side * span * 0.02, root.y + drop * 0.12),
-            self._point(root),
-        )
-        painter.drawPath(path)
 
     def _draw_primary_feathers(
         self,

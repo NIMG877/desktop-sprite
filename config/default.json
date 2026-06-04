@@ -14,24 +14,23 @@
   "behavior": {
     "idle_min_seconds": 1.0,
     "idle_max_seconds": 2.5,
-    "sleep_after_seconds": 100,
     "prefer_foreground_window": true,
     "target_repick_seconds": 3.5
   },
   "attributes": {
-    "wander": 100,
-    "vigor": 100,
-    "recovery": 2,
-    "awareness": 100,
-    "focus": 1,
-    "satiety": 100,
-    "spark": 5,
-    "radiance": 0,
-    "trail": 0,
-    "resonance": 0,
-    "aura": 0,
-    "arcana": 100,
-    "attunement": 100
+    "wander": 100.0,
+    "vigor": 100.0,
+    "recovery": 3.0,
+    "awareness": 100.0,
+    "focus": 1.0,
+    "satiety": 100.0,
+    "spark": 5.0,
+    "radiance": 0.0,
+    "trail": 0.0,
+    "resonance": 0.0,
+    "aura": 0.0,
+    "arcana": 0.0,
+    "attunement": 0.0
   },
   "interaction": {
     "draggable": true,

@@ -55,9 +55,6 @@ class WindowSensor:
         windows.sort(key=lambda item: 0 if item.is_foreground else 1)
         return windows
 
-    def get_foreground_window(self) -> WindowInfo | None:
-        return next((window for window in self.get_windows() if window.is_foreground), None)
-
     def _window_info(self, hwnd: int, foreground: int) -> WindowInfo | None:
         if hwnd == self._own_hwnd:
             return None

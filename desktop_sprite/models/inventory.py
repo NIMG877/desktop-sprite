@@ -219,6 +219,48 @@ def _load_entries(
     return tuple(entries)
 
 
+def apply_spirit_mark_details(
+    definitions: dict[str, ItemDefinition],
+    entries: tuple[InventoryEntry, ...],
+    spirit_marks: "SpiritMarkInventory",
+) -> tuple[dict[str, ItemDefinition], tuple[InventoryEntry, ...]]:
+    """Enrich inventory entries with their per-mark details in memory.
+
+    This is the public version of the internal `_apply_spirit_mark_details`
+    used by `load_inventory`. `grant_spirit_mark` (and any other
+    in-memory pipeline) can call it after constructing a
+    `SpiritMarkInventory` directly, without re-reading the spirit-mark
+    file.
+    """
+
+    if not spirit_marks.marks:
+        return definitions, entries
+
+    marks_by_entry_id = {mark.entry_id: mark for mark in spirit_marks.marks}
+    enriched_entries: list[InventoryEntry] = []
+    for entry in entries:
+        mark = marks_by_entry_id.get(entry.entry_id)
+        if mark is None:
+            enriched_entries.append(entry)
+            continue
+        definition = definitions[entry.item_id]
+        if definition.category_id != SPIRIT_MARK_CATEGORY_ID:
+            enriched_entries.append(entry)
+            continue
+        instance_definition = _spirit_mark_definition(mark, definition)
+        merged_definitions = dict(definitions)
+        merged_definitions[instance_definition.id] = instance_definition
+        definitions = merged_definitions
+        enriched_entries.append(
+            replace(
+                entry,
+                item_id=instance_definition.id,
+                details=(*entry.details, *_spirit_mark_entry_details(mark)),
+            )
+        )
+    return definitions, tuple(enriched_entries)
+
+
 def _apply_spirit_mark_details(
     catalog_path: Path,
     definitions: dict[str, ItemDefinition],

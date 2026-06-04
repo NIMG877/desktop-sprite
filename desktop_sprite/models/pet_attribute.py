@@ -137,16 +137,20 @@ class PetAttributeSheet:
             else:
                 flat_bonus += modifier.value
             grouped[modifier.attribute_id] = (flat_bonus, percent_bonus)
-        return replace(
-            self,
-            values=tuple(
+
+        new_values: list[PetAttributeValue] = []
+        for value in self.values:
+            flat, percent = grouped.get(value.definition.id, (0.0, 0.0))
+            new_values.append(
                 replace(
                     value,
-                    flat_bonus=grouped.get(value.definition.id, (0.0, 0.0))[0],
-                    percent_bonus=grouped.get(value.definition.id, (0.0, 0.0))[1],
+                    flat_bonus=flat,
+                    percent_bonus=percent,
                 )
-                for value in self.values
-            ),
+            )
+        return replace(
+            self,
+            values=tuple(new_values),
             modifiers=modifiers,
         )
 

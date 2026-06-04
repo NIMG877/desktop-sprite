@@ -1,47 +1,27 @@
-from __future__ import annotations
+"""Screen geometry sensor.
 
-import ctypes
-from ctypes import wintypes
+Reads the primary monitor's full-screen and work-area rects through
+the Qt screen API. The previous Win32 fallback (`GetSystemMetrics`
++ `SystemParametersInfo`) is removed: the runtime only calls this
+sensor after `QApplication` is constructed, so the Qt path is
+guaranteed to succeed and the Win32 branch was dead.
+"""
+
+from __future__ import annotations
 
 from desktop_sprite.models.geometry import Rect
 from desktop_sprite.utils.dpi import qt_primary_screen_rects
 
-SM_CXSCREEN = 0
-SM_CYSCREEN = 1
-SPI_GETWORKAREA = 0x0030
-
-
-class _WinRect(ctypes.Structure):
-    _fields_ = [
-        ("left", wintypes.LONG),
-        ("top", wintypes.LONG),
-        ("right", wintypes.LONG),
-        ("bottom", wintypes.LONG),
-    ]
-
 
 class ScreenSensor:
-    def __init__(self) -> None:
-        self._user32 = ctypes.windll.user32 if hasattr(ctypes, "windll") else None
-
     def get_screen_rect(self) -> Rect:
-        qt_rects = qt_primary_screen_rects()
-        if qt_rects is not None:
-            return qt_rects[0]
-        if self._user32 is None:
+        rects = qt_primary_screen_rects()
+        if rects is None:
             return Rect.from_xywh(0, 0, 1280, 720)
-        width = self._user32.GetSystemMetrics(SM_CXSCREEN)
-        height = self._user32.GetSystemMetrics(SM_CYSCREEN)
-        return Rect.from_xywh(0, 0, width, height)
+        return rects[0]
 
     def get_work_area_rect(self) -> Rect:
-        qt_rects = qt_primary_screen_rects()
-        if qt_rects is not None:
-            return qt_rects[1]
-        if self._user32 is None:
+        rects = qt_primary_screen_rects()
+        if rects is None:
             return self.get_screen_rect()
-        raw = _WinRect()
-        ok = self._user32.SystemParametersInfoW(SPI_GETWORKAREA, 0, ctypes.byref(raw), 0)
-        if not ok:
-            return self.get_screen_rect()
-        return Rect(raw.left, raw.top, raw.right, raw.bottom)
+        return rects[1]

@@ -71,7 +71,6 @@ def test_load_config_maps_character_pet_motion_fields_to_physics(tmp_path):
                 "behavior": {
                     "idle_min_seconds": 1.0,
                     "idle_max_seconds": 2.5,
-                    "sleep_after_seconds": 120,
                     "prefer_foreground_window": True,
                     "target_repick_seconds": 3.5,
                 },

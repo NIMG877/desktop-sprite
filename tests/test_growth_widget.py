@@ -59,7 +59,7 @@ def _config() -> AppConfig:
         app=RuntimeConfig(60, True, False, "INFO"),
         pet=PetConfig(84, 104, 300, 300),
         physics=PhysicsConfig(1800, 120, 92, 180, -520, 1100, 0.65, 10),
-        behavior=BehaviorConfig(1.0, 2.5, 120, True, 3.5),
+        behavior=BehaviorConfig(1.0, 2.5, True, 3.5),
         interaction=InteractionConfig(True, True, True, True, 220, 80),
         character=CharacterConfig("pet", {"pet": "characters/pet.json"}),
         attributes=_attributes(),

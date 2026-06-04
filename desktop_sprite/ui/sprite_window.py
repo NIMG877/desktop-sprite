@@ -12,6 +12,7 @@ from desktop_sprite.core.pathfinding import NavNodeKind, PathStep, SurfaceGraph,
 from desktop_sprite.models.platform import Platform, PlatformType
 from desktop_sprite.ui.pet_renderer import PetRenderer
 from desktop_sprite.ui.render_pose import PoseBuilder
+from desktop_sprite.ui.show_overlay import ShowOverlayWindow
 from desktop_sprite.utils.config import AppConfig
 from desktop_sprite.utils.dpi import qt_primary_screen_scale
 
@@ -27,6 +28,10 @@ class SpriteWindow(QWidget):
         self.pet_renderer = PetRenderer()
         self.pose_builder = PoseBuilder(config.pet.wings.open_seconds, config.pet.wings.close_seconds)
         self.debug_overlay = DebugOverlayWindow(character, config) if config.app.debug_draw else None
+        # Set by `AppRuntime` after both windows are constructed. The
+        # overlay needs per-frame `sync()` calls; piggy-backing on
+        # the SpriteWindow's tick avoids a second QTimer.
+        self.show_overlay: ShowOverlayWindow | None = None
 
         flags = Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool
         if config.app.always_on_top:
@@ -70,6 +75,8 @@ class SpriteWindow(QWidget):
             self.update()
             if self.character.debug_state().mode.value == "show":
                 self.raise_()
+            if self.show_overlay is not None:
+                self.show_overlay.sync()
             if self.debug_overlay is not None:
                 self.debug_overlay.sync_to_snapshot()
         except KeyboardInterrupt:
@@ -78,18 +85,21 @@ class SpriteWindow(QWidget):
     def paintEvent(self, _event) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        paint_fn = getattr(self.character, "paint", None)
-        if callable(paint_fn) and paint_fn(painter, self.width(), self.height()):
-            return
 
         render_state = self.character.render_state()
         if render_state.body is None or render_state.animation is None:
             return
+        # Read durations from the controller's effective stats. The
+        # builder itself is immutable; per-frame timings are passed
+        # through `build()`.
         effective_stats = getattr(self.character, "effective_stats", None)
         if callable(effective_stats):
             stats = effective_stats()
-            self.pose_builder.wing_open_seconds = stats.wing_open_seconds
-            self.pose_builder.wing_close_seconds = stats.wing_close_seconds
+            wing_open_seconds = stats.wing_open_seconds
+            wing_close_seconds = stats.wing_close_seconds
+        else:
+            wing_open_seconds = self.pose_builder.wing_open_seconds
+            wing_close_seconds = self.pose_builder.wing_close_seconds
         animation = render_state.animation
         pose = self.pose_builder.build(
             render_state.body,
@@ -97,6 +107,8 @@ class SpriteWindow(QWidget):
             render_state.pose_width,
             render_state.pose_height,
             state_elapsed=animation.elapsed,
+            wing_open_seconds=wing_open_seconds,
+            wing_close_seconds=wing_close_seconds,
         )
         if animation.previous_state is not None and animation.blend_alpha < 1.0:
             previous_pose = self.pose_builder.build(
@@ -106,6 +118,8 @@ class SpriteWindow(QWidget):
                 render_state.pose_height,
                 state=animation.previous_state,
                 state_elapsed=animation.previous_elapsed,
+                wing_open_seconds=wing_open_seconds,
+                wing_close_seconds=wing_close_seconds,
             )
             pose = previous_pose.blend(pose, animation.blend_alpha)
         painter.save()

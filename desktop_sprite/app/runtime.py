@@ -201,11 +201,15 @@ class AppRuntime:
             )
         runtime_window = SpriteWindow(runtime_character, runtime_config)
         runtime_character.set_own_window_handle(int(runtime_window.winId()))
+        runtime_show_overlay = ShowOverlayWindow(runtime_character)
+        # The show overlay shares the sprite window's tick. Passing
+        # it in here keeps both windows in sync without a second timer.
+        runtime_window.show_overlay = runtime_show_overlay
         return (
             runtime_character,
             runtime_window,
             TargetSelectorOverlay(runtime_character, runtime_config),
-            ShowOverlayWindow(runtime_character),
+            runtime_show_overlay,
         )
 
     def start_show(self) -> None:

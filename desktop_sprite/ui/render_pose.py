@@ -231,6 +231,17 @@ class RenderPose:
 
 
 class PoseBuilder:
+    """Builds a `RenderPose` for the current pet state.
+
+    The builder is *stateless with respect to durations*: the wing
+    open/close timing is set once at construction and never mutated
+    externally. `build()` accepts optional overrides so callers can
+    pass per-frame timing without mutating the builder. This replaces
+    the previous pattern of writing `pose_builder.wing_open_seconds =
+    X` from `SpriteWindow.paintEvent`, which broke the apparent
+    immutability of the dataclass-style pose values.
+    """
+
     def __init__(self, wing_open_seconds: float = 0.7, wing_close_seconds: float = 0.7) -> None:
         self.wing_open_seconds = max(wing_open_seconds, 0.001)
         self.wing_close_seconds = max(wing_close_seconds, 0.001)
@@ -243,6 +254,8 @@ class PoseBuilder:
         height: int,
         state: PetState | None = None,
         state_elapsed: float | None = None,
+        wing_open_seconds: float | None = None,
+        wing_close_seconds: float | None = None,
     ) -> RenderPose:
         resolved_state = state or pet.state
         resolved_elapsed = pet.state_time if state_elapsed is None else state_elapsed
@@ -257,7 +270,15 @@ class PoseBuilder:
         scarf = self._scarf(resolved_state, cycle, width, height, fall_strength)
         eyes = self._eyes(resolved_state, cycle, width, height, fall_strength)
         shadow = self._shadow(resolved_state, width, height, fall_strength)
-        wings = self._wings(resolved_state, phase, resolved_elapsed, width, height)
+        wings = self._wings(
+            resolved_state,
+            phase,
+            resolved_elapsed,
+            width,
+            height,
+            wing_open_seconds=wing_open_seconds or self.wing_open_seconds,
+            wing_close_seconds=wing_close_seconds or self.wing_close_seconds,
+        )
 
         return RenderPose(
             facing=pet.facing,
@@ -500,14 +521,24 @@ class PoseBuilder:
             return ShadowPose(PoseRect(w * 0.34, h * 0.92, w * 0.34, h * 0.05), 35)
         return ShadowPose(PoseRect(w * 0.22, h * 0.84, w * 0.56, h * 0.10), 70)
 
-    def _wings(self, state: PetState, phase: float, state_elapsed: float, w: int, h: int) -> WingPose | None:
+    def _wings(
+        self,
+        state: PetState,
+        phase: float,
+        state_elapsed: float,
+        w: int,
+        h: int,
+        *,
+        wing_open_seconds: float,
+        wing_close_seconds: float,
+    ) -> WingPose | None:
         if not self._is_show_state(state):
             return None
 
         if state == PetState.OPEN_WINGS:
-            openness = clamp(state_elapsed / self.wing_open_seconds, 0.0, 1.0)
+            openness = clamp(state_elapsed / wing_open_seconds, 0.0, 1.0)
         elif state == PetState.CLOSE_WINGS:
-            openness = 1.0 - clamp(state_elapsed / self.wing_close_seconds, 0.0, 1.0)
+            openness = 1.0 - clamp(state_elapsed / wing_close_seconds, 0.0, 1.0)
         else:
             openness = 1.0
         flap = self._wing_flap(phase, state)

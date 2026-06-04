@@ -84,6 +84,22 @@ class SpiritMark:
 
 @dataclass(frozen=True, slots=True)
 class SpiritMarkMaterials:
+    """Returned by `SpiritMarkInventory.decompose`.
+
+    Production code does not consume these values yet (the UI's
+    inventory widget does not display them), but the dataclass is
+    kept in the data model because:
+
+    * `decompose()` produces it and the test in
+      `tests/test_spirit_mark.py` asserts on the totals.
+    * Removing the field would force a JSON migration for any user
+      who has already decomposed a mark.
+
+    The growth / inventory UIs are expected to surface these in a
+    later milestone; until then the data is correctly persisted and
+    silently ignored.
+    """
+
     spirit_dust: int = 0
     essence: int = 0
     stardust_core: int = 0
@@ -104,11 +120,17 @@ class SpiritMarkInventory:
 
     def equip(self, entry_id: str) -> SpiritMarkInventory:
         mark = self._require_mark(entry_id)
-        marks = tuple(
-            replace(other, equipped=(other.entry_id == entry_id or (other.equipped and other.slot_id != mark.slot_id)))
+        # Step 1: drop whatever is currently filling `mark.slot_id`.
+        cleared = tuple(
+            replace(other, equipped=False) if other.slot_id == mark.slot_id else other
             for other in self.marks
         )
-        return replace(self, marks=marks)
+        # Step 2: mark the requested entry as equipped.
+        finalised = tuple(
+            replace(other, equipped=True) if other.entry_id == entry_id else other
+            for other in cleared
+        )
+        return replace(self, marks=finalised)
 
     def unequip(self, entry_id: str) -> SpiritMarkInventory:
         self._require_mark(entry_id)

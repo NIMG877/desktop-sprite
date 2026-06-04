@@ -11,6 +11,7 @@ from PySide6.QtWidgets import QApplication, QHBoxLayout, QVBoxLayout, QWidget
 from qfluentwidgets import (
     BodyLabel,
     CardWidget,
+    ComboBox,
     FluentIcon as FIF,
     FluentWindow,
     NavigationItemPosition,
@@ -34,7 +35,18 @@ from desktop_sprite.ui.inventory_widget import InventoryWidget
 logger = logging.getLogger(__name__)
 
 
+# Display label → qfluentwidgets.Theme enum. The keys are also the strings
+# shown in the home-page ComboBox; the order in this mapping defines the
+# order users see in the dropdown.
+_THEME_OPTIONS: tuple[tuple[str, Theme], ...] = (
+    ("深色", Theme.DARK),
+    ("浅色", Theme.LIGHT),
+    ("跟随系统", Theme.AUTO),
+)
+
+
 class MainWindow(FluentWindow):
+
     def __init__(
         self,
         config_path: str | Path,
@@ -52,7 +64,9 @@ class MainWindow(FluentWindow):
         on_debug_request_spirit_mark: Callable[[], str] | None = None,
         parent: QWidget | None = None,
     ) -> None:
-        setTheme(Theme.DARK)
+        # Theme is session-only — the ComboBox on the home page mutates
+        # it live via `setTheme` and resets to DARK on every app launch.
+        self._current_theme: Theme = Theme.DARK
         super().__init__(parent)
         self.config_path = Path(config_path)
         self.user_config_path = Path(user_config_path) if user_config_path else None
@@ -195,6 +209,7 @@ class MainWindow(FluentWindow):
         page = self._page("homePage")
         layout = page.layout()
         layout.addWidget(self._hero())
+        layout.addWidget(self._create_theme_row())
         layout.addWidget(
             self._action_card(
                 "重启桌宠",
@@ -216,6 +231,47 @@ class MainWindow(FluentWindow):
         )
         layout.addStretch(1)
         return page
+
+    def _create_theme_row(self) -> QWidget:
+        """Inline row with a `主题` label + ComboBox; switches the qfluentwidgets
+        theme live. Session-only — not persisted to disk."""
+
+        card = CardWidget()
+        layout = QHBoxLayout(card)
+        layout.setContentsMargins(24, 14, 24, 14)
+        layout.setSpacing(12)
+
+        text_layout = QVBoxLayout()
+        text_layout.setSpacing(2)
+        text_layout.addWidget(SubtitleLabel("主题", card))
+        body = BodyLabel("切换 Fluent 界面主题，立即生效，仅本次会话有效。", card)
+        body.setWordWrap(True)
+        text_layout.addWidget(body)
+        layout.addLayout(text_layout, 1)
+
+        self.theme_combo = ComboBox(card)
+        for label, _theme in _THEME_OPTIONS:
+            self.theme_combo.addItem(label)
+        self.theme_combo.setCurrentText(self._label_for_theme(self._current_theme))
+        self.theme_combo.currentTextChanged.connect(self._on_theme_changed)
+        layout.addWidget(self.theme_combo)
+        return card
+
+    def _on_theme_changed(self, label: str) -> None:
+        for entry_label, theme in _THEME_OPTIONS:
+            if entry_label == label:
+                if theme == self._current_theme:
+                    return
+                self._current_theme = theme
+                setTheme(theme)
+                return
+
+    @staticmethod
+    def _label_for_theme(theme: Theme) -> str:
+        for label, candidate in _THEME_OPTIONS:
+            if candidate == theme:
+                return label
+        return _THEME_OPTIONS[0][0]
 
     def _create_realtime_page(self) -> QWidget:
         page = self._page("realtimePage")

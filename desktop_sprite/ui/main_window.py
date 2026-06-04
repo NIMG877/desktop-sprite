@@ -64,13 +64,24 @@ class MainWindow(FluentWindow):
         on_debug_request_spirit_mark: Callable[[], str] | None = None,
         parent: QWidget | None = None,
     ) -> None:
-        # Theme is session-only — the ComboBox on the home page mutates
-        # it live via `setTheme` and resets to DARK on every app launch.
+        # Placeholder until `ui_state_path` is set below; `_load_saved_theme`
+        # will read the persisted choice (or fall back to DARK) and apply it.
         self._current_theme: Theme = Theme.DARK
         super().__init__(parent)
+        # Half the qfluentwidgets default expand-width (322 → 160). The
+        # default leaves the nav so wide that the four-character labels
+        # ("实时触发" etc.) sit in a column of empty space.
+        self.navigationInterface.setExpandWidth(160)
         self.config_path = Path(config_path)
         self.user_config_path = Path(user_config_path) if user_config_path else None
         self.ui_state_path = self.config_path.parent / USER_CONFIG_DIRNAME / UI_STATE_FILENAME
+        # Restore the previously selected theme and apply it before any child
+        # widget (including the home-page ComboBox) is created. The
+        # `currentTextChanged` signal fires on initial `setCurrentText` and
+        # bails on the equality check below, so this explicit `setTheme`
+        # call is what actually paints the window in the saved theme.
+        self._current_theme = self._load_saved_theme()
+        setTheme(self._current_theme)
         self.on_set_target = on_set_target
         self.on_show = on_show
         self.on_sleep = on_sleep or (lambda: None)
@@ -264,6 +275,7 @@ class MainWindow(FluentWindow):
                     return
                 self._current_theme = theme
                 setTheme(theme)
+                self._save_theme(theme)
                 return
 
     @staticmethod
@@ -272,6 +284,30 @@ class MainWindow(FluentWindow):
             if candidate == theme:
                 return label
         return _THEME_OPTIONS[0][0]
+
+    def _load_saved_theme(self) -> Theme:
+        state = self._read_ui_state()
+        return self._theme_for_label(state.get("theme")) or Theme.DARK
+
+    def _save_theme(self, theme: Theme) -> None:
+        state = self._read_ui_state()
+        state["theme"] = self._label_for_theme(theme)
+        try:
+            self.ui_state_path.parent.mkdir(parents=True, exist_ok=True)
+            with self.ui_state_path.open("w", encoding="utf-8") as file:
+                json.dump(state, file, ensure_ascii=False, indent=2)
+                file.write("\n")
+        except OSError:
+            logger.exception("Failed to save theme to ui_state.json")
+
+    @staticmethod
+    def _theme_for_label(label: object) -> Theme | None:
+        if not isinstance(label, str):
+            return None
+        for entry_label, theme in _THEME_OPTIONS:
+            if entry_label == label:
+                return theme
+        return None
 
     def _create_realtime_page(self) -> QWidget:
         page = self._page("realtimePage")

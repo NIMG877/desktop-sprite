@@ -5,6 +5,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
+from qfluentwidgets import BodyLabel
 
 from desktop_sprite.models.pet_attribute import PetAttributeSheet
 from desktop_sprite.models.inventory import (
@@ -141,10 +142,26 @@ def test_growth_widget_attribute_details_show_categories_base_bonus_and_tooltips
     assert len(widget.attributes_page._detail_base_labels) == 16
     assert set(ATTRIBUTE_CATEGORY_TITLES) == {"basic", "visual", "special"}
     assert widget.attributes_page._detail_base_labels["mobility"].text() == "120"
-    assert "white" in widget.attributes_page._detail_base_labels["mobility"].styleSheet()
+    # The base value is rendered by a BodyLabel (theme-aware text color)
+    # and no longer carries a hard-coded white stylesheet that would
+    # vanish in light theme.
+    assert isinstance(
+        widget.attributes_page._detail_base_labels["mobility"], BodyLabel
+    )
+    assert "white" not in widget.attributes_page._detail_base_labels[
+        "mobility"
+    ].styleSheet().lower()
     assert widget.attributes_page._detail_base_labels["mobility"].alignment() & Qt.AlignmentFlag.AlignRight
-    assert widget.attributes_page._detail_bonus_labels["mobility"].text() == "+24"
-    assert widget.attributes_page._detail_bonus_labels["mobility"].alignment() & Qt.AlignmentFlag.AlignLeft
+    # Bonus value persists its green across theme switches because the
+    # color is stored on the label's `lightColor` / `darkColor` fields
+    # via `setTextColor`, not via a `setStyleSheet("color: ...")` that
+    # `styleSheetManager` would wipe on every `themeChanged`.
+    bonus = widget.attributes_page._detail_bonus_labels["mobility"]
+    assert isinstance(bonus, BodyLabel)
+    assert bonus.text() == "+24"
+    assert bonus.alignment() & Qt.AlignmentFlag.AlignLeft
+    assert bonus.lightColor.name().lower() == "#2e7d32"
+    assert bonus.darkColor.name().lower() == "#7ddc5c"
     assert "基础水平移动速度" in widget.attributes_page._detail_help_icons["mobility"].toolTip()
     assert "walk_speed" in widget.attributes_page._detail_help_icons["mobility"].toolTip()
     assert widget.attributes_page._detail_base_labels["radiance"].text() == "50"

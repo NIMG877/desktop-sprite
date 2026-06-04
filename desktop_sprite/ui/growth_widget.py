@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
@@ -259,7 +260,16 @@ class PetAttributesPage(QWidget):
     def _category_label(self, title: str, parent: QWidget) -> QLabel:
         label = CaptionLabel(title, parent)
         label.setContentsMargins(14, 14, 14, 6)
-        label.setStyleSheet("font-weight: 600; color: rgba(255, 255, 255, 170);")
+        # Bold via QFont, NOT via stylesheet. qfluentwidgets' theme
+        # switch calls `widget.setStyleSheet(...)` on registered labels
+        # (see `addStyleSheet(register=True)` in
+        # `qfluentwidgets.common.style_sheet`), which wipes any prior
+        # `setStyleSheet("font-weight: ...")` call. QFont weight is
+        # a widget property and survives the wipe. CaptionLabel's theme-
+        # aware text color also stays intact because we don't touch it.
+        font = label.font()
+        font.setWeight(QFont.DemiBold)
+        label.setFont(font)
         return label
 
     def _summary_row(self, attribute_id: str) -> QWidget:
@@ -273,10 +283,11 @@ class PetAttributesPage(QWidget):
         layout.addWidget(self._attribute_icon(attribute_id, row))
         layout.addWidget(BodyLabel(value.definition.name, row))
         layout.addStretch(1)
-        value_label = QLabel("", row)
+        # BodyLabel adopts the active theme's text color, so light/dark
+        # switching keeps the value readable.
+        value_label = BodyLabel("", row)
         value_label.setObjectName(f"petAttributeValue_{attribute_id}")
         value_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        value_label.setStyleSheet("color: white;")
         layout.addWidget(value_label)
         self._summary_value_labels[attribute_id] = value_label
         return row
@@ -310,14 +321,20 @@ class PetAttributesPage(QWidget):
         return row
 
     def _detail_number_label(self, parent: QWidget, *, bonus: bool = False) -> QLabel:
-        label = QLabel("", parent)
+        # Base value uses the theme's text color via BodyLabel. Bonus
+        # value uses qfluentwidgets' `setTextColor(light, dark)` instead
+        # of `setStyleSheet("color: ...")` — the latter gets wiped on
+        # theme switch (see `_category_label` for the same root cause).
+        # The two greens are tuned separately: a bright pastel reads
+        # well on a dark surface, but on a light surface the same hue
+        # would wash out, so light theme gets a deeper variant.
+        label = BodyLabel("", parent)
         label.setMinimumWidth(88)
         if bonus:
             label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-            label.setStyleSheet("color: #7ddc5c;")
+            label.setTextColor(QColor("#2e7d32"), QColor("#7ddc5c"))
         else:
             label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            label.setStyleSheet("color: white;")
         return label
 
     def _attribute_icon(self, attribute_id: str, parent: QWidget) -> IconWidget:

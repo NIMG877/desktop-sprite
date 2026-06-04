@@ -276,8 +276,8 @@ class PoseBuilder:
             resolved_elapsed,
             width,
             height,
-            wing_open_seconds=wing_open_seconds or self.wing_open_seconds,
-            wing_close_seconds=wing_close_seconds or self.wing_close_seconds,
+            wing_open_seconds=self.wing_open_seconds if wing_open_seconds is None else wing_open_seconds,
+            wing_close_seconds=self.wing_close_seconds if wing_close_seconds is None else wing_close_seconds,
         )
 
         return RenderPose(

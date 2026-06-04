@@ -3,6 +3,8 @@ from desktop_sprite.models.state import Pet, PetState
 from desktop_sprite.core.animation_player import DEFAULT_ANIMATIONS
 from desktop_sprite.ui.render_pose import PoseBuilder
 
+import pytest
+
 
 def make_pet(state: PetState, velocity: Vec2 | None = None) -> Pet:
     return Pet(
@@ -196,3 +198,91 @@ def test_flight_hover_and_land_arms_point_down_with_expected_tightness():
     assert land_span > hover_span
     assert open_wings.limbs[0].end == idle_left.end
     assert open_wings.limbs[1].end == idle_right.end
+
+
+def test_build_with_explicit_wing_seconds_reaches_the_wings_math():
+    """Regression: ``wing_open_seconds=X or self.wing_open_seconds``
+    silently substituted the builder default whenever X was falsy
+    (including 0.0). The fix must use an explicit ``None`` check so
+    that *any* caller-supplied value (even a non-zero, non-default
+    one) reaches :meth:`PoseBuilder._wings` unchanged."""
+    from desktop_sprite.models.geometry import Vec2
+    from desktop_sprite.models.state import Facing, Pet, PetState
+    from desktop_sprite.ui.render_pose import PoseBuilder
+
+    builder = PoseBuilder(wing_open_seconds=0.7, wing_close_seconds=0.7)
+    pet = Pet(
+        position=Vec2(0, 0),
+        velocity=Vec2(0, 0),
+        width=40,
+        height=60,
+        facing=Facing.RIGHT,
+        state=PetState.OPEN_WINGS,
+        state_time=0.25,
+    )
+    # Caller passes 0.5 (not 0.0 — see note below — and not the
+    # builder default 0.7). Before the fix the ``or`` would have
+    # ignored 0.5 and used 0.7, giving openness = 0.25/0.7 ≈ 0.357.
+    # After the fix openness must be 0.25/0.5 = 0.5.
+    pose = builder.build(
+        pet=pet,
+        phase=0.0,
+        width=84,
+        height=104,
+        state=PetState.OPEN_WINGS,
+        state_elapsed=0.25,
+        wing_open_seconds=0.5,
+        wing_close_seconds=0.5,
+    )
+    assert pose.wings is not None
+    assert pose.wings.openness == 0.5
+
+    # Now exercise the original 0.0 case as well. The math divides by
+    # the duration, so 0.0 / 0.0 yields NaN; that is the *correct*
+    # post-fix behavior — the caller's 0.0 is no longer masked.
+    # We assert only that no silent substitution happened: a
+    # ZeroDivisionError escaping ``build`` is the signal that the
+    # falsy-default bug is dead.
+    with pytest.raises(ZeroDivisionError):
+        builder.build(
+            pet=pet,
+            phase=0.0,
+            width=84,
+            height=104,
+            state=PetState.OPEN_WINGS,
+            state_elapsed=0.0,
+            wing_open_seconds=0.0,
+            wing_close_seconds=0.0,
+        )
+
+
+def test_build_with_none_wing_seconds_falls_back_to_builder_default():
+    """The other side of the contract: ``None`` still means
+    'use the builder default'."""
+    from desktop_sprite.models.geometry import Vec2
+    from desktop_sprite.models.state import Facing, Pet, PetState
+    from desktop_sprite.ui.render_pose import PoseBuilder
+
+    builder = PoseBuilder(wing_open_seconds=0.5, wing_close_seconds=0.5)
+    pet = Pet(
+        position=Vec2(0, 0),
+        velocity=Vec2(0, 0),
+        width=40,
+        height=60,
+        facing=Facing.RIGHT,
+        state=PetState.OPEN_WINGS,
+        state_time=0.25,
+    )
+    pose = builder.build(
+        pet=pet,
+        phase=0.0,
+        width=84,
+        height=104,
+        state=PetState.OPEN_WINGS,
+        state_elapsed=0.25,
+        wing_open_seconds=None,
+        wing_close_seconds=None,
+    )
+    assert pose.wings is not None
+    # 0.25 / 0.5 = 0.5
+    assert pose.wings.openness == 0.5

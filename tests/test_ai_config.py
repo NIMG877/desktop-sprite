@@ -155,4 +155,4 @@ def test_ai_persona_missing_uses_code_default(tmp_path: Path):
     })
     cfg = load_config(cfg_path, None)
     assert isinstance(cfg.ai_persona, AIPersonaConfig)
-    assert cfg.ai_persona.system_prompt  # 非空
+    assert cfg.ai_persona.system_prompt == "你是一只温顺的桌宠小翼。"

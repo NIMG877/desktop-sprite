@@ -107,24 +107,55 @@ def load_inventory(
 
 
 def append_inventory_entry(path: str | Path, entry: InventoryEntry) -> None:
+    """Append a single entry, preserving the existing on-disk layout.
+
+    Reads the current entries, validates the new one, and writes the
+    whole list back atomically. Throws ``InventoryValidationError`` if
+    the new ``entry_id`` collides with an existing entry.
+    """
+
     target = Path(path)
     _ensure_inventory_file(target)
     data = _read_object(target)
     raw_entries = _require_list(data, "entries")
     if any(isinstance(raw_entry, dict) and raw_entry.get("entry_id") == entry.entry_id for raw_entry in raw_entries):
         raise InventoryValidationError(f"Duplicate inventory entry id: {entry.entry_id}")
-    raw_entry: dict[str, Any] = {
+    raw_entries.append(_entry_to_raw(entry))
+    _dump_inventory_file(target, {"entries": raw_entries})
+
+
+def write_inventory_entries(path: str | Path, entries: tuple[InventoryEntry, ...] | list[InventoryEntry]) -> None:
+    """Write ``entries`` to ``path`` as the full inventory file.
+
+    The on-disk format is a JSON object ``{"entries": [...]}`` where
+    each entry is a flat dict with ``entry_id``, ``item_id``,
+    ``quantity`` (omitted when 1) and ``details`` (omitted when
+    empty). The write is atomic — the destination is either fully
+    replaced with the new file or left untouched.
+    """
+
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    raw_entries = [_entry_to_raw(entry) for entry in entries]
+    _dump_inventory_file(target, {"entries": raw_entries})
+
+
+def _entry_to_raw(entry: InventoryEntry) -> dict[str, Any]:
+    raw: dict[str, Any] = {
         "entry_id": entry.entry_id,
         "item_id": entry.item_id,
     }
     if entry.quantity != 1:
-        raw_entry["quantity"] = entry.quantity
+        raw["quantity"] = entry.quantity
     if entry.details:
-        raw_entry["details"] = dict(entry.details)
-    raw_entries.append(raw_entry)
-    with target.open("w", encoding="utf-8") as file:
-        json.dump(data, file, ensure_ascii=False, indent=2)
-        file.write("\n")
+        raw["details"] = dict(entry.details)
+    return raw
+
+
+def _dump_inventory_file(path: Path, data: dict[str, Any]) -> None:
+    from desktop_sprite.utils.safe_io import write_json_atomic
+
+    write_json_atomic(path, data, ensure_ascii=False, indent=2)
 
 
 def spirit_mark_item_id_for_slot(snapshot: InventorySnapshot, slot_id: str) -> str:
@@ -226,62 +257,20 @@ def apply_spirit_mark_details(
 ) -> tuple[dict[str, ItemDefinition], tuple[InventoryEntry, ...]]:
     """Enrich inventory entries with their per-mark details in memory.
 
-    This is the public version of the internal `_apply_spirit_mark_details`
-    used by `load_inventory`. `grant_spirit_mark` (and any other
-    in-memory pipeline) can call it after constructing a
-    `SpiritMarkInventory` directly, without re-reading the spirit-mark
-    file.
+    Single source of truth for spirit-mark enrichment. ``load_inventory``
+    and the spirit-mark grant service both go through this function.
+
+    For every entry whose ``entry_id`` matches a spirit mark whose
+    base item is in the spirit_mark category, a new per-mark
+    ``ItemDefinition`` is created (named after the mark) and the entry
+    is rewritten to point at it with the mark's details attached.
     """
 
     if not spirit_marks.marks:
         return definitions, entries
 
     marks_by_entry_id = {mark.entry_id: mark for mark in spirit_marks.marks}
-    enriched_entries: list[InventoryEntry] = []
-    for entry in entries:
-        mark = marks_by_entry_id.get(entry.entry_id)
-        if mark is None:
-            enriched_entries.append(entry)
-            continue
-        definition = definitions[entry.item_id]
-        if definition.category_id != SPIRIT_MARK_CATEGORY_ID:
-            enriched_entries.append(entry)
-            continue
-        instance_definition = _spirit_mark_definition(mark, definition)
-        merged_definitions = dict(definitions)
-        merged_definitions[instance_definition.id] = instance_definition
-        definitions = merged_definitions
-        enriched_entries.append(
-            replace(
-                entry,
-                item_id=instance_definition.id,
-                details=(*entry.details, *_spirit_mark_entry_details(mark)),
-            )
-        )
-    return definitions, tuple(enriched_entries)
-
-
-def _apply_spirit_mark_details(
-    catalog_path: Path,
-    definitions: dict[str, ItemDefinition],
-    entries: tuple[InventoryEntry, ...],
-    spirit_mark_path: str | Path | None,
-) -> tuple[dict[str, ItemDefinition], tuple[InventoryEntry, ...]]:
-    selected_path = (
-        Path(spirit_mark_path)
-        if spirit_mark_path is not None
-        else catalog_path.parent / "user" / "spirit_marks.json"
-    )
-    try:
-        spirit_inventory = load_spirit_mark_inventory(selected_path)
-    except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
-        logger.error("Failed to load spirit marks %s: %s", selected_path, exc)
-        return definitions, entries
-    if not spirit_inventory.marks:
-        return definitions, entries
-
     merged_definitions = dict(definitions)
-    marks_by_entry_id = {mark.entry_id: mark for mark in spirit_inventory.marks}
     enriched_entries: list[InventoryEntry] = []
     for entry in entries:
         mark = marks_by_entry_id.get(entry.entry_id)
@@ -302,6 +291,27 @@ def _apply_spirit_mark_details(
             )
         )
     return merged_definitions, tuple(enriched_entries)
+
+
+def _apply_spirit_mark_details(
+    catalog_path: Path,
+    definitions: dict[str, ItemDefinition],
+    entries: tuple[InventoryEntry, ...],
+    spirit_mark_path: str | Path | None,
+) -> tuple[dict[str, ItemDefinition], tuple[InventoryEntry, ...]]:
+    """Load spirit marks from disk and delegate to :func:`apply_spirit_mark_details`."""
+
+    selected_path = (
+        Path(spirit_mark_path)
+        if spirit_mark_path is not None
+        else catalog_path.parent / "user" / "spirit_marks.json"
+    )
+    try:
+        spirit_inventory = load_spirit_mark_inventory(selected_path)
+    except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+        logger.error("Failed to load spirit marks %s: %s", selected_path, exc)
+        return definitions, entries
+    return apply_spirit_mark_details(definitions, entries, spirit_inventory)
 
 
 def _spirit_mark_definition(mark: SpiritMark, base_definition: ItemDefinition) -> ItemDefinition:

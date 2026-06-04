@@ -127,6 +127,13 @@ class PetController:
 
     def apply_config(self, config: AppConfig) -> None:
         size_changed = self.pet.width != config.pet.width or self.pet.height != config.pet.height
+        # A size change rebuilds the environment + snapshot, which
+        # would invalidate the in-flight ShowContext (hover/land
+        # coordinates captured against the old snapshot). Finish the
+        # Show first so its closing frames still land on the old
+        # surface, and the *next* Show is built from the new env.
+        if size_changed and self._is_show_mode():
+            self._finish_show()
         modifiers = getattr(self, "attribute_sheet", PetAttributeSheet.from_config(self.config)).modifiers
         self.config = config
         self.attribute_sheet = PetAttributeSheet.from_config(config).with_modifiers(modifiers)

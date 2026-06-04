@@ -1,20 +1,16 @@
 """Spirit mark grant service.
 
-Mints a new spirit mark, appends the corresponding inventory entry,
-persists the updated `SpiritMarkInventory`, and returns the resulting
-snapshot.
+Mints a new spirit mark and persists the resulting inventory +
+spirit-mark state. The on-disk side effects of one grant are:
 
-The previous implementation performed **five file IO operations**
-per grant (load inventory, load spirit marks, read-modify-write
-inventory, write spirit marks, reload inventory for the snapshot).
-P2-17 collapses the flow to **two** by:
+* ``spirit_marks.json`` — appended with the new mark.
+* ``inventory.json`` — appended with a flat entry pointing at the
+  base spirit-mark definition (no per-mark enrichment on disk; the
+  enrichment is computed at load time by :func:`apply_spirit_mark_details`).
 
-1. Loading the items catalog and current spirit-mark inventory
-   *once*.
-2. Computing the new entries list and enriched definitions
-   *in memory* via the public `apply_spirit_mark_details` helper.
-3. Writing the inventory file *once* with the new entries inline.
-4. Writing the spirit-mark file *once* with the new mark appended.
+Both writes happen inside :func:`atomic_write` so a crash or
+``OSError`` between them rolls back to the pre-grant state — the
+inventory never references a mark that isn't on disk, and vice versa.
 """
 
 from __future__ import annotations
@@ -27,11 +23,9 @@ from desktop_sprite.models.inventory import (
     InventorySnapshot,
     _ensure_inventory_file,
     _load_catalog,
-    _read_object,
-    _require_list,
-    _require_object,
-    append_inventory_entry,
+    _load_entries,
     apply_spirit_mark_details,
+    write_inventory_entries,
 )
 from desktop_sprite.models.spirit_mark import (
     SpiritMark,
@@ -41,6 +35,7 @@ from desktop_sprite.models.spirit_mark import (
     load_spirit_mark_inventory,
     save_spirit_mark_inventory,
 )
+from desktop_sprite.utils.safe_io import atomic_write
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,43 +62,37 @@ def grant_spirit_mark(
     mark = generate_spirit_mark(request)
     item_id = _find_item_id_for_slot(definitions, mark.slot_id)
 
-    # 2. Persist the new inventory entry using the original
-    # `append_inventory_entry` so the on-disk format matches the
-    # historical layout: a flat entry with `entry_id` + `item_id`,
-    # no per-mark enrichment. The enrichment is applied in memory
-    # for the returned `InventorySnapshot` only.
-    append_inventory_entry(
-        inventory_file, InventoryEntry(mark.entry_id, item_id)
-    )
+    # 2. Make sure the inventory file exists, then read & validate
+    # the current entries exactly the way ``load_inventory`` would.
+    # We use the same parser so a corrupt file produces the same
+    # ``InventoryValidationError`` a regular load would.
+    _ensure_inventory_file(inventory_file)
+    base_entries = _load_entries(inventory_file, definitions)
+    if any(entry.entry_id == mark.entry_id for entry in base_entries):
+        raise LookupError(f"Duplicate spirit mark entry id: {mark.entry_id}")
 
+    new_entry = InventoryEntry(mark.entry_id, item_id)
+    merged_entries = (*base_entries, new_entry)
     new_spirit_marks = SpiritMarkInventory(
         (*current_spirit_marks.marks, mark),
         current_spirit_marks.materials,
     )
 
-    # 3. Build the enriched snapshot in memory. We re-read the file
-    # once for the entries list (so we don't race with other writers
-    # that may have added entries between our reads) and enrich from
-    # the in-memory `new_spirit_marks` rather than from disk.
-    _ensure_inventory_file(inventory_file)
-    raw_entries = _read_object(inventory_file).get("entries", [])
-    base_entries: list[InventoryEntry] = []
-    for raw in raw_entries:
-        if not isinstance(raw, dict) or "entry_id" not in raw or "item_id" not in raw:
-            continue
-        base_entries.append(
-            InventoryEntry(
-                entry_id=str(raw["entry_id"]),
-                item_id=str(raw["item_id"]),
-                quantity=int(raw.get("quantity", 1)) if not isinstance(raw.get("quantity"), bool) else 1,
-            )
-        )
+    # 3. Build the enriched snapshot *in memory* before any write
+    # happens. This is the same logic ``load_inventory`` runs at read
+    # time, just driven by the in-memory ``new_spirit_marks`` rather
+    # than a fresh on-disk read.
     enriched_definitions, enriched_entries = apply_spirit_mark_details(
-        definitions, tuple(base_entries), new_spirit_marks
+        definitions, merged_entries, new_spirit_marks
     )
 
-    # 4. Persist the spirit-mark file once.
-    save_spirit_mark_inventory(spirit_mark_file, new_spirit_marks)
+    # 4. Persist both files inside one atomic transaction. If either
+    # write fails (disk full, permission denied, process killed mid
+    # rename), the captured pre-state is restored and the grant leaves
+    # zero observable side effect.
+    with atomic_write([inventory_file, spirit_mark_file]):
+        write_inventory_entries(inventory_file, merged_entries)
+        save_spirit_mark_inventory(spirit_mark_file, new_spirit_marks)
 
     return SpiritMarkGrantResult(
         mark=mark,
@@ -117,9 +106,8 @@ def grant_spirit_mark(
 def _find_item_id_for_slot(definitions: dict, slot_id: str) -> str:
     """Look up the catalog item id that matches a spirit-mark slot.
 
-    The first matching definition whose id ends with `.{slot_id}` or
-    whose `部位` detail equals the slot name wins. Falls back to the
-    legacy "spirit_mark.sanctum_radiance.{slot_id}" pattern.
+    The first matching definition whose id ends with ``.{slot_id}`` or
+    whose ``部位`` detail equals the slot name wins.
     """
 
     from desktop_sprite.models.spirit_mark import SPIRIT_MARK_SLOTS

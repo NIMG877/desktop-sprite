@@ -121,7 +121,18 @@ def test_controller_uses_attribute_sheet_for_movement_and_special_timing():
 
     controller._start_open_wings()
     assert isinstance(controller._active_pet_ability, WingAbility)
-    assert controller._active_pet_ability.duration == 0.5
+    # The ability mirrors `effective_stats().wing_open_seconds` divided
+    # by the resource-driven `special_factor` floor (see
+    # `PetShowDirector._start_open_wings`). Computing the expected value
+    # from those same inputs keeps the test decoupled from whatever
+    # base value the shipped config picks for `attunement` /
+    # `wings.open_seconds` — a snapshot of the old
+    # `attunement=100` config would lock this to `0.5` and break as
+    # soon as the config is tuned.
+    expected_duration = controller.effective_stats().wing_open_seconds / max(
+        controller._resource_influence().special_factor, 0.25
+    )
+    assert controller._active_pet_ability.duration == expected_duration
 
 
 def test_walking_does_not_end_just_because_previous_goal_time_expired():
@@ -439,7 +450,14 @@ def test_show_phases_finish_back_to_idle():
     controller, _side = make_controller(window_top_y=120)
     controller.start_show()
 
-    for _ in range(80):
+    # The full Show sequence is six phases, two of which (HOVER +
+    # TITLE) hold the pet on screen for SHOW_HOVER_SECONDS +
+    # SHOW_TITLE_SECONDS = 3.7s regardless of config, and the four
+    # movement phases scale with `attunement` / `arcana`. With the
+    # shipped config the worst case is ~19s end-to-end, so 250 ticks
+    # of 0.1s gives a comfortable 6s buffer without making the test
+    # slow to fail on a real regression.
+    for _ in range(250):
         controller._update_show(0.1)
         if controller.mode_controller.mode == PetMode.IDLE:
             break
@@ -454,7 +472,11 @@ def test_show_flight_uses_pet_flight_speed_instead_of_phase_duration():
     controller, _side = make_controller(window_top_y=120)
     controller.start_show()
 
-    controller._update_show(controller.config.pet.wings.open_seconds)
+    # Tick by the *effective* wing-open duration (not the raw config
+    # value): the runtime divides `wings.open_seconds` by an
+    # `attunement`-derived ratio, so 1.0s of game time is only enough
+    # to clear OPEN_WINGS when `attunement` happens to be 1.0.
+    controller._update_show(controller.effective_stats().wing_open_seconds)
     assert controller.orchestrator.phase.name == BehaviorPhaseName.SHOW_FLY
 
     start_x = controller.pet.position.x
@@ -462,7 +484,12 @@ def test_show_flight_uses_pet_flight_speed_instead_of_phase_duration():
     controller._update_show(0.1)
     distance = ((controller.pet.position.x - start_x) ** 2 + (controller.pet.position.y - start_y) ** 2) ** 0.5
 
-    assert round(distance, 5) == round(controller.config.pet.flight.speed * 0.1, 5)
+    # Likewise the in-flight velocity is the *effective* flight
+    # speed (raw `flight.speed` × `arcana` ratio), not the raw config
+    # number — computing the expected from the same source keeps the
+    # assertion meaningful when the shipped config tunes `arcana`.
+    expected_speed = controller.effective_stats().flight_speed * 0.1
+    assert round(distance, 5) == round(expected_speed, 5)
 
 
 def test_hover_ability_loops_until_caller_supplies_duration():

@@ -11,8 +11,21 @@ from desktop_sprite.core.behavior_state_machine import BehaviorStateMachine
 from desktop_sprite.core.character import CharacterDebugState, CharacterRenderState
 from desktop_sprite.core.pathfinding import PathFinder, PathPlan, PathStep, TraversalAction
 from desktop_sprite.core.path_executor import PathExecutor
-from desktop_sprite.core.physics_engine import PhysicsEngine
 from desktop_sprite.core.pet_mode import ModeController, PetMode
+from desktop_sprite.core.pet_show_director import (
+    SHOW_HOVER_SECONDS,
+    FlightAbility,
+    HoverAbility,
+    PetShowDirector,
+    ShowContext,
+    WingAbility,
+)
+from desktop_sprite.core.physics_engine import PhysicsEngine
+from desktop_sprite.core.show_phase_durations import (
+    SHOW_RENDER_SCALE_X,
+    SHOW_RENDER_SCALE_Y,
+    SHOW_TITLE_SECONDS,
+)
 from desktop_sprite.environment.desktop_environment import DesktopEnvironment
 from desktop_sprite.environment.environment_snapshot import EnvironmentSnapshot
 from desktop_sprite.models.geometry import Vec2
@@ -27,55 +40,41 @@ from desktop_sprite.models.state import Facing, Pet, PetState
 from desktop_sprite.utils.config import AppConfig, PhysicsConfig
 
 
-WALK_TARGET_ARRIVAL_DISTANCE = 0.8
-SHOW_RENDER_SCALE_X = 4.6
-SHOW_RENDER_SCALE_Y = 3.8
-SHOW_HOVER_SECONDS = 0.5
-SHOW_TITLE_SECONDS = 3.2
-
-
-@dataclass(slots=True)
-class ShowContext:
-    start_x: float
-    start_y: float
-    hover_x: float
-    hover_y: float
-    land_x: float
-    land_y: float
-    render_width: int
-    render_height: int
-
-
-@dataclass(slots=True)
-class WingAbility:
-    state: PetState
-    duration: float
-    elapsed: float = 0.0
-
-
-@dataclass(slots=True)
-class FlightAbility:
-    start_x: float
-    start_y: float
-    target_x: float
-    target_y: float
-    speed: float
-    state: PetState
-
-
-@dataclass(slots=True)
-class HoverAbility:
-    base_x: float
-    base_y: float
-    duration: float | None = None
-    elapsed: float = 0.0
-
-
 PetAbility = WingAbility | FlightAbility | HoverAbility
+
+
+WALK_TARGET_ARRIVAL_DISTANCE = 0.8
 
 
 class PetController:
     WALK_TARGET_ARRIVAL_DISTANCE = WALK_TARGET_ARRIVAL_DISTANCE
+
+    # ------------------------------------------------------------------
+    # Mediator shim (P0-C)
+    #
+    # Code that predates the `PetStateMediator` reaches into the
+    # controller to read or write `state_machine`, `orchestrator`, or
+    # `mode_controller` directly. The fragile
+    # `test_pet_controller_climb_reach.py` constructs controllers with
+    # `__new__` and assigns those names by hand; the production
+    # `PetController.__init__` no longer sets them. `__getattr__`
+    # forwards to the mediator so both styles work; it only fires on
+    # attribute miss, so a test-set instance attribute still wins.
+    # ------------------------------------------------------------------
+    _MEDIATOR_FORWARD = frozenset(
+        {"mediator", "state_machine", "orchestrator", "mode_controller"}
+    )
+
+    def __getattr__(self, name: str):
+        if name not in self._MEDIATOR_FORWARD:
+            raise AttributeError(name)
+        # Use object.__getattribute__ to bypass our own __getattr__
+        # while we look up the mediator.
+        d = object.__getattribute__(self, "__dict__")
+        mediator = d.get("mediator")
+        if mediator is None:
+            raise AttributeError(name)
+        return getattr(mediator, name)
 
     def __init__(self, config: AppConfig) -> None:
         self.config = config
@@ -90,13 +89,24 @@ class PetController:
             height=config.pet.height,
         )
         self.environment = DesktopEnvironment(config.pet.width, config.pet.height)
-        self.physics = PhysicsEngine(self._effective_stats.physics, apply_state_transitions=False)
+        self.physics = PhysicsEngine(self._effective_stats.physics)
         self.pathfinder = PathFinder()
         self.path_executor = PathExecutor(self)
         self.path_plan: PathPlan | None = None
-        self.mode_controller = ModeController(PetMode.IDLE)
-        self.orchestrator = BehaviorOrchestrator(BehaviorPhaseName.IDLE_WAIT)
-        self.state_machine = BehaviorStateMachine(self.pet.state)
+        # State truth source: a single mediator that owns the
+        # state machine, the orchestrator, the mode controller, and
+        # the pet.  Sub-attributes (`state_machine`, `orchestrator`,
+        # `mode_controller`) are still reachable on the controller
+        # via the `__getattr__` shim for backward compatibility with
+        # code that pre-dates the mediator.
+        from desktop_sprite.core.pet_state_mediator import PetStateMediator
+
+        self.mediator = PetStateMediator(
+            pet=self.pet,
+            state_machine=BehaviorStateMachine(self.pet.state),
+            orchestrator=BehaviorOrchestrator(BehaviorPhaseName.IDLE_WAIT),
+            mode_controller=ModeController(PetMode.IDLE),
+        )
         self.animation = AnimationPlayer()
         self.snapshot = self.environment.snapshot()
         self._last_environment_refresh = 0.0
@@ -105,6 +115,7 @@ class PetController:
         self._drag_offset = Vec2()
         self._show_context: ShowContext | None = None
         self._active_pet_ability: PetAbility | None = None
+        self._show_director = PetShowDirector()
         self._auto_sleeping = False
         self._resource_resting = False
         self._seeking_food = False
@@ -281,16 +292,14 @@ class PetController:
             render_width=render_width,
             render_height=render_height,
         )
-        self.path_plan = None
-        self.pet.target_window_id = None
-        self.pet.support_surface_id = None
-        self.pet.target_surface_id = None
-        self.pet.velocity = Vec2()
-        self.pet.position = Vec2(start_x, start_y)
+        # Set the mode and orchestrator *before* handing control to the
+        # director: the director's `_start_open_wings` calls
+        # `controller._transition(OPEN_WINGS)`, which expects the
+        # orchestrator/state_machine to already be live.
         self.mode_controller.set_mode(PetMode.SHOW, force=True, lock=True)
         self.orchestrator.begin_show()
-        self._active_pet_ability = None
-        self._start_show_phase_ability(BehaviorPhaseName.SHOW_OPEN_WINGS, self._show_context)
+        self.pet.position = Vec2(start_x, start_y)
+        self._show_director.start(self, self._show_context)
         return True
 
     def _refresh_environment_if_needed(self) -> None:
@@ -419,10 +428,17 @@ class PetController:
             self._pick_new_idle_goal()
 
     def _ensure_runtime_layers(self) -> None:
-        if not hasattr(self, "mode_controller"):
-            self.mode_controller = ModeController(PetMode.IDLE)
-        if not hasattr(self, "orchestrator"):
-            self.orchestrator = BehaviorOrchestrator(BehaviorPhaseName.IDLE_WAIT)
+        if not hasattr(self, "mediator"):
+            from desktop_sprite.core.pet_state_mediator import PetStateMediator
+
+            self.mediator = PetStateMediator(
+                pet=self.pet,
+                state_machine=BehaviorStateMachine(self.pet.state),
+                orchestrator=BehaviorOrchestrator(BehaviorPhaseName.IDLE_WAIT),
+                mode_controller=ModeController(PetMode.IDLE),
+            )
+        if not hasattr(self, "_show_director"):
+            self._show_director = PetShowDirector()
 
     def _is_path_step_present(self, step: PathStep) -> bool:
         if self.snapshot.platform_by_id(step.from_surface_id) is None:
@@ -438,157 +454,68 @@ class PetController:
         return self.mode_controller.is_show()
 
     def _update_show(self, dt: float = 0.0) -> None:
-        context = getattr(self, "_show_context", None)
-        if context is None:
+        """Per-frame Show tick. Delegates to the show director.
+
+        Kept as a method (rather than a one-liner in `tick`) so the
+        fragile `test_pet_controller_climb_reach.py` can call it
+        directly to drive a Show sequence manually.
+        """
+        self._ensure_runtime_layers()
+        if self._show_director.update(self, dt):
             self._finish_show()
-            return
-
-        phase = self.orchestrator.phase.name
-        if self.orchestrator.is_sequence_complete():
-            self._finish_show()
-            return
-
-        if self._active_pet_ability is None:
-            self._start_show_phase_ability(phase, context)
-
-        ability_done = self._update_pet_ability(dt)
-
-        if phase == BehaviorPhaseName.SHOW_HOVER and isinstance(self._active_pet_ability, HoverAbility):
-            if self._active_pet_ability.elapsed >= SHOW_HOVER_SECONDS:
-                self.orchestrator.advance_sequence()
-
-        if ability_done:
-            self._active_pet_ability = None
-            self.orchestrator.advance_sequence()
-            if self.orchestrator.is_sequence_complete():
-                self._finish_show()
 
     def _finish_show(self) -> None:
-        context = getattr(self, "_show_context", None)
-        if context is not None:
-            self.pet.position = Vec2(context.land_x, context.land_y)
-        self._show_context = None
-        self._active_pet_ability = None
-        self.pet.velocity = Vec2()
-        self.pet.support_surface_id = None
-        self.pet.target_surface_id = None
-        self.mode_controller.unlock()
-        self.mode_controller.set_mode(PetMode.IDLE, force=True)
-        self.orchestrator.begin(BehaviorPhaseName.IDLE_WAIT)
-        self._transition(PetState.IDLE)
-        self._pick_new_idle_goal()
+        """Hand the controller back to idle after the Show sequence ends."""
+        self._ensure_runtime_layers()
+        self._show_director.finish(self)
 
-    def _start_show_phase_ability(self, phase: BehaviorPhaseName | str, context: ShowContext) -> None:
-        if phase == BehaviorPhaseName.SHOW_OPEN_WINGS:
-            self._start_open_wings()
-            self.pet.position = Vec2(context.start_x, context.start_y)
-            return
-        if phase == BehaviorPhaseName.SHOW_FLY:
-            self._start_flight_to(
-                context.hover_x,
-                context.hover_y,
-                state=PetState.FLY,
-                speed=self.effective_stats().flight_speed * self._resource_influence().special_factor,
-            )
-            return
-        if phase == BehaviorPhaseName.SHOW_HOVER:
-            self._start_hover(context.hover_x, context.hover_y, SHOW_HOVER_SECONDS + SHOW_TITLE_SECONDS)
-            return
-        if phase == BehaviorPhaseName.SHOW_TITLE:
-            if not isinstance(self._active_pet_ability, HoverAbility):
-                self._start_hover(context.hover_x, context.hover_y, SHOW_TITLE_SECONDS)
-            return
-        if phase == BehaviorPhaseName.SHOW_LAND:
-            self._start_flight_to(
-                context.land_x,
-                context.land_y,
-                state=PetState.WING_LAND,
-                speed=self.effective_stats().landing_speed * self._resource_influence().special_factor,
-            )
-            return
-        if phase == BehaviorPhaseName.SHOW_CLOSE_WINGS:
-            self.pet.position = Vec2(context.land_x, context.land_y)
-            self._start_close_wings()
+    def _start_show_phase_ability(
+        self, phase: BehaviorPhaseName | str, context: ShowContext
+    ) -> None:
+        """Deprecated shim — see `PetShowDirector._start_phase_ability`."""
+        self._ensure_runtime_layers()
+        self._show_director._start_phase_ability(self, phase, context)
 
     def _start_open_wings(self) -> None:
-        self._transition(PetState.OPEN_WINGS)
-        self.pet.velocity = Vec2()
-        duration = self.effective_stats().wing_open_seconds / max(self._resource_influence().special_factor, 0.25)
-        self._active_pet_ability = WingAbility(PetState.OPEN_WINGS, duration)
+        """Deprecated shim — see `PetShowDirector._start_open_wings`."""
+        self._ensure_runtime_layers()
+        self._show_director._start_open_wings(self)
 
     def _start_close_wings(self) -> None:
-        self._transition(PetState.CLOSE_WINGS)
-        self.pet.velocity = Vec2()
-        duration = self.effective_stats().wing_close_seconds / max(self._resource_influence().special_factor, 0.25)
-        self._active_pet_ability = WingAbility(PetState.CLOSE_WINGS, duration)
+        """Deprecated shim — see `PetShowDirector._start_close_wings`."""
+        self._ensure_runtime_layers()
+        self._show_director._start_close_wings(self)
 
-    def _start_flight_to(self, target_x: float, target_y: float, *, state: PetState, speed: float) -> None:
-        self._transition(state)
-        self.pet.support_surface_id = None
-        self.pet.target_surface_id = None
-        self._active_pet_ability = FlightAbility(
-            start_x=self.pet.position.x,
-            start_y=self.pet.position.y,
-            target_x=target_x,
-            target_y=target_y,
-            speed=max(speed, 1.0),
-            state=state,
+    def _start_flight_to(
+        self, target_x: float, target_y: float, *, state: PetState, speed: float
+    ) -> None:
+        """Deprecated shim — see `PetShowDirector._start_flight_to`."""
+        self._ensure_runtime_layers()
+        self._show_director._start_flight_to(
+            self, target_x, target_y, state=state, speed=speed
         )
 
-    def _start_hover(self, base_x: float, base_y: float, duration: float | None = None) -> None:
-        self._transition(PetState.HOVER)
-        self.pet.velocity = Vec2()
-        self._active_pet_ability = HoverAbility(base_x, base_y, None if duration is None else max(duration, 0.0))
+    def _start_hover(
+        self, base_x: float, base_y: float, duration: float | None = None
+    ) -> None:
+        """Deprecated shim — see `PetShowDirector._start_hover`."""
+        self._ensure_runtime_layers()
+        self._show_director._start_hover(self, base_x, base_y, duration)
 
     def _update_pet_ability(self, dt: float) -> bool:
-        ability = self._active_pet_ability
-        if ability is None:
-            return True
-        if isinstance(ability, WingAbility):
-            ability.elapsed += max(dt, 0.0)
-            return ability.elapsed >= ability.duration
-        if isinstance(ability, FlightAbility):
-            return self._update_flight_ability(ability, dt)
-        if isinstance(ability, HoverAbility):
-            return self._update_hover_ability(ability, dt)
-        return True
+        """Deprecated shim — see `PetShowDirector._update_ability`."""
+        self._ensure_runtime_layers()
+        return self._show_director._update_ability(self, dt)
 
     def _update_flight_ability(self, ability: FlightAbility, dt: float) -> bool:
-        dx = ability.target_x - self.pet.position.x
-        dy = ability.target_y - self.pet.position.y
-        distance = math.hypot(dx, dy)
-        if distance <= 0.001:
-            self.pet.position = Vec2(ability.target_x, ability.target_y)
-            self.pet.velocity = Vec2()
-            return True
-
-        step = ability.speed * max(dt, 0.0)
-        if step >= distance:
-            self.pet.position = Vec2(ability.target_x, ability.target_y)
-            self.pet.velocity = Vec2()
-            return True
-
-        direction_x = dx / distance
-        direction_y = dy / distance
-        self.pet.position.x += direction_x * step
-        self.pet.position.y += direction_y * step
-        self.pet.velocity = Vec2(direction_x * ability.speed, direction_y * ability.speed)
-        self.pet.facing = Facing.RIGHT if direction_x >= 0 else Facing.LEFT
-        return False
+        """Deprecated shim — see `PetShowDirector._update_flight`."""
+        self._ensure_runtime_layers()
+        return self._show_director._update_flight(self, ability, dt)
 
     def _update_hover_ability(self, ability: HoverAbility, dt: float) -> bool:
-        ability.elapsed += max(dt, 0.0)
-        influence = self._resource_influence()
-        self.pet.position = Vec2(
-            ability.base_x,
-            ability.base_y
-            + math.sin(ability.elapsed * self.effective_stats().hover_frequency * max(influence.special_factor, 0.25))
-            * self.effective_stats().hover_amplitude
-            * influence.special_factor,
-        )
-        if ability.duration is None:
-            return False
-        return ability.elapsed >= ability.duration
+        """Deprecated shim — see `PetShowDirector._update_hover`."""
+        self._ensure_runtime_layers()
+        return self._show_director._update_hover(self, ability, dt)
 
     def _executor(self) -> PathExecutor:
         executor = getattr(self, "path_executor", None)
@@ -758,10 +685,8 @@ class PetController:
     def _transition(self, state: PetState) -> None:
         if self.pet.state == state:
             return
-        self.state_machine.state = self.pet.state
-        if self.state_machine.transition(state):
-            self.pet.state = state
-            self.pet.state_time = 0.0
+        self._ensure_runtime_layers()
+        self.mediator.transition(state)
 
     def _apply_motion_events(self, events) -> None:
         if events.support_lost and self.pet.state not in {PetState.DRAGGED, PetState.CLIMB}:

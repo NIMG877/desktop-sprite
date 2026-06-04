@@ -138,9 +138,7 @@ def load_config(
     wing_data = pet_data.pop("wings", {})
     hover_data = pet_data.pop("hover", {})
     physics_data = dict(data["physics"])
-    for motion_key in ("walk_speed", "climb_speed", "jump_speed_x", "jump_speed_y"):
-        if motion_key in pet_data:
-            physics_data[motion_key] = pet_data.pop(motion_key)
+    _migrate_pet_motion_keys(pet_data, physics_data)
 
     return AppConfig(
         app=RuntimeConfig(
@@ -171,6 +169,34 @@ def _load_character_profiles(config_root: Path, data: dict[str, Any]) -> None:
         with profile_path.open("r", encoding="utf-8") as file:
             profile_data: dict[str, Any] = json.load(file)
         _merge_dict(data, profile_data)
+
+
+# Motion-key set that historically lived under the `pet` segment and
+# has to be hoisted into the `physics` segment before we build
+# `PhysicsConfig`. See `config/characters/pet.json` for the source of
+# truth and `README.md` for the migration note.
+_PET_MOTION_KEYS: tuple[str, ...] = (
+    "walk_speed",
+    "climb_speed",
+    "jump_speed_x",
+    "jump_speed_y",
+)
+
+
+def _migrate_pet_motion_keys(pet_data: dict[str, Any], physics_data: dict[str, Any]) -> None:
+    """Move `walk_speed` / `climb_speed` / `jump_speed_*` from `pet` to `physics`.
+
+    Older character profiles and default configs placed motion
+    parameters under the `pet` segment, alongside the cosmetic
+    settings (`flight`, `wings`, `hover`). The runtime now consumes
+    them via `PhysicsConfig`, so this helper performs the silent
+    migration in one explicit location. New configs should write the
+    values directly into the `physics` segment.
+    """
+
+    for key in _PET_MOTION_KEYS:
+        if key in pet_data:
+            physics_data[key] = pet_data.pop(key)
 
 
 def _merge_dict(target: dict[str, Any], source: dict[str, Any]) -> None:

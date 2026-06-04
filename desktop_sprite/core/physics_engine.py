@@ -11,22 +11,20 @@ from desktop_sprite.utils.config import PhysicsConfig
 
 @dataclass(slots=True)
 class MotionEvents:
+    """Result of a single physics update.
+
+    Only `landed_on` and `support_lost` are consumed by the rest of
+    the runtime. The other fields used to be set here but were never
+    read; they were removed in P0-D as part of the dead-code cleanup.
+    """
+
     landed_on: str | None = None
     support_lost: bool = False
-    climb_completed: bool = False
-    clamped_to_ground: bool = False
-    clamped_to_screen: bool = False
 
 
 class PhysicsEngine:
-    def __init__(
-        self,
-        config: PhysicsConfig,
-        *,
-        apply_state_transitions: bool = True,
-    ) -> None:
+    def __init__(self, config: PhysicsConfig) -> None:
         self.config = config
-        self.apply_state_transitions = apply_state_transitions
 
     def reconcile_platform_motion(
         self,
@@ -90,14 +88,12 @@ class PhysicsEngine:
         side = snapshot.platform_by_id(pet.support_surface_id or pet.target_surface_id)
         if side is None:
             events.support_lost = True
-            if self.apply_state_transitions:
-                pet.state = PetState.FALL
+            pet.state = PetState.FALL
             pet.target_surface_id = None
             return
         if not side.climbable:
             events.support_lost = True
-            if self.apply_state_transitions:
-                pet.state = PetState.FALL
+            pet.state = PetState.FALL
             pet.target_surface_id = None
             return
         pet.support_surface_id = side.id
@@ -122,8 +118,7 @@ class PhysicsEngine:
             if pet.support_surface_id and snapshot.platform_by_id(pet.support_surface_id) is None:
                 pet.support_surface_id = None
                 events.support_lost = True
-                if self.apply_state_transitions:
-                    pet.state = PetState.FALL
+                pet.state = PetState.FALL
             return
 
         platform = min(candidates, key=lambda item: item.rect.top)
@@ -133,8 +128,7 @@ class PhysicsEngine:
         events.landed_on = platform.id
         if pet.state in {PetState.FALL, PetState.JUMP}:
             pet.velocity.x = 0.0
-            if self.apply_state_transitions:
-                pet.state = PetState.IDLE
+            pet.state = PetState.IDLE
 
     def _clamp_horizontal(self, pet: Pet, snapshot: EnvironmentSnapshot) -> None:
         bounds = snapshot.work_area_rect
@@ -155,8 +149,7 @@ class PhysicsEngine:
         if platform is None or not platform.walkable:
             pet.support_surface_id = None
             events.support_lost = True
-            if self.apply_state_transitions:
-                pet.state = PetState.FALL
+            pet.state = PetState.FALL
             return
 
         vertical_tolerance = 3.0
@@ -167,8 +160,7 @@ class PhysicsEngine:
 
         pet.support_surface_id = None
         events.support_lost = True
-        if self.apply_state_transitions:
-            pet.state = PetState.FALL
+        pet.state = PetState.FALL
 
     def _clamp_to_work_area(self, pet: Pet, snapshot: EnvironmentSnapshot, events: MotionEvents) -> None:
         self._clamp_horizontal(pet, snapshot)
@@ -192,12 +184,10 @@ class PhysicsEngine:
         pet.position.y = floor_y - pet.height
         pet.velocity.y = 0.0
         pet.support_surface_id = "ground:work_area"
-        events.clamped_to_ground = True
         events.landed_on = "ground:work_area"
         if pet.state in {PetState.FALL, PetState.JUMP}:
             pet.velocity.x = 0.0
-            if self.apply_state_transitions:
-                pet.state = PetState.IDLE
+            pet.state = PetState.IDLE
 
     def _clamp_to_screen(self, pet: Pet, snapshot: EnvironmentSnapshot, events: MotionEvents) -> None:
         bottom_limit = snapshot.screen_rect.bottom + pet.height * 2
@@ -205,10 +195,8 @@ class PhysicsEngine:
             pet.position.y = snapshot.work_area_rect.bottom - pet.height
             pet.velocity.y = 0.0
             pet.support_surface_id = "ground:work_area"
-            events.clamped_to_screen = True
             events.landed_on = "ground:work_area"
-            if self.apply_state_transitions:
-                pet.state = PetState.IDLE
+            pet.state = PetState.IDLE
 
     def _top_platform_id_for(self, side: Platform) -> str:
         return PlatformTopology.top_id_for_side(side)

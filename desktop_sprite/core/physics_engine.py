@@ -1,3 +1,23 @@
+"""Physics engine.
+
+A pure kinematics + collision module. It mutates ``pet.position``,
+``pet.velocity``, ``pet.support_surface_id`` and ``pet.target_surface_id``
+in place but **never** writes ``pet.state`` or ``pet.state_time`` —
+those are owned exclusively by :class:`PetStateMediator`. State
+transitions in response to physics are signalled through
+:class:`MotionEvents` and consumed by the controller (which delegates
+to the mediator).
+
+The contract for callers is:
+
+    events = physics.update(pet, snapshot, dt)
+    controller._apply_motion_events(events)   # calls mediator.transition
+
+This split keeps the state machine as the single source of truth for
+``pet.state`` and lets the physics engine stay free of any
+``BehaviorStateMachine`` coupling.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -11,15 +31,23 @@ from desktop_sprite.utils.config import PhysicsConfig
 
 @dataclass(slots=True)
 class MotionEvents:
-    """Result of a single physics update.
+    """Semantic events emitted by a single physics update.
 
-    Only `landed_on` and `support_lost` are consumed by the rest of
-    the runtime. The other fields used to be set here but were never
-    read; they were removed in P0-D as part of the dead-code cleanup.
+    The controller translates these into state transitions via the
+    mediator. Physics itself never writes ``pet.state``.
+
+    * ``landed_on`` — pet came to rest on the named platform this
+      frame (was airborne). Caller transitions FALL/JUMP → IDLE.
+    * ``support_lost`` — pet's standing support disappeared while not
+      in a DRAGGED or CLIMB state. Caller transitions → FALL.
+    * ``climb_support_lost`` — pet was CLIMB and the climb surface
+      disappeared or became non-climbable. Caller transitions
+      CLIMB → FALL.
     """
 
     landed_on: str | None = None
     support_lost: bool = False
+    climb_support_lost: bool = False
 
 
 class PhysicsEngine:
@@ -57,7 +85,7 @@ class PhysicsEngine:
             return events
         if pet.state == PetState.CLIMB:
             self._validate_climb_support(pet, snapshot, events)
-            if not events.support_lost:
+            if not events.climb_support_lost:
                 pet.position.x += pet.velocity.x * dt
                 pet.position.y += pet.velocity.y * dt
             self._clamp_to_work_area(pet, snapshot, events)
@@ -84,16 +112,16 @@ class PhysicsEngine:
         self._clamp_to_screen(pet, snapshot, events)
         return events
 
-    def _validate_climb_support(self, pet: Pet, snapshot: EnvironmentSnapshot, events: MotionEvents) -> None:
+    def _validate_climb_support(
+        self,
+        pet: Pet,
+        snapshot: EnvironmentSnapshot,
+        events: MotionEvents,
+    ) -> None:
         side = snapshot.platform_by_id(pet.support_surface_id or pet.target_surface_id)
-        if side is None:
-            events.support_lost = True
-            pet.state = PetState.FALL
-            pet.target_surface_id = None
-            return
-        if not side.climbable:
-            events.support_lost = True
-            pet.state = PetState.FALL
+        if side is None or not side.climbable:
+            events.climb_support_lost = True
+            pet.support_surface_id = None
             pet.target_surface_id = None
             return
         pet.support_surface_id = side.id
@@ -112,13 +140,14 @@ class PhysicsEngine:
         candidates = [
             platform
             for platform in snapshot.platforms
-            if platform.walkable and old_bottom <= platform.rect.top <= pet.bottom and pet.rect.overlaps_x(platform.rect)
+            if platform.walkable
+            and old_bottom <= platform.rect.top <= pet.bottom
+            and pet.rect.overlaps_x(platform.rect)
         ]
         if not candidates:
             if pet.support_surface_id and snapshot.platform_by_id(pet.support_surface_id) is None:
                 pet.support_surface_id = None
                 events.support_lost = True
-                pet.state = PetState.FALL
             return
 
         platform = min(candidates, key=lambda item: item.rect.top)
@@ -128,7 +157,6 @@ class PhysicsEngine:
         events.landed_on = platform.id
         if pet.state in {PetState.FALL, PetState.JUMP}:
             pet.velocity.x = 0.0
-            pet.state = PetState.IDLE
 
     def _clamp_horizontal(self, pet: Pet, snapshot: EnvironmentSnapshot) -> None:
         bounds = snapshot.work_area_rect
@@ -141,7 +169,12 @@ class PhysicsEngine:
             pet.velocity.x = -abs(pet.velocity.x)
             pet.facing = Facing.LEFT
 
-    def _validate_support(self, pet: Pet, snapshot: EnvironmentSnapshot, events: MotionEvents) -> None:
+    def _validate_support(
+        self,
+        pet: Pet,
+        snapshot: EnvironmentSnapshot,
+        events: MotionEvents,
+    ) -> None:
         if pet.support_surface_id is None:
             return
 
@@ -149,7 +182,6 @@ class PhysicsEngine:
         if platform is None or not platform.walkable:
             pet.support_surface_id = None
             events.support_lost = True
-            pet.state = PetState.FALL
             return
 
         vertical_tolerance = 3.0
@@ -160,7 +192,6 @@ class PhysicsEngine:
 
         pet.support_surface_id = None
         events.support_lost = True
-        pet.state = PetState.FALL
 
     def _clamp_to_work_area(self, pet: Pet, snapshot: EnvironmentSnapshot, events: MotionEvents) -> None:
         self._clamp_horizontal(pet, snapshot)
@@ -187,7 +218,6 @@ class PhysicsEngine:
         events.landed_on = "ground:work_area"
         if pet.state in {PetState.FALL, PetState.JUMP}:
             pet.velocity.x = 0.0
-            pet.state = PetState.IDLE
 
     def _clamp_to_screen(self, pet: Pet, snapshot: EnvironmentSnapshot, events: MotionEvents) -> None:
         bottom_limit = snapshot.screen_rect.bottom + pet.height * 2
@@ -196,7 +226,6 @@ class PhysicsEngine:
             pet.velocity.y = 0.0
             pet.support_surface_id = "ground:work_area"
             events.landed_on = "ground:work_area"
-            pet.state = PetState.IDLE
 
     def _top_platform_id_for(self, side: Platform) -> str:
         return PlatformTopology.top_id_for_side(side)

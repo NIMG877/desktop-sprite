@@ -689,7 +689,14 @@ class PetController:
         self.mediator.transition(state)
 
     def _apply_motion_events(self, events) -> None:
-        if events.support_lost and self.pet.state not in {PetState.DRAGGED, PetState.CLIMB}:
+        # Physics emits *events*; this method is the only path that
+        # translates them into ``pet.state`` transitions. Going through
+        # ``_transition`` (which delegates to the mediator) keeps the
+        # state machine as the single writer for ``pet.state`` and
+        # ``pet.state_time`` — physics never touches them.
+        if events.climb_support_lost:
+            self._transition(PetState.FALL)
+        elif events.support_lost and self.pet.state != PetState.DRAGGED:
             self._transition(PetState.FALL)
         if events.landed_on and self.pet.state in {PetState.FALL, PetState.JUMP}:
             self.pet.velocity.x = 0.0

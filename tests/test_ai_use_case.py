@@ -1,4 +1,3 @@
-import pytest
 from desktop_sprite.ai.use_case import UseCase, UseCaseRegistry
 
 
@@ -60,3 +59,4 @@ def test_registry_register_idempotent_overwrites():
     reg.register(a1)
     reg.register(a2)
     assert reg.get("a") is a2
+    assert reg.for_topic("t") == [a2]

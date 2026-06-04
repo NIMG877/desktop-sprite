@@ -6,7 +6,7 @@ Orchestrator 通过 `UseCaseRegistry` 按 topic 反查。
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True, slots=True)

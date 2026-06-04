@@ -410,8 +410,8 @@ class DebugOverlayWindow(QWidget):
         # lines.append(f"edge walk={walk_edges} drop={drop_edges} jump={jump_edges} climb={climb_edges}")
         # lines.append("map: blue walk green climb")
         # lines.append("graph: dotted path: bold yellow=dotted jump-related")
-        path_plan = debug_state.path_plan
-        if path_plan is None or path_plan.is_complete:
+        path_plan = self._path_highlight()
+        if path_plan is None:
             lines.append("path=-")
             return lines
 
@@ -465,8 +465,8 @@ class DebugOverlayWindow(QWidget):
         return QRectF(x, y, width, height)
 
     def _draw_complete_path(self, painter: QPainter) -> None:
-        path_plan = self.character.debug_state().path_plan
-        if path_plan is None or path_plan.is_complete:
+        path_plan = self._path_highlight()
+        if path_plan is None:
             return
 
         segments = self._path_segments()
@@ -508,13 +508,33 @@ class DebugOverlayWindow(QWidget):
         end = QPointF(target.x + half_w, target.y + half_h)
         return [(start, end)]
 
-    def _path_segments(self) -> list[tuple[QPointF, QPointF, int, TraversalAction]]:
+    def _path_highlight(self, *, return_pet: bool = False):
+        """Return the path plan if it's drawable, else ``None``.
+
+        The visual overlay, the segment builder, and the text overlay
+        all share the same "is this path worth showing?" pre-condition:
+        a non-empty, non-complete path plan — and, for anything that
+        has to anchor points to the pet body, a non-``None`` pet.
+        Centralising the check keeps the three call sites in lockstep.
+
+        Pass ``return_pet=True`` to also receive the pet body, which
+        is what the segment builder needs to anchor the first
+        waypoint at the pet's current center.
+        """
+
         path_plan = self.character.debug_state().path_plan
         if path_plan is None or path_plan.is_complete:
-            return []
-
+            return (None, None) if return_pet else None
+        if not return_pet:
+            return path_plan
         pet = self.character.render_state().body
         if pet is None:
+            return None, None
+        return path_plan, pet
+
+    def _path_segments(self) -> list[tuple[QPointF, QPointF, int, TraversalAction]]:
+        path_plan, pet = self._path_highlight(return_pet=True)
+        if path_plan is None:
             return []
         current = QPointF(pet.center_x, pet.position.y + pet.height / 2)
         segments: list[tuple[QPointF, QPointF, int, TraversalAction]] = []

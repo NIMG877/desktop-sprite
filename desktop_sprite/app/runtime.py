@@ -108,6 +108,13 @@ class AppRuntime:
         self.config = config
         self.app = app
 
+        # Cache the test-monkey-patchable symbols once at construction.
+        # Tests patch `desktop_sprite.app.*` *before* the runtime is
+        # built, so the cache still picks up their fakes. Storing the
+        # dict (not the individual names) keeps the cache local to the
+        # runtime and avoids repeated dict constructions in hot paths.
+        self._app_symbols: dict = _app_symbols()
+
         # Pet runtime state. Re-built by `restart_pet`.
         self.character: DesktopCharacter
         self.window: SpriteWindow
@@ -115,8 +122,7 @@ class AppRuntime:
         self.show_overlay: ShowOverlayWindow
 
         # Persistent state read by the management window.
-        syms = _app_symbols()
-        self.spirit_marks: SpiritMarkInventory = syms["load_spirit_mark_inventory"](
+        self.spirit_marks: SpiritMarkInventory = self._app_symbols["load_spirit_mark_inventory"](
             paths.user_spirit_mark_path
         )
         self.inventory: InventorySnapshot | None = None
@@ -135,6 +141,9 @@ class AppRuntime:
     def from_default_args(cls) -> "AppRuntime":
         """Build a runtime using the shipped default config and CLI args."""
 
+        # Read every patchable symbol once before the runtime is built.
+        # The runtime's `__init__` will cache the same dict on
+        # `self._app_symbols` for use in the rest of the lifecycle.
         syms = _app_symbols()
         Qt = syms["Qt"]
         QTimer = syms["QTimer"]
@@ -185,11 +194,10 @@ class AppRuntime:
     ) -> tuple[DesktopCharacter, SpriteWindow, TargetSelectorOverlay, ShowOverlayWindow]:
         """Build a fresh character + UI triple bound to the given config."""
 
-        syms = _app_symbols()
-        create_character = syms["create_character"]
-        SpriteWindow = syms["SpriteWindow"]
-        TargetSelectorOverlay = syms["TargetSelectorOverlay"]
-        ShowOverlayWindow = syms["ShowOverlayWindow"]
+        create_character = self._app_symbols["create_character"]
+        SpriteWindow = self._app_symbols["SpriteWindow"]
+        TargetSelectorOverlay = self._app_symbols["TargetSelectorOverlay"]
+        ShowOverlayWindow = self._app_symbols["ShowOverlayWindow"]
 
         runtime_character = create_character(runtime_config, character_type=self.args.character)
         set_attribute_sheet = getattr(runtime_character, "set_attribute_sheet", None)
@@ -233,10 +241,9 @@ class AppRuntime:
     def restart_pet(self) -> None:
         """Rebuild the pet runtime from disk and reset dependent windows."""
 
-        syms = _app_symbols()
-        load_config = syms["load_config"]
-        configure_logging = syms["configure_logging"]
-        TrayController = syms["TrayController"]
+        load_config = self._app_symbols["load_config"]
+        configure_logging = self._app_symbols["configure_logging"]
+        TrayController = self._app_symbols["TrayController"]
 
         try:
             new_config = load_config(self.paths.config_path, self.paths.user_config_path)
@@ -262,9 +269,8 @@ class AppRuntime:
     def apply_runtime_config(self) -> None:
         """Hot-apply config changes without rebuilding the pet runtime."""
 
-        syms = _app_symbols()
-        load_config = syms["load_config"]
-        configure_logging = syms["configure_logging"]
+        load_config = self._app_symbols["load_config"]
+        configure_logging = self._app_symbols["configure_logging"]
 
         try:
             new_config = load_config(self.paths.config_path, self.paths.user_config_path)
@@ -284,9 +290,8 @@ class AppRuntime:
     def open_main_window(self) -> None:
         """Lazily build the FluentWindow the first time it is requested."""
 
-        syms = _app_symbols()
-        load_inventory = syms["load_inventory"]
-        MainWindow = syms["MainWindow"]
+        load_inventory = self._app_symbols["load_inventory"]
+        MainWindow = self._app_symbols["MainWindow"]
 
         if self.main_window is None:
             self.inventory = load_inventory(
@@ -314,8 +319,7 @@ class AppRuntime:
     def save_updated_spirit_marks(self, updated: SpiritMarkInventory) -> None:
         """Persist equipped/owned marks and reflect attribute changes."""
 
-        syms = _app_symbols()
-        save_spirit_mark_inventory = syms["save_spirit_mark_inventory"]
+        save_spirit_mark_inventory = self._app_symbols["save_spirit_mark_inventory"]
 
         self.spirit_marks = updated
         save_spirit_mark_inventory(self.paths.user_spirit_mark_path, updated)
@@ -330,8 +334,7 @@ class AppRuntime:
     def request_debug_spirit_mark(self) -> str:
         """Mint a debug spirit mark end-to-end (write inventory + marks)."""
 
-        syms = _app_symbols()
-        grant_spirit_mark = syms["grant_spirit_mark"]
+        grant_spirit_mark = self._app_symbols["grant_spirit_mark"]
 
         request = SpiritMarkGrantRequest(
             source_type="debug",
@@ -377,8 +380,7 @@ class AppRuntime:
     def run(self) -> int:
         """Enter the Qt event loop and return its exit code."""
 
-        syms = _app_symbols()
-        TrayController = syms["TrayController"]
+        TrayController = self._app_symbols["TrayController"]
 
         # Build the pet runtime for the first time using the loaded config.
         self.character, self.window, self.target_selector, self.show_overlay = (

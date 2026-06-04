@@ -28,6 +28,7 @@ from qfluentwidgets import (
     SwitchButton,
 )
 
+from desktop_sprite.ui.ui_state_store import UiStateStore
 from desktop_sprite.utils.safe_io import merge_dict
 
 
@@ -238,7 +239,9 @@ class ConfigEditorWidget(QWidget):
 
     def _load_or_create_ui_state(self) -> dict[str, Any]:
         section_defaults = self._section_default_states()
-        state = self._read_ui_state()
+        # `UiStateStore.read()` returns `{}` on missing file or JSON error,
+        # which is the same behaviour the local helper used to have.
+        state = self._ui_state_store.read()
         settings = state.setdefault("settings", {})
         expanded = settings.setdefault("expanded", {})
         changed = False
@@ -251,28 +254,15 @@ class ConfigEditorWidget(QWidget):
             del expanded[key]
             changed = True
         if changed or not self.ui_state_path.is_file():
-            self._write_ui_state(state)
+            # `state` already contains everything that was on disk plus
+            # the merged section defaults; writing it preserves any
+            # other top-level keys (e.g. `main_window`).
+            self._ui_state_store.write(state)
         return state
 
-    def _read_ui_state(self) -> dict[str, Any]:
-        if not self.ui_state_path.is_file():
-            return {}
-        try:
-            with self.ui_state_path.open("r", encoding="utf-8") as file:
-                state = json.load(file)
-        except (OSError, json.JSONDecodeError):
-            return {}
-        return state if isinstance(state, dict) else {}
-
-    def _write_ui_state(self, state: dict[str, Any] | None = None) -> None:
-        payload = state if state is not None else self._ui_state
-        current_state = self._read_ui_state()
-        current_state["settings"] = payload.get("settings", {})
-        self._ui_state = current_state
-        self.ui_state_path.parent.mkdir(parents=True, exist_ok=True)
-        with self.ui_state_path.open("w", encoding="utf-8") as file:
-            json.dump(current_state, file, ensure_ascii=False, indent=2)
-            file.write("\n")
+    @property
+    def _ui_state_store(self) -> UiStateStore:
+        return UiStateStore(self.ui_state_path)
 
     def _section_default_states(self) -> dict[str, bool]:
         defaults: dict[str, bool] = {"default": True}
@@ -377,11 +367,18 @@ class ConfigEditorWidget(QWidget):
         return section
 
     def _set_section_expanded(self, key: str, expanded: bool) -> None:
-        state = self._ui_state.setdefault("settings", {}).setdefault("expanded", {})
-        if state.get(key) == expanded:
-            return
-        state[key] = expanded
-        self._write_ui_state()
+        # `update` reads the current state (which may also hold
+        # `main_window` and other top-level keys we don't own), hands
+        # it to the mutator, then writes the result back. The mutator
+        # is free to mutate in place and return None — the store
+        # writes whatever it received.
+        def mutate(state: dict[str, Any]) -> None:
+            expanded_map = state.setdefault("settings", {}).setdefault("expanded", {})
+            if expanded_map.get(key) == expanded:
+                return
+            expanded_map[key] = expanded
+
+        self._ui_state_store.update(mutate)
 
     def _create_value_row(
         self,

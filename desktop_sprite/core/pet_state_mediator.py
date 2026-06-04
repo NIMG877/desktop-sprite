@@ -23,7 +23,7 @@ addressed directly via `controller.pet`, `controller.pathfinder`, etc.
 
 from __future__ import annotations
 
-from desktop_sprite.core.behavior_orchestrator import BehaviorOrchestrator
+from desktop_sprite.core.behavior_orchestrator import BehaviorOrchestrator, BehaviorPhaseName
 from desktop_sprite.core.behavior_state_machine import BehaviorStateMachine
 from desktop_sprite.core.pet_mode import ModeController, PetMode
 from desktop_sprite.models.state import Pet, PetState
@@ -48,6 +48,27 @@ class PetStateMediator:
         self.state_machine = state_machine
         self.orchestrator = orchestrator
         self.mode_controller = mode_controller
+
+    @classmethod
+    def bound_to(cls, pet: Pet) -> "PetStateMediator":
+        """Build a mediator pre-wired to `pet`, starting in the IDLE phase.
+
+        The two call sites that build a mediator from scratch
+        (``PetController.__init__`` and ``PetController._ensure_runtime_layers``)
+        both follow the same recipe: a fresh state machine that
+        mirrors the pet's current state, an idle orchestrator, and a
+        free mode controller. Centralising the recipe here means the
+        two sites cannot drift apart — and adding a new sub-system
+        (e.g. an animation cross-fade bridge) only needs to be wired
+        in once.
+        """
+
+        return cls(
+            pet=pet,
+            state_machine=BehaviorStateMachine(pet.state),
+            orchestrator=BehaviorOrchestrator(BehaviorPhaseName.IDLE_WAIT),
+            mode_controller=ModeController(PetMode.IDLE),
+        )
 
     # ------------------------------------------------------------------
     # State machine — single transition path

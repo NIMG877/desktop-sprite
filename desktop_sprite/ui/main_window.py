@@ -30,14 +30,14 @@ from desktop_sprite.ui.inventory_widget import InventoryWidget
 from desktop_sprite.ui.ui_state_store import UiStateStore
 
 
-# Display label → qfluentwidgets.Theme enum. The keys are also the strings
-# shown in the home-page ComboBox; the order in this mapping defines the
-# order users see in the dropdown.
-_THEME_OPTIONS: tuple[tuple[str, Theme], ...] = (
-    ("深色", Theme.DARK),
-    ("浅色", Theme.LIGHT),
-    ("跟随系统", Theme.AUTO),
-)
+# Display label → qfluentwidgets.Theme enum. The dict's iteration order
+# defines the order the home-page ComboBox shows options to the user;
+# the keys are also the strings persisted in ``ui_state.json``.
+_THEME_OPTIONS: dict[str, Theme] = {
+    "深色": Theme.DARK,
+    "浅色": Theme.LIGHT,
+    "跟随系统": Theme.AUTO,
+}
 
 
 class MainWindow(FluentWindow):
@@ -241,7 +241,7 @@ class MainWindow(FluentWindow):
         layout.addLayout(text_layout, 1)
 
         self.theme_combo = ComboBox(card)
-        for label, _theme in _THEME_OPTIONS:
+        for label in _THEME_OPTIONS:
             self.theme_combo.addItem(label)
         self.theme_combo.setCurrentText(self._label_for_theme(self._current_theme))
         self.theme_combo.currentTextChanged.connect(self._on_theme_changed)
@@ -249,21 +249,23 @@ class MainWindow(FluentWindow):
         return card
 
     def _on_theme_changed(self, label: str) -> None:
-        for entry_label, theme in _THEME_OPTIONS:
-            if entry_label == label:
-                if theme == self._current_theme:
-                    return
-                self._current_theme = theme
-                setTheme(theme)
-                self._save_theme(theme)
-                return
+        # The ComboBox only ever feeds us labels that came from
+        # `_THEME_OPTIONS`, so a KeyError here would mean the dict and
+        # the dropdown have drifted out of sync — fail loudly in that
+        # case rather than silently no-op.
+        theme = _THEME_OPTIONS[label]
+        if theme == self._current_theme:
+            return
+        self._current_theme = theme
+        setTheme(theme)
+        self._save_theme(theme)
 
     @staticmethod
     def _label_for_theme(theme: Theme) -> str:
-        for label, candidate in _THEME_OPTIONS:
+        for label, candidate in _THEME_OPTIONS.items():
             if candidate == theme:
                 return label
-        return _THEME_OPTIONS[0][0]
+        return next(iter(_THEME_OPTIONS))
 
     def _load_saved_theme(self) -> Theme:
         state = self._ui_state_store.read()
@@ -281,10 +283,7 @@ class MainWindow(FluentWindow):
     def _theme_for_label(label: object) -> Theme | None:
         if not isinstance(label, str):
             return None
-        for entry_label, theme in _THEME_OPTIONS:
-            if entry_label == label:
-                return theme
-        return None
+        return _THEME_OPTIONS.get(label)
 
     def _create_realtime_page(self) -> QWidget:
         page = self._page("realtimePage")

@@ -6,12 +6,11 @@ import time
 from dataclasses import dataclass
 
 from desktop_sprite.core.animation_player import AnimationPlayer
-from desktop_sprite.core.behavior_orchestrator import BehaviorOrchestrator, BehaviorPhaseName
-from desktop_sprite.core.behavior_state_machine import BehaviorStateMachine
+from desktop_sprite.core.behavior_orchestrator import BehaviorPhaseName
 from desktop_sprite.core.character import CharacterDebugState, CharacterRenderState
 from desktop_sprite.core.pathfinding import PathFinder, PathPlan, PathStep, TraversalAction
 from desktop_sprite.core.path_executor import PathExecutor
-from desktop_sprite.core.pet_mode import ModeController, PetMode
+from desktop_sprite.core.pet_mode import PetMode
 from desktop_sprite.core.pet_show_director import (
     SHOW_HOVER_SECONDS,
     FlightAbility,
@@ -101,12 +100,7 @@ class PetController:
         # code that pre-dates the mediator.
         from desktop_sprite.core.pet_state_mediator import PetStateMediator
 
-        self.mediator = PetStateMediator(
-            pet=self.pet,
-            state_machine=BehaviorStateMachine(self.pet.state),
-            orchestrator=BehaviorOrchestrator(BehaviorPhaseName.IDLE_WAIT),
-            mode_controller=ModeController(PetMode.IDLE),
-        )
+        self.mediator = PetStateMediator.bound_to(self.pet)
         self.animation = AnimationPlayer()
         self.snapshot = self.environment.snapshot()
         self._last_environment_refresh = 0.0
@@ -438,12 +432,7 @@ class PetController:
         if not hasattr(self, "mediator"):
             from desktop_sprite.core.pet_state_mediator import PetStateMediator
 
-            self.mediator = PetStateMediator(
-                pet=self.pet,
-                state_machine=BehaviorStateMachine(self.pet.state),
-                orchestrator=BehaviorOrchestrator(BehaviorPhaseName.IDLE_WAIT),
-                mode_controller=ModeController(PetMode.IDLE),
-            )
+            self.mediator = PetStateMediator.bound_to(self.pet)
         if not hasattr(self, "_show_director"):
             self._show_director = PetShowDirector()
 

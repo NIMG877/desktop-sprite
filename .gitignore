@@ -5,7 +5,7 @@ __pycache__/
 .venv/
 
 # Test and coverage output
-.pytest_cache/
+.pytest*/
 
 
 # Runtime logs and local-only config
@@ -19,6 +19,7 @@ logs/
 
 # system design files
 /system_design/
+/docs/
 
 # User configs
 /config/user/

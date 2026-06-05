@@ -45,10 +45,15 @@ class BubbleOverlayWindow(QWidget):
     def current_text(self) -> str:
         return self._current_text
 
-    def show_message(self, message: AIText) -> None:
-        """显示一条消息；已有 timer 被取消，新 timer 重新计时。"""
-        self._current_text = message.text
-        self._label.setText(message.text)
+    def show_message(self, message: AIText | str) -> None:
+        """显示一条消息；已有 timer 被取消，新 timer 重新计时。
+
+        接受 ``AIText`` 或 ``str``——channel.dispatch 历史上传完整对象，
+        流式起点（dispatch_stream_start）传字符串，两者都合法。
+        """
+        text = message.text if hasattr(message, "text") else message
+        self._current_text = text
+        self._label.setText(text)
         self._hide_timer.stop()
         self.show()
         # 重新触发布局（首次显示时 sizeHint 未生效）

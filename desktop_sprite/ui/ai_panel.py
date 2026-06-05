@@ -285,9 +285,8 @@ class AIPanelWidget(QWidget):
         self._input_expanded = False
         # v4: 缓存当前动画实例，避免快速 toggle 时旧动画 finished 回调误触发
         self._input_anim: QPropertyAnimation | None = None
-        # v4: 初始隐藏整个 _input_area（QWidget 默认 isVisibleTo=True）
-        self._input_area.setVisible(False)
-        self._input_area.setMaximumHeight(0)
+        # v4: 初始 _input_area 的隐藏由 _apply_input_expanded(expanded=False, animate=False) 负责
+        #     （其 non-animated 分支会 setMaximumHeight(0) + setVisible(False)）
         self._apply_input_expanded(self._load_input_expanded(), animate=False)
 
         # ---- Ping 调度 ----

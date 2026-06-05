@@ -230,9 +230,9 @@ def test_chat_bubble_has_avatar_for_ai_role(panel):
     p.append_history(AIText(text="hi", source="ai", use_case_id="x", timestamp=0.0))
     avatars = p.findChildren(AvatarWidget)
     assert len(avatars) == 1
-    # v3 实现里 "AI" 被当作 image path 传给 ImageLabel，所以 text() 实际为空
-    # （AvatarWidget 真正显示文字需要 setText("AI")）。这里只验存在性 + 类型。
     assert isinstance(avatars[0], AvatarWidget)
+    # 修复后：AvatarWidget(parent) 构造 + setText("AI")，"AI" 字母正确渲染
+    assert avatars[0].text() == "AI"
 
 
 def test_input_expanded_persists_to_ui_state(panel, qtbot):

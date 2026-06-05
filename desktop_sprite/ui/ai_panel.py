@@ -354,7 +354,8 @@ class AIPanelWidget(QWidget):
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(8)
         if role == "ai":
-            avatar = AvatarWidget("AI", self._scroll_inner)
+            avatar = AvatarWidget(self._scroll_inner)
+            avatar.setText("AI")
             avatar.setRadius(16)  # 32px 直径
             row.addWidget(avatar)
             row.addWidget(bubble, 0)

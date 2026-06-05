@@ -37,6 +37,7 @@
 | [`tray_controller.py`](tray_controller.py) | 系统托盘 | 90 |
 | [`pet_renderer.py`](pet_renderer.py) | 桌宠绘制器 | 311 |
 | [`render_pose.py`](render_pose.py) | 姿态模型 + `PoseBuilder` | 578 |
+| [`ai_panel.py`](ai_panel.py) | AI 互动面板（v4 slim 栏 + 输入抽屉） | 见文件 |
 | `TRAY.md` | 托盘模块的设计说明 | — |
 
 ---
@@ -336,6 +337,36 @@ class TargetSelectorOverlay(QWidget):
 
 模块私有：`_merge_dict(target, source)`（与 `utils.config` 中同名函数逻辑相同，递归浅 merge，非 dict 覆盖）。
 
+### [`ai_panel.py`](ai_panel.py) — AI 互动面板（v4 slim 栏 + 输入抽屉）
+
+v4 布局采用"观察为主"理念：默认收起整个输入区，仅保留 36px 高的 slim 栏（图标按钮 + 状态点），点击展开后输入抽屉以动画从下方滑出。
+
+模块常量：`_PING_LATENCY_OK_MS=800`、`_PING_LATENCY_WARN_MS=2000`、`_PING_INTERVAL_MS=10_000`、`_PING_TIMEOUT_S=5`；`_INPUT_DRAWER_HEIGHT=120`（TextEdit 72 + 间距 8 + 按钮行 32 + 余量 8）、`_INPUT_ANIM_MS=200`、`_SLIM_BAR_HEIGHT=36`。
+
+私有类：
+
+- `_StatusDot(QWidget)`：右上角连通性指示（`DotInfoBadge` + `BodyLabel("—")` + 透明度 `QPropertyAnimation` 呼吸 900ms）；`set_state(available, latency_ms)` 按延迟切 `InfoLevel`（SUCCESS/WARN/ERROR/INFOAMATION）。
+- `ChatBubble(CardWidget)`：聊天气泡（流式文本 `BodyLabel`），按角色（`ai` / `user`）设置 `objectName` 供 QSS 区分左右对齐。AI 行外侧配 `AvatarWidget` 头像（在 `_add_bubble` 里组装）。
+
+#### `AIPanelWidget(QWidget)`
+
+- 构造：`__init__(orchestrator, history_max_lines=200, ui_state_path: Path | str | None = None, parent=None)`；垂直布局 = 标题行（`TitleLabel("AI 互动")` + `_StatusDot`）→ 历史区（`SmoothScrollArea` 装聊天气泡容器）→ 输入抽屉（`TextEdit` + 按钮行 `[清空历史] ... [发送]`）→ slim 栏（`QFrame` 固定 36px + 1px 顶边线 + 右对齐 `ToolButton(FIF.UP/DOWN)`）。
+- 公开方法：
+  - `append_history(message: AIText)`：创建气泡并加入历史区（role 来自 `message.source`），自动滚到底；自动 trim 超过 `history_max_lines` 的最旧气泡。
+  - `clear_history()`：清空气泡容器。
+  - `append_stream_start(stream_id, use_case_id) / append_stream_delta(stream_id, delta, use_case_id) / append_stream_end(stream_id, full_text, source, use_case_id)`：流式输出三阶段。
+  - `messages() / bubble_count() / status_text() / status_available()`：测试 / 状态读取。
+  - `input_visible() -> bool`：报告当前抽屉状态。
+  - `trigger_ping_for_test()`：测试用同步触发 ping。
+  - 内部 slot：`_on_ping_done(latency_ms, error)`：由 `orchestrator.ping_async(callback)` 回调驱动 `_StatusDot` 颜色与输入抽屉可用性。
+- 抽屉动画：`_INPUT_ANIM_MS` ms `QPropertyAnimation` 改 `maximumHeight`（0 ↔ `_INPUT_DRAWER_HEIGHT`），缓动 `OutCubic`；展开/收起状态通过 `UiStateStore` 持久化到 `config/user/ui_state.json["ai_panel"]["input_expanded"]`，跨重启保留。
+- **v4 设计要点**：
+  - slim 栏 `always visible`（即使抽屉收起仍显示 1px 顶边线 + 图标按钮），允许随时点击展开输入。
+  - 历史区与输入区均不包 `CardWidget`（v3 扁平化），气泡本身就是 `CardWidget`。
+  - 输入抽屉展开/收起由 `setMaximumHeight` 动画驱动；收起时 `maximumHeight=0` 完全隐藏。
+
+依赖：`qfluentwidgets`（`FluentIcon`、`CardWidget`、`TextEdit`、`ToolButton` 等）、`desktop_sprite.ai.channel.AIText`（流式数据结构）、`desktop_sprite.ui.ui_state_store.UiStateStore`（展开状态持久化）。
+
 ### [`debug_widget.py`](debug_widget.py) — 调试页
 
 ```python
@@ -427,6 +458,9 @@ class PetRenderer:
 | `_NoWheelSpinBox` | `qfluentwidgets.SpinBox` | — |
 | `_NoWheelDoubleSpinBox` | `qfluentwidgets.DoubleSpinBox` | — |
 | `DebugWidget` | `QWidget` | — |
+| `_StatusDot` | `QWidget` | — |
+| `ChatBubble` | `qfluentwidgets.CardWidget` | — |
+| `AIPanelWidget` | `QWidget` | — |
 | `MainWindow` | `qfluentwidgets.FluentWindow` | — |
 | `SpriteWindow` | `QWidget` | — |
 | `DebugOverlayWindow` | `QWidget` | — |
@@ -478,5 +512,6 @@ ui/
 ├── debug_widget.py        自包含
 ├── tray_controller.py     自包含
 ├── pet_renderer.py        → ui.render_pose
-└── render_pose.py         → models.state（Facing, Pet, PetState）
+├── render_pose.py         → models.state（Facing, Pet, PetState）
+└── ai_panel.py            → ai.channel.AIText, ui.ui_state_store.UiStateStore
 ```

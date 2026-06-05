@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
 from qfluentwidgets import (
     AvatarWidget, BodyLabel, CardWidget, DotInfoBadge, FluentIcon as FIF,
     InfoLevel, PrimaryPushButton, PushButton, SmoothScrollArea,
-    StrongBodyLabel, TextEdit, TitleLabel, ToggleButton, ToolButton, isDarkTheme,
+    StrongBodyLabel, TextEdit, TitleLabel, ToolButton, isDarkTheme,
     themeColor,
 )
 

@@ -1,9 +1,12 @@
 # AI 互动面板 v3 — FluentUI 扁平化 + 流式输出
 
 - **日期**：2026-06-05
-- **状态**：待评审 / 待实施
+- **状态**：v3 实施完成（commits `be10119`..`a9ee395`），v4 布局微调已批准
 - **范围**：AIPanelWidget UI 重构 + AIProvider 流式输出（涉及 orchestrator / channel / 三个 channel 子类）
 - **上一版**：[2026-06-04-ai-interaction-system-design.md](../2026-06-04-ai-interaction-system-design.md)（v1 基础设施 + v2 聊天气泡 UI）
+- **修订记录**：
+  - **v3**：FluentUI 扁平 + 流式输出（已实施，git log 见 §11）
+  - **v4**：toggle 按钮从输入区迁出到独立 slim 栏（图标 only）；收起时整个输入抽屉消失（§3 布局反映 v4 终态）
 
 ---
 
@@ -41,7 +44,7 @@ v2 实现了基础聊天气泡（CardWidget 背景 + 圆形 + 按钮），但有
 
 ## 3. UI 布局（最终态）
 
-### 3.1 结构
+### 3.1 结构（v4）
 
 ```
 AIPanelWidget (objectName="aiPanelPage")
@@ -60,35 +63,65 @@ AIPanelWidget (objectName="aiPanelPage")
 │           ├── ...
 │           └── addStretch(1)   ← 末尾 stretch，气泡贴顶
 │
-└── 输入区 (QWidget, 无 CardWidget 外壳，可折叠)
-    ├── TextEdit (72px 高, 始终存在，setVisible 控制)
-    │       [user input 框]
-    └── 按钮行 (QHBoxLayout, 始终可见)
-        ├── addStretch(1)
-        ├── PushButton("清空历史", FIF.DELETE)
-        ├── ToggleButton("展开"/"收起", FIF.UP/DOWN, checked=...)
-        └── PrimaryPushButton("发送", FIF.SEND)
+├── 输入抽屉 (QWidget, 无 CardWidget 外壳, setMaximumHeight 0↔target, setVisible 控制)
+│   [收起后整段消失：maximumHeight=0 + setVisible(False)]
+│   ├── TextEdit (72px 高)
+│   │       [user input 框]
+│   └── 按钮行 (QHBoxLayout)
+│       ├── addStretch(1)
+│       ├── PushButton("清空历史", FIF.DELETE)
+│       └── PrimaryPushButton("发送", FIF.SEND)
+│       （**不**再含 toggle 按钮 — toggle 已迁出到 slim 栏）
+│
+└── slim 栏 (QWidget, fixed ~36px, **始终可见**)
+    ├── 1px 顶部分隔线（QFrame，setFrameShape(QFrame.HLine)，半透明主题色）
+    ├── addStretch(1)
+    └── ToolButton(FIF.UP/FIF.DOWN, 透明背景, 无文字, setToolTip)
+            ↑ 唯一永远可见的"召唤器"
 ```
 
-### 3.2 关键决定
+**v3 → v4 唯一结构变化**：
+- 输入抽屉内部的 toggle 按钮**删除**
+- 整页底部新增一个 `slim 栏`，只放 toggle 按钮
+- 收起时：slim 栏保持可见，输入抽屉 `maximumHeight=0` + `setVisible(False)`，整段从页面消失
 
-| 项 | v2 现状 | v3 改动 | 原因 |
-|---|---|---|---|
-| 历史区容器 | `CardWidget("aiHistoryCard")` | `QWidget` + `setAttribute(Qt.WA_StyledBackground, False)` | 去背景 |
-| 历史区 ScrollArea | `SmoothScrollArea` | 保留 | 不变 |
-| 输入区容器 | `CardWidget("aiInputCard")` | `QWidget` + 透明 | 去外框 |
-| 切换按钮 | 自定义 `_FabButton`（56×56 圆形，paintEvent 自画） | `ToggleButton` + 文字 | FluentUI 风格、状态可见 |
-| 按钮顺序 | 清空 + 发送（同行） | 清空 / 展开/收起 / 发送（同行） | 用户要求：发送最右 |
-| AI 气泡 | 左对齐 + 浅色 | 左对齐 + 浅色 + AvatarWidget 头像 | 区分发送方 |
-| User 气泡 | 右对齐 + 主题色 | 保留 | 不变 |
-| `history_max_lines` | 死字段 | 在 `_add_bubble` 头部 trim | 启用配置 |
-| 主题色 | qfluentwidgets 主题 | 保留；走 `setTextColor` 不走 `setStyleSheet("color:...")` | `ui/README.md` 强制规范 |
+### 3.2 关键决定（v3 + v4 累计）
 
-### 3.3 动画保留
+| 项 | v2 现状 | v3 改动 | v4 改动 | 原因 |
+|---|---|---|---|---|
+| 历史区容器 | `CardWidget("aiHistoryCard")` | `QWidget` + 透明 | 不变 | 去背景 |
+| 历史区 ScrollArea | `SmoothScrollArea` | 保留 | 不变 | — |
+| 输入区容器 | `CardWidget("aiInputCard")` | `QWidget` + 透明 | 改名 `_input_area`（"抽屉"） | v3 去外框 / v4 强调其作为"可消失抽屉"的语义 |
+| 切换按钮位置 | 自定义 `_FabButton`（56×56 圆形） | 输入区按钮行 | **slim 栏最右**（独立 footer） | v3：FluentUI 风格 / v4：用户原话「展开/收起按钮不需要被收起来」 |
+| 切换按钮样式 | `_FabButton` | `ToggleButton` + "展开/收起" 文字 | **`ToolButton` + 仅图标** + tooltip | v3：FluentUI 风格 / v4：用户要求「最克制」 |
+| 按钮行顺序 | 清空 + 发送（同行） | 清空 / 展开·收起 / 发送 | **清空 / 发送**（toggle 已迁出） | v3：发送最右 / v4：toggle 不再影响顺序 |
+| slim 栏 | (无) | (无) | **新增** QWidget，1px 顶边线，固定 ~36px | 区分"始终可见的 footer"和"可消失的抽屉" |
+| slim 分隔线 | (无) | (无) | 1px 顶边，主题色半透明 | 让 slim 栏和历史区有视觉边界 |
+| 输入区"清空" | 始终可见 | 始终可见 | **收起时随抽屉一起消失** | 清空是破坏性操作，藏起来更安全 |
+| 发送按钮 | 始终可见 | 始终可见 | **收起时随抽屉一起消失** | 没输入需求时不应打扰 |
+| AI 气泡 | 左对齐 + 浅色 | 左对齐 + 浅色 + AvatarWidget 头像 | 不变 | 区分发送方 |
+| User 气泡 | 右对齐 + 主题色 | 保留 | 不变 | — |
+| `history_max_lines` | 死字段 | 在 `_add_bubble` 末尾 trim | 不变 | 启用配置 |
+| 主题色 | qfluentwidgets 主题 | 保留 | 不变 | `ui/README.md` 强制规范 |
+| ping 失败禁用 | toggle 禁用 | toggle 禁用 | **toggle 保持可用**，`_input_area.setEnabled(False)` | 让用户能展开看到禁用态、不会因为 ping 失败就连 toggle 都点不到 |
 
-- 输入区展开/收起：`maximumHeight` 0 ↔ 160，`QPropertyAnimation` 200ms `OutCubic`（与 v2 相同）
-- 切换按钮图标：`FIF.UP`（展开状态时显示"收起"） / `FIF.DOWN`（收起状态时显示"展开"）
-- 气泡出现：不做动画（保持简单）
+### 3.3 动画（v4 调整）
+
+- **输入抽屉**展开/收起：`_input_area.maximumHeight` 0 ↔ `target`，`QPropertyAnimation` 200ms `OutCubic`；target=0 时动画结束后 `setVisible(False)`。**整体抽屉高度动画**，不再像 v3 那样只动画内层 TextEdit
+- **slim 栏**：始终存在，**无动画**
+- **toggle 按钮图标**：`FIF.UP`（收起后显示 —「点此向上展开」）/ `FIF.DOWN`（展开后显示 —「点此向下收起」）。icon-only 状态反转的核心信号
+- **气泡出现**：不做动画（保持简单）
+
+### 3.5 输入抽屉生命周期（v4 显式）
+
+| 触发 | 行为 |
+|---|---|
+| 初始（首次构造） | `apply(load_state, animate=False)`：默认收起；持久化为 `true` 时展开 |
+| 用户点击 slim 栏 toggle | `apply(!expanded, animate=True)` + 写盘 |
+| 发送消息（`Send` 按钮被点击 + 非空文本） | 派发后**自动收起**抽屉 + 写盘（与 v3 一致） |
+| 发送空文本 | no-op（不收起） |
+| ping 失败 | toggle 仍可用，抽屉内 3 个控件 `setEnabled(False)` |
+| ping 成功 | 抽屉内 3 个控件 `setEnabled(True)` |
 
 ### 3.4 状态持久化
 
@@ -264,29 +297,30 @@ def append_stream_end(self, stream_id: str, full_text: str, source: str, use_cas
 
 ---
 
-## 5. 关键文件改动清单
+## 5. 关键文件改动清单（v3 + v4 累计）
 
-| 文件 | 改动 | 行数估计 |
-|---|---|---|
-| `desktop_sprite/ai/provider.py` | `AIProvider` 加 `generate_stream` 抽象；`OpenAIProvider` 实现 `httpx.stream` + SSE 解析；`DisabledProvider` 抛 `ProviderDisabled` | +60 |
-| `desktop_sprite/ai/orchestrator.py` | 新增 `_StreamWorker` / `_stream_event` Signal / `_on_stream_event` slot / `_dispatch_use_case_streaming()`；`_dispatch_use_case()` 改走流式路径 | +90 |
-| `desktop_sprite/ai/channel.py` | `Channel` 加 3 个默认 no-op 方法 | +12 |
-| `desktop_sprite/ai/channels/chat_panel.py` | 重写 3 个 `dispatch_stream_*` | +15 |
-| `desktop_sprite/ai/channels/pet_bubble.py` | 重写 3 个 `dispatch_stream_*` | +20 |
-| `desktop_sprite/ai/channels/os_notification.py` | 不改 | 0 |
-| `desktop_sprite/ui/ai_panel.py` | **UI 重构**：去 CardWidget / 去 _FabButton / 改用 ToggleButton / 加 AvatarWidget / 加 `append_stream_*` 3 方法 / 接入 `ui_state_path` / `history_max_lines` 启用 trim | +120 / -80 |
-| `desktop_sprite/ui/main_window.py` | `_ai_panel_page()` 多传 `ui_state_path` | +1 |
-| `desktop_sprite/ui/bubble_overlay.py` | `BubbleOverlayWindow` 加 `append_text(delta)` | +8 |
-| `desktop_sprite/utils/config.py` | `AIConfig` 加 `streaming: bool = True` | +3 |
-| `config/default.json` | 加 `"streaming": true` 默认值 | +1 |
-| `tests/ai_fakes.py` | `FakeProvider` 加 `generate_stream` 支持（接受 list[list[str]]，每个 use_case 一组分块） | +25 |
-| `tests/test_ai_panel_widget.py` | 改：清空后不再断言 `_FabButton`；改按钮顺序断言；新增 `append_stream_*` 3 测试；新增 `ui_state_path` 持久化 1 测试；`history_max_lines` trim 1 测试 | +60 / -10 |
-| `tests/test_ai_provider.py` | 新增 `generate_stream` 测试：SSE 解析 / 累积 / 多 delta / `[DONE]` 终止 / 错误处理 | +90 |
-| `tests/test_ai_orchestrator.py` | 新增流式路径测试：delta 触达 channel / mid-stream error fallback / 跨 use_case 不冲突 | +70 |
-| `tests/test_ai_channels.py` | 新增 3 个 `dispatch_stream_*` 测试 | +30 |
-| `tests/test_ai_bubble_overlay.py` | 新增 `append_text` 测试 | +15 |
+| 文件 | 改动 | v3 行数 | v4 增量 |
+|---|---|---|---|
+| `desktop_sprite/ai/provider.py` | `AIProvider` 加 `generate_stream` 抽象；`OpenAIProvider` 实现 `httpx.stream` + SSE 解析；`DisabledProvider` 抛 `ProviderDisabled` | +60 | 0 |
+| `desktop_sprite/ai/orchestrator.py` | 新增 `_StreamWorker` / `_stream_event` Signal / `_on_stream_event` slot / `_dispatch_use_case_streaming()`；`_dispatch_use_case()` 改走流式路径 | +90 | 0 |
+| `desktop_sprite/ai/channel.py` | `Channel` 加 3 个默认 no-op 方法 | +12 | 0 |
+| `desktop_sprite/ai/channels/chat_panel.py` | 重写 3 个 `dispatch_stream_*` | +15 | 0 |
+| `desktop_sprite/ai/channels/pet_bubble.py` | 重写 3 个 `dispatch_stream_*` | +20 | 0 |
+| `desktop_sprite/ai/channels/os_notification.py` | 不改 | 0 | 0 |
+| `desktop_sprite/ui/ai_panel.py` | v3：去 CardWidget / 去 _FabButton / 改用 ToggleButton / 加 AvatarWidget / 加 `append_stream_*` 3 方法 / 接入 `ui_state_path` / `history_max_lines` 启用 trim。v4：1) 删输入区按钮行里的 `_toggle_btn`；2) 新增 `_slim_bar` QWidget + 1px 顶边线 + 右对齐 `_toggle_btn`（改成 `ToolButton` 仅图标 + tooltip）；3) 改 `_apply_input_expanded` 动画对象从 `_input_edit.maximumHeight` 升级到 `_input_area.maximumHeight`（整抽屉），target=0 后 `setVisible(False)`；4) 改 `_animate_input_edit` → `_animate_input_area`；5) 改 `_on_ping_done` 失败时**只**禁 `_input_area`，不禁 `_toggle_btn` | +120 / -80 | +35 / -25 |
+| `desktop_sprite/ui/main_window.py` | `_ai_panel_page()` 多传 `ui_state_path` | +1 | 0 |
+| `desktop_sprite/ui/bubble_overlay.py` | `BubbleOverlayWindow` 加 `append_text(delta)` | +8 | 0 |
+| `desktop_sprite/utils/config.py` | `AIConfig` 加 `streaming: bool = True` | +3 | 0 |
+| `config/default.json` | 加 `"streaming": true` 默认值 | +1 | 0 |
+| `tests/ai_fakes.py` | `FakeProvider` 加 `generate_stream` 支持 | +25 | 0 |
+| `tests/test_ai_panel_widget.py` | v3：去 _FabButton 断言 / 改按钮顺序 / 新增 `append_stream_*` 3 测试 / 新增 `ui_state_path` 持久化 1 测试 / `history_max_lines` trim 1 测试。v4：1) 改 `test_buttons_visible_even_when_input_collapsed` → `test_only_toggle_visible_when_input_collapsed`（断言 toggle 可见，clear/send/edit 隐藏）；2) 改 toggle 类型断言 `ToggleButton` → `ToolButton`；3) 改 toggle 无文字 + tooltip 断言；4) 改 ping 失败时 toggle **不被**禁用；5) 改 `_animate_input_area` 动画对象断言；6) 新增 6 个测试（见 §8.2） | +60 / -10 | +20 / -10 |
+| `tests/test_ai_provider.py` | 新增 `generate_stream` 测试 | +90 | 0 |
+| `tests/test_ai_orchestrator.py` | 新增流式路径测试 | +70 | 0 |
+| `tests/test_ai_channels.py` | 新增 3 个 `dispatch_stream_*` 测试 | +30 | 0 |
+| `tests/test_ai_bubble_overlay.py` | 新增 `append_text` 测试 | +15 | 0 |
 
-**总计估计**：约 +540 / -90 行净增，分布在 13 个文件。
+**v3 累计**：约 +540 / -90 行，13 个文件（已完成）。
+**v4 增量**：约 +55 / -35 行，集中 `ai_panel.py` + `test_ai_panel_widget.py` 两个文件。
 
 ---
 
@@ -345,11 +379,11 @@ _STREAM_END_MARKER = "[DONE]"   # worker 内部用
 
 ---
 
-## 8. 测试策略
+## 8. 测试策略（v3 + v4 累计）
 
-### 8.1 现有测试保留
+### 8.1 现有测试保留 + v3 改造
 
-`test_ai_panel_widget.py` 中 18 个测试函数：
+`test_ai_panel_widget.py` 中 18 个测试函数（v3 改造后）：
 - `test_panel_has_title_and_status_dot` ✅
 - `test_panel_uses_smoothscrollarea_and_history_card` → 改名为 `test_panel_uses_smoothscrollarea_for_history`
 - `test_panel_has_fab_button` → **删除**（v3 没有 FAB）
@@ -369,7 +403,7 @@ _STREAM_END_MARKER = "[DONE]"   # worker 内部用
 - `test_fab_disabled_when_ping_fails` → 改名为 `test_toggle_button_disabled_when_ping_fails`
 - `test_fab_enabled_when_ping_succeeds` → 改名为 `test_toggle_button_enabled_when_ping_succeeds`
 
-### 8.2 新增测试
+### 8.2 v3 新增测试（已完成）
 
 `test_ai_panel_widget.py`：
 - `test_chat_bubble_has_avatar_for_ai_role` —— 断言 AI 气泡左侧有 AvatarWidget
@@ -379,6 +413,7 @@ _STREAM_END_MARKER = "[DONE]"   # worker 内部用
 - `test_append_stream_delta_appends_to_bubble` —— start 后调 2 次 delta，断言 bubble text 是拼接结果
 - `test_append_stream_end_finalizes` —— start/delta/delta/end，end 后断言 `_stream_bubbles` 为空
 - `test_no_card_widget_for_history_or_input` —— 断言 panel 不再持有 `aiHistoryCard` / `aiInputCard` 这两个 objectName
+- `test_buttons_visible_even_when_input_collapsed`（v3 锁定的行为，**v4 改名/改断言**）
 
 `test_ai_provider.py`：
 - `test_openai_provider_stream_yields_deltas`
@@ -399,7 +434,34 @@ _STREAM_END_MARKER = "[DONE]"   # worker 内部用
 - `test_pet_bubble_channel_dispatches_stream_to_bubble`
 - `test_os_notification_channel_stream_methods_are_noop`
 
-### 8.3 测试 fixture 改动
+### 8.3 v4 改造（针对 v3 已通过的测试做调整）
+
+- `test_buttons_visible_even_when_input_collapsed`（v3）→ **改名 `test_only_toggle_visible_when_input_collapsed`**（v4）：
+  - 断言收起时 `_toggle_btn.isVisible() is True`
+  - 断言收起时 `_clear_btn.isVisible() is False` 且 `_send_btn.isVisible() is False`
+  - 断言收起时 `_input_edit.isVisible() is False`
+- 所有断言 `_toggle_btn` 是 `ToggleButton` 的地方 → 改为断言是 `ToolButton`
+- `test_toggle_button_disabled_when_ping_fails`（v3 行为）→ **改名 + 反向断言**：ping 失败时 `_toggle_btn.isEnabled() is True`，但 `_input_area.isEnabled() is False`
+- `test_toggle_button_expands_input` / `test_toggle_button_collapses_input` / `test_input_starts_collapsed` → 改 `isVisible()` 断言而非 `setMaximumHeight(0)`；断言对象改为 `_input_area` 而非 `_input_edit`
+
+### 8.4 v4 新增测试
+
+`test_ai_panel_widget.py`：
+- `test_slim_bar_always_visible` — 构造 panel，断言 `_slim_bar` 在收起/展开两种状态下都 `isVisible() is True`
+- `test_slim_bar_has_top_divider` — 断言 `_slim_bar` 内部有 1px QFrame 顶边线
+- `test_toggle_button_has_no_text` — 断言 `_toggle_btn.text() == ""`
+- `test_toggle_button_has_tooltip` — 断言 `_toggle_btn.toolTip()` 非空
+- `test_input_area_animation_target_is_zero` — 收起动画开始时 `_input_area.maximumHeight` 起点为 0
+- `test_input_area_visibility_toggled_after_collapse_animation` — 模拟动画完成，断言 `_input_area.isVisible() is False`
+
+### 8.5 保持不变的测试
+
+- `append_stream_start / delta / end` 3 个流式方法测试
+- `ui_state` 持久化测试
+- `history_max_lines` trim 测试
+- 所有 `ChatBubble` / AvatarWidget / 状态点 / send / clear / messages / bubble_count 等历史 API 测试
+
+### 8.6 测试 fixture 改动
 
 `tests/test_ai_panel_widget.py` fixture 接受可选 `ui_state_path`：
 ```python
@@ -415,7 +477,7 @@ def panel(qtbot, tmp_path):
 
 ---
 
-## 9. 风险点 & 缓解
+## 9. 风险点 & 缓解（v3 + v4 累计）
 
 | 风险 | 等级 | 缓解 |
 |---|---|---|
@@ -425,9 +487,14 @@ def panel(qtbot, tmp_path):
 | `history_max_lines` 改动后动画错位 | 低 | trim 头部时不打断动画；只在 `_add_bubble` 末尾同步 trim |
 | 主题切换时已存在的流气泡颜色不一致 | 低 | 流气泡与一次性气泡共用同一个 `ChatBubble` 类，主题切换走 qfluentwidgets 内置机制 |
 | `OsNotificationChannel` 流期间空文本触发空通知 | 低 | `dispatch_stream_start / delta` 默认 no-op；`dispatch_stream_end` 内构造完整 AIText 走原通知路径，**不**在流期间触发空通知 |
-| 旧测试 `test_fab_*` 系列断言失败 | 中 | 同步更新测试函数名 / 断言（§8.1） |
+| 旧测试 `test_fab_*` 系列断言失败 | 中 | v3 同步更新测试函数名 / 断言（§8.1） |
 | `BubbleOverlayWindow` 没现成 `append_text` | 中 | 加 8 行方法 + 重置 hide timer |
 | Pet bubble 在流期间累积文本过长 | 低 | panel 端 75% 宽度上限同款；pet bubble 由 overlay 自己控制最大宽度 |
+| **v4** 仅图标的 toggle 按钮可发现性差 | 中 | tooltip 文字 + 鼠标悬停态 + 图标朝向传递状态 |
+| **v4** 1px 分割线在深色主题下太弱 | 低 | 用主题色半透明（如 `rgba(0,0,0,80)` / `rgba(255,255,255,40)`）而非纯黑/纯白 |
+| **v4** `_input_area` 整段动画与 `_input_edit` 内层动画冲突 | 中 | 旧版的内层动画逻辑**全部删除**，只保留外层抽屉动画 |
+| **v4** 旧测试 `test_buttons_visible_even_when_input_collapsed` 名字与新行为矛盾 | 低 | 改名 + 改断言 |
+| **v4** ping 失败时 toggle 仍可点开抽屉看到禁用态造成困惑 | 低 | 抽屉内 3 个控件（TextEdit / clear / send）一起 `setEnabled(False)`，视觉上一目了然 |
 
 ---
 
@@ -445,6 +512,8 @@ def panel(qtbot, tmp_path):
 
 ## 11. 实施顺序建议
 
+### v3 实施顺序（已完成）
+
 1. `channel.py` 加 3 个 no-op 方法（最小风险先行）
 2. `provider.py` 加 `generate_stream` 抽象 + OpenAIProvider 实现 + 单元测试
 3. `orchestrator.py` 加 `_StreamWorker` / Signal / slot / 流式 dispatch 路径
@@ -456,11 +525,30 @@ def panel(qtbot, tmp_path):
 9. 全量 pytest 通过
 10. 手动跑一次：发消息看面板打字效果、看桌宠气泡打字效果、看通知一次性弹
 
+### v4 实施顺序（待实施，**单文件驱动**）
+
+1. `ai_panel.py` 改造（一次性 commit）：
+   - 新增 `_slim_bar`（QWidget + QFrame HLine + 1px 顶边线 + 右对齐 ToolButton）
+   - 删除输入区按钮行里的 `_toggle_btn`（改用 ToolButton 而非 ToggleButton，加 tooltip，无文字）
+   - 改 `_apply_input_expanded` 动画对象为 `_input_area.maximumHeight`
+   - 改 `_animate_input_edit` → `_animate_input_area`，target=0 后 `setVisible(False)`
+   - 改 `_on_ping_done` 失败时**只**禁 `_input_area`，不禁 `_toggle_btn`
+2. `test_ai_panel_widget.py` 同步（一次性 commit）：
+   - 改 `test_buttons_visible_even_when_input_collapsed` → `test_only_toggle_visible_when_input_collapsed`（断言 toggle 可见，clear/send/edit 隐藏）
+   - 改 toggle 类型断言 `ToggleButton` → `ToolButton`
+   - 改 ping 失败时 toggle **不被**禁用
+   - 改 `_animate_input_area` 动画对象断言
+   - 新增 6 个测试（§8.4）
+3. 全量 pytest 通过
+4. 手动跑一次：收起态只剩 slim 栏 + 历史区；展开后从 slim 栏之上滑出；发送后自动收起；重启后状态保持
+
 ---
 
-## 12. 验收标准
+## 12. 验收标准（v3 + v4 累计）
 
-- ✅ pytest 全部通过（现有 18 个测试 + 新增 ~20 个）
+### v3 验收（已完成）
+
+- ✅ pytest 全部通过（v3 改造后 26 个 panel 测试 + 各种流式测试）
 - ✅ 面板视觉上无 CardWidget 边框（手动确认）
 - ✅ 发送消息后，气泡内容是逐字出现而不是一次性显示
 - ✅ 桌宠气泡内容是逐字出现
@@ -468,3 +556,15 @@ def panel(qtbot, tmp_path):
 - ✅ `append_history(AIText)` / `clear_history()` / `messages()` / `bubble_count()` / `status_text()` / `status_available()` / `input_visible()` / `trigger_ping_for_test()` 8 个测试用 API 签名不变
 - ✅ `OsNotificationChannel` 行为不变（流期间 no-op，end 触发一次性通知）
 - ✅ provider 关闭时（`ai.enabled=false`）流式路径走 fallback，UI 收到 fallback 文本气泡
+
+### v4 验收（待实施）
+
+- ✅ pytest 全部通过（v3 已通过的 26 个 + v4 新增/改造后保持通过）
+- ✅ 收起时整个页面**只有**历史区 + slim 栏（图标 toggle）可见，输入抽屉整段消失
+- ✅ 展开时输入抽屉从 slim 栏**之上**滑出（不是从标题方向），符合"抽屉在下"的视觉直觉
+- ✅ toggle 按钮仅图标（无文字），鼠标悬停显示 tooltip
+- ✅ slim 栏有 1px 顶边线
+- ✅ 发送消息后自动收起抽屉
+- ✅ 关闭应用并重启，输入抽屉的展开/收起状态保持
+- ✅ ping 失败时 toggle 仍可点开抽屉，抽屉内控件被禁用
+- ✅ toggle 按钮类型为 `ToolButton`（不再是 `ToggleButton`）

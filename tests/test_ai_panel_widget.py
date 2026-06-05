@@ -312,3 +312,23 @@ def test_input_visible_returns_expanded_state(panel):
     p._input_expanded = True
     assert p.input_visible() is True
 
+
+def test_buttons_visible_even_when_input_collapsed(panel, qtbot):
+    """收起状态下，按钮行（清空/展开/发送）依然可见。
+
+    v3 修复：input_area 本身始终可见，只有 TextEdit 折叠。
+    防止回归：以前 _input_area.setMaximumHeight(0) 把整个输入区藏了。
+    """
+    p, _, _ = panel
+    # 初始收起（input_expanded=False），但按钮应可见
+    assert p.input_visible() is False
+    assert not p._toggle_btn.isHidden()
+    assert not p._clear_btn.isHidden()
+    assert not p._send_btn.isHidden()
+    # 展开后按钮仍然可见
+    p._toggle_btn.click()
+    qtbot.waitUntil(lambda: p._input_expanded, timeout=500)
+    assert not p._toggle_btn.isHidden()
+    assert not p._clear_btn.isHidden()
+    assert not p._send_btn.isHidden()
+

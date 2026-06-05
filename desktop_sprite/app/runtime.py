@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING
 
 from PySide6.QtWidgets import QMessageBox
 
+from desktop_sprite.ai.channels.pet_bubble import PetBubbleChannel
 from desktop_sprite.app.config_paths import RuntimePaths
 from desktop_sprite.core.character import DesktopCharacter
 from desktop_sprite.models.inventory import InventorySnapshot
@@ -34,6 +35,7 @@ from desktop_sprite.models.spirit_mark import (
     SpiritMarkGrantRequest,
     SpiritMarkInventory,
 )
+from desktop_sprite.ui.bubble_overlay import BubbleOverlayWindow
 from desktop_sprite.ui.main_window import MainWindow
 from desktop_sprite.ui.show_overlay import ShowOverlayWindow
 from desktop_sprite.ui.sprite_window import SpriteWindow
@@ -80,6 +82,15 @@ def _app_symbols():
         "load_spirit_mark_inventory": _pkg.load_spirit_mark_inventory,
         "save_spirit_mark_inventory": _pkg.save_spirit_mark_inventory,
         "grant_spirit_mark": _pkg.grant_spirit_mark,
+        # AI
+        "OpenAIProvider": _pkg.OpenAIProvider,
+        "DisabledProvider": _pkg.DisabledProvider,
+        "EventBus": _pkg.EventBus,
+        "UseCaseRegistry": _pkg.UseCaseRegistry,
+        "Persona": _pkg.Persona,
+        "AIPanelWidget": _pkg.AIPanelWidget,
+        "BubbleOverlayWindow": _pkg.BubbleOverlayWindow,
+        "make_test_probe_use_case": _pkg.make_test_probe_use_case,
     }
 
 
@@ -133,6 +144,13 @@ class AppRuntime:
         self.main_window: MainWindow | None = None
         self.tray: TrayController
 
+        # AI 互动系统
+        self.ai_orchestrator: "AIOrchestrator | None" = None
+        self.ai_bubble: BubbleOverlayWindow | None = None
+
+        # 启动 AI orchestrator（失败时降级到 None，不影响主流程）。
+        self._init_ai()
+
     # ------------------------------------------------------------------
     # Construction helpers
     # ------------------------------------------------------------------
@@ -172,7 +190,9 @@ class AppRuntime:
         pump.timeout.connect(lambda: None)
         pump.start(100)
 
-        return cls(paths, qt_args, args, config, app)
+        runtime = cls(paths, qt_args, args, config, app)
+        runtime._init_ai()
+        return runtime
 
     @staticmethod
     def _parse_args(argv: list[str], config: AppConfig) -> tuple[argparse.Namespace, list[str]]:
@@ -184,6 +204,61 @@ class AppRuntime:
             help="Character implementation to run.",
         )
         return parser.parse_known_args(argv)
+
+    def _init_ai(self) -> None:
+        """构造 AIOrchestrator + BubbleOverlayWindow。失败时 ai_orchestrator=None。
+
+        Idempotent: 重复调用是 no-op（避免 `from_default_args` 与
+        `__init__` 双重触发时出现两个并发的 orchestrator）。
+        """
+        if self.ai_orchestrator is not None:
+            return
+        try:
+            OpenAIProvider = self._app_symbols["OpenAIProvider"]
+            DisabledProvider = self._app_symbols["DisabledProvider"]
+            EventBus = self._app_symbols["EventBus"]
+            UseCaseRegistry = self._app_symbols["UseCaseRegistry"]
+            Persona = self._app_symbols["Persona"]
+            BubbleOverlayWindow = self._app_symbols["BubbleOverlayWindow"]
+            make_test_probe_use_case = self._app_symbols["make_test_probe_use_case"]
+
+            from desktop_sprite.ai.orchestrator import AIOrchestrator
+            from desktop_sprite.ai.channels.pet_bubble import PetBubbleChannel
+
+            if self.config.ai.enabled:
+                provider = OpenAIProvider(
+                    base_url=self.config.ai.base_url,
+                    api_key=self.config.ai.api_key,
+                    model=self.config.ai.model,
+                )
+            else:
+                provider = DisabledProvider()
+
+            persona = Persona.from_config(self.config, character_id="pet")
+            registry = UseCaseRegistry()
+            registry.register(make_test_probe_use_case(throttle_ms=self.config.ai.throttle_overrides.get("test.probe", 1000)))
+
+            self.ai_bubble = BubbleOverlayWindow(
+                visible_seconds=self.config.ai.bubble_visible_seconds
+            )
+            channels = [PetBubbleChannel(overlay=self.ai_bubble)]
+
+            orch = AIOrchestrator(
+                provider=provider,
+                persona=persona,
+                use_cases=registry,
+                channels=channels,
+                max_inflight=self.config.ai.max_inflight,
+                request_timeout_s=self.config.ai.request_timeout_s,
+                throttle_overrides=self.config.ai.throttle_overrides,
+            )
+            orch.start()
+            self.ai_orchestrator = orch
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception("Failed to build AIOrchestrator; continuing without AI")
+            self.ai_orchestrator = None
+            self.ai_bubble = None
 
     # ------------------------------------------------------------------
     # Pet window lifecycle
@@ -370,6 +445,10 @@ class AppRuntime:
         self.close_pet_runtime()
         if self.main_window is not None:
             self.main_window.close()
+        if self.ai_orchestrator is not None:
+            self.ai_orchestrator.stop()
+        if self.ai_bubble is not None:
+            self.ai_bubble.close()
         self.tray.tray.hide()
         self.app.quit()
 

@@ -51,6 +51,13 @@ class AIProvider(ABC):
         ...
 
     @abstractmethod
+    def generate_stream(
+        self, system_prompt: str, user_prompt: str, *, timeout: float = 30.0,
+    ):
+        """返回 Iterator[str]，每段是 SSE delta 文本。必须被 worker 线程调用。"""
+        ...
+
+    @abstractmethod
     def ping(self, *, timeout: float = 5.0) -> float:
         """无 token 消耗的连通性探针。
 
@@ -66,6 +73,12 @@ class DisabledProvider(AIProvider):
 
     def generate(self, system_prompt: str, user_prompt: str, *, timeout: float = 30.0) -> str:
         raise ProviderDisabled("AI is disabled in config")
+
+    def generate_stream(
+        self, system_prompt: str, user_prompt: str, *, timeout: float = 30.0,
+    ):
+        raise ProviderDisabled("AI is disabled in config")
+        yield  # 让它成为 generator（不会被执行）
 
     def ping(self, *, timeout: float = 5.0) -> float:
         raise ProviderDisabled("AI is disabled in config")
@@ -147,3 +160,9 @@ class OpenAIProvider(AIProvider):
             return data["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as exc:
             raise NetworkError(f"unexpected response shape: {exc}") from exc
+
+    def generate_stream(
+        self, system_prompt: str, user_prompt: str, *, timeout: float = 30.0,
+    ):
+        raise NotImplementedError("to be implemented in Task 4")
+        yield

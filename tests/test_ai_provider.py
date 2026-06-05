@@ -198,3 +198,14 @@ def test_disabled_provider_ping_raises_provider_disabled():
     p = DisabledProvider()
     with pytest.raises(ProviderDisabled):
         p.ping()
+
+
+# ----------------------------------------------------------------------------
+# generate_stream() — abstract method declaration (Task 2)
+# ----------------------------------------------------------------------------
+
+
+def test_abstract_provider_must_implement_generate_stream():
+    """未实现 generate_stream 不能实例化。"""
+    with pytest.raises(TypeError):
+        AIProvider()  # 触发 ABC 检查

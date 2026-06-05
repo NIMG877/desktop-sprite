@@ -156,3 +156,23 @@ def test_ai_persona_missing_uses_code_default(tmp_path: Path):
     cfg = load_config(cfg_path, None)
     assert isinstance(cfg.ai_persona, AIPersonaConfig)
     assert cfg.ai_persona.system_prompt == "你是一只温顺的桌宠小翼。"
+
+
+def test_ai_config_default_streaming_is_true(tmp_path):
+    from desktop_sprite.utils.config import load_config
+    # 临时写一个最小 default config
+    default_path = tmp_path / "default.json"
+    _write_json(default_path, {
+        "app": {"fps": 60, "always_on_top": True, "debug_draw": False, "log_level": "INFO"},
+        "pet": {"width": 84, "height": 104, "default_spawn_x": 300, "default_spawn_y": 300,
+                "walk_speed": 120, "climb_speed": 92, "jump_speed_x": 180, "jump_speed_y": -520},
+        "physics": {"gravity": 1800, "max_fall_speed": 1800, "drag_throw_factor": 0.65, "edge_snap_distance": 10},
+        "behavior": {"idle_min_seconds": 1.0, "idle_max_seconds": 2.5, "prefer_foreground_window": True, "target_repick_seconds": 3.5},
+        "attributes": {"wander": 1, "vigor": 1, "recovery": 1, "awareness": 1, "focus": 1, "satiety": 1, "spark": 1, "radiance": 0, "trail": 0, "resonance": 0, "aura": 0, "arcana": 0, "attunement": 0},
+        "interaction": {"draggable": True, "throw_enabled": True, "click_reaction": True, "mouse_hover_reaction": True, "target_search_down_distance": 220, "target_search_up_distance": 80},
+        "character": {"default_type": "pet", "profile_files": {}},
+        "ai": {"enabled": True, "base_url": "https://x/v1", "api_key": "k",
+               "model": "m", "streaming": True},
+    })
+    cfg = load_config(default_path)
+    assert cfg.ai.streaming is True

@@ -55,6 +55,7 @@
     "max_inflight": 1,
     "throttle_overrides": {},
     "history_max_lines": 200,
-    "bubble_visible_seconds": 3.0
+    "bubble_visible_seconds": 3.0,
+    "streaming": true
   }
 }

@@ -109,6 +109,7 @@ class AIConfig:
     throttle_overrides: dict[str, int]
     history_max_lines: int
     bubble_visible_seconds: float
+    streaming: bool = True
 
     def __post_init__(self) -> None:
         if not 1.0 <= self.request_timeout_s <= 120.0:
@@ -134,6 +135,7 @@ _AI_DEFAULTS: dict[str, Any] = {
     "throttle_overrides": {},
     "history_max_lines": 200,
     "bubble_visible_seconds": 3.0,
+    "streaming": True,
 }
 
 _AI_KNOWN_KEYS: frozenset[str] = frozenset(_AI_DEFAULTS.keys())

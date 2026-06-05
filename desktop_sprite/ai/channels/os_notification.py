@@ -32,3 +32,13 @@ class OsNotificationChannel(Channel):
             logging.getLogger(__name__).warning(
                 "OsNotificationChannel.showMessage failed", exc_info=True
             )
+
+    def dispatch_stream_end(
+        self, stream_id: str, full_text: str, source: str, use_case_id: str,
+    ) -> None:
+        """流结束时把完整文本走 dispatch → tray.showMessage。"""
+        import time as _time
+        self.dispatch(AIText(
+            text=full_text, source=source,
+            use_case_id=use_case_id, timestamp=_time.time(),
+        ))

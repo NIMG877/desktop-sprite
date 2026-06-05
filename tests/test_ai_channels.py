@@ -143,3 +143,32 @@ def test_pet_bubble_channel_stream_noop_when_bubble_none():
     ch.dispatch_stream_start("s", "u")
     ch.dispatch_stream_delta("s", "x", "u")
     ch.dispatch_stream_end("s", "x", "ai", "u")
+
+
+# --- OsNotificationChannel 流式转发 ---
+
+
+class _FakeTray:
+    def __init__(self):
+        self.notified: list[tuple[str, str]] = []
+    def showMessage(self, title: str, msg: str, icon: int = 0, msecs: int = 10000) -> None:
+        self.notified.append((title, msg))
+
+
+def test_os_notification_channel_stream_start_and_delta_are_noop():
+    """start / delta 走基类默认 no-op；end 才真正弹通知。"""
+    tray = _FakeTray()
+    ch = OsNotificationChannel(tray_provider=lambda: tray)
+    ch.dispatch_stream_start("s", "u")
+    ch.dispatch_stream_delta("s", "a", "u")
+    ch.dispatch_stream_delta("s", "b", "u")
+    assert tray.notified == []  # 流期间没弹
+
+
+def test_os_notification_channel_stream_end_dispatches_full_text():
+    tray = _FakeTray()
+    ch = OsNotificationChannel(tray_provider=lambda: tray)
+    ch.dispatch_stream_end("s1", "完整文本", "ai", "uc1")
+    assert len(tray.notified) == 1
+    title, msg = tray.notified[0]
+    assert msg == "完整文本"

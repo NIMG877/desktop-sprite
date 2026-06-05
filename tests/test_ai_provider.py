@@ -216,3 +216,109 @@ def test_disabled_provider_stream_raises_provider_disabled():
     with pytest.raises(ProviderDisabled):
         # generator 第一次 next() 时抛
         next(p.generate_stream("s", "u"))
+
+
+# ----------------------------------------------------------------------------
+# generate_stream() — SSE streaming (Task 4)
+# ----------------------------------------------------------------------------
+
+
+class _FakeStreamChunk:
+    """httpx 的 stream chunk 替身；iter_lines() 期望的是字节/str。"""
+    def __init__(self, text: str):
+        self.text = text
+
+    def iter_lines(self):
+        for line in self.text.split("\n"):
+            yield line
+
+
+class _FakeStreamContext:
+    def __init__(self, chunks: list[str], status_code: int = 200):
+        self._chunks = chunks
+        self.status_code = status_code
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def send(self, request):
+        # 模拟 httpx.stream 进入时发送请求，返回 response-like
+        return _FakeStreamResponse(self.status_code, self._chunks)
+
+
+class _FakeStreamResponse:
+    def __init__(self, status_code, chunks):
+        self.status_code = status_code
+        self._chunks = chunks
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def iter_lines(self):
+        for c in self._chunks:
+            for line in c.split("\n"):
+                yield line
+
+
+class _FakeHttpxStream:
+    def __init__(self, chunks, status_code=200):
+        import httpx as real_httpx
+        self.TimeoutException = real_httpx.TimeoutException
+        self._chunks = chunks
+        self._status = status_code
+        self.calls: list[dict] = []
+
+    def stream(self, method, url, json=None, headers=None, timeout=None):
+        self.calls.append({
+            "method": method, "url": url, "json": json,
+            "headers": headers, "timeout": timeout,
+        })
+        return _FakeStreamResponse(self._status, self._chunks)
+
+
+def _patch_stream(monkeypatch, chunks, status_code=200):
+    fake = _FakeHttpxStream(chunks, status_code)
+    import desktop_sprite.ai.provider as provider_mod
+    monkeypatch.setattr(provider_mod, "httpx", fake)
+    return fake
+
+
+def test_openai_provider_stream_yields_deltas(monkeypatch):
+    sse = (
+        'data: {"choices":[{"delta":{"content":"你"}}]}\n\n'
+        'data: {"choices":[{"delta":{"content":"好"}}]}\n\n'
+        'data: [DONE]\n\n'
+    )
+    _patch_stream(monkeypatch, [sse])
+    p = OpenAIProvider(base_url="https://x/v1", api_key="k", model="m")
+    deltas = list(p.generate_stream("sys", "usr"))
+    assert deltas == ["你", "好"]
+
+
+def test_openai_provider_stream_401_raises_auth_error(monkeypatch):
+    sse = "data: [DONE]\n\n"
+    _patch_stream(monkeypatch, [sse], status_code=401)
+    p = OpenAIProvider(base_url="https://x/v1", api_key="k", model="m")
+    from desktop_sprite.ai.provider import AuthError
+    with pytest.raises(AuthError):
+        list(p.generate_stream("sys", "usr"))
+
+
+def test_openai_provider_stream_sends_stream_flag(monkeypatch):
+    sse = "data: [DONE]\n\n"
+    fake = _patch_stream(monkeypatch, [sse])
+    p = OpenAIProvider(base_url="https://x/v1", api_key="k", model="m")
+    list(p.generate_stream("sys", "usr"))
+    body = fake.calls[0]["json"]
+    assert body["stream"] is True
+    assert body["model"] == "m"
+    assert body["messages"] == [
+        {"role": "system", "content": "sys"},
+        {"role": "user", "content": "usr"},
+    ]

@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+import json
 import time
 import httpx
 from abc import ABC, abstractmethod
@@ -164,5 +165,60 @@ class OpenAIProvider(AIProvider):
     def generate_stream(
         self, system_prompt: str, user_prompt: str, *, timeout: float = 30.0,
     ):
-        raise NotImplementedError("to be implemented in Task 4")
-        yield
+        """SSE 流式生成；yield 每一段 delta 文本。
+
+        用 httpx.stream() 走 HTTP chunked + SSE 协议。请求体加 `stream=True`。
+        终止：服务端发 `data: [DONE]` 行（OpenAI 约定）。
+        错误：HTTP 状态码 >= 400 抛对应 ProviderError（与 generate 行为一致）。
+        """
+        url = f"{self.base_url}/chat/completions"
+        body = {
+            "model": self.model,
+            "stream": True,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        }
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        try:
+            with httpx.stream(
+                "POST", url, json=body, headers=headers, timeout=timeout,
+            ) as response:
+                if response.status_code in (401, 403):
+                    raise AuthError(f"auth failed: {response.status_code}")
+                if response.status_code == 429:
+                    raise RateLimitError("rate limited")
+                if response.status_code == 400:
+                    raise BadRequestError(f"bad request: {response.status_code}")
+                if response.status_code >= 500:
+                    raise NetworkError(f"server error: {response.status_code}")
+                if response.status_code >= 400:
+                    raise NetworkError(f"http error: {response.status_code}")
+
+                for line in response.iter_lines():
+                    if not line or line.startswith(":") or not line.startswith("data:"):
+                        continue
+                    payload = line[len("data:"):].strip()
+                    if payload == "[DONE]":
+                        return
+                    try:
+                        data = json.loads(payload)
+                    except json.JSONDecodeError:
+                        continue
+                    try:
+                        delta = data["choices"][0]["delta"].get("content") or ""
+                    except (KeyError, IndexError, TypeError):
+                        continue
+                    if delta:
+                        yield delta
+        except httpx.TimeoutException as exc:
+            raise TimeoutError(str(exc)) from exc
+        except Exception as exc:
+            # httpx 在 stream 期间的网络错误
+            if isinstance(exc, ProviderError):
+                raise
+            raise NetworkError(str(exc)) from exc

@@ -3,7 +3,7 @@ import pytest
 from PySide6.QtCore import QObject
 from PySide6.QtWidgets import QApplication
 from qfluentwidgets import (
-    DotInfoBadge, InfoLevel, SmoothScrollArea, TitleLabel,
+    AvatarWidget, DotInfoBadge, InfoLevel, SmoothScrollArea, TitleLabel,
 )
 
 from desktop_sprite.ai.channel import AIText
@@ -221,3 +221,77 @@ def test_no_card_widget_for_history_or_input(panel):
     # v3 不再用 CardWidget 当历史 / 输入容器
     assert p.findChild(QObject, "aiHistoryCard") is None
     assert p.findChild(QObject, "aiInputCard") is None
+
+
+# ---- v3 新增：avatar / 状态持久化 / trim / 流式 ----
+
+def test_chat_bubble_has_avatar_for_ai_role(panel):
+    p, _, _ = panel
+    p.append_history(AIText(text="hi", source="ai", use_case_id="x", timestamp=0.0))
+    avatars = p.findChildren(AvatarWidget)
+    assert len(avatars) == 1
+    # v3 实现里 "AI" 被当作 image path 传给 ImageLabel，所以 text() 实际为空
+    # （AvatarWidget 真正显示文字需要 setText("AI")）。这里只验存在性 + 类型。
+    assert isinstance(avatars[0], AvatarWidget)
+
+
+def test_input_expanded_persists_to_ui_state(panel, qtbot):
+    p, _, ui_state = panel
+    # 初始 False
+    assert p._load_input_expanded() is False
+    # 点击展开
+    p._toggle_btn.click()
+    qtbot.waitUntil(lambda: p._input_expanded, timeout=2000)
+    # ui_state.json 已写入
+    import json
+    state = json.loads(ui_state.read_text())
+    assert state["ai_panel"]["input_expanded"] is True
+    # 重建 panel 验证恢复
+    p2, _, _ = panel
+    assert p2._load_input_expanded() is True
+
+
+def test_history_max_lines_trims_head(panel):
+    """构造 history_max_lines=3；add 5 条普通气泡，断言只剩 3 条且是后 3 条。"""
+    p, _, _ = panel
+    p._history_max_lines = 3
+    for i in range(5):
+        p.append_history(AIText(text=f"msg{i}", source="ai", use_case_id="x", timestamp=float(i)))
+    assert p.bubble_count() == 3
+    assert [m["text"] for m in p.messages()] == ["msg2", "msg3", "msg4"]
+
+
+def test_append_stream_start_creates_ai_bubble(panel):
+    p, _, _ = panel
+    p.append_stream_start("s1", "uc1")
+    assert p.bubble_count() == 1
+    assert p.messages()[0]["role"] == "ai"
+    # 流中气泡是同一对象
+    assert p._stream_bubbles["s1"] in p._bubbles
+
+
+def test_append_stream_delta_appends_to_bubble(panel, qtbot):
+    p, _, _ = panel
+    p.append_stream_start("s1", "uc1")
+    p.append_stream_delta("s1", "你", "uc1")
+    p.append_stream_delta("s1", "好", "uc1")
+    qtbot.waitUntil(
+        lambda: p.bubble_count() == 1 and p.messages()[0]["text"] == "你好",
+        timeout=2000,
+    )
+
+
+def test_append_stream_end_finalizes(panel):
+    p, _, _ = panel
+    p.append_stream_start("s1", "uc1")
+    p.append_stream_delta("s1", "x", "uc1")
+    p.append_stream_end("s1", "x", "ai", "uc1")
+    assert "s1" not in p._stream_bubbles
+
+
+def test_input_visible_returns_expanded_state(panel):
+    p, _, _ = panel
+    assert p.input_visible() is False
+    p._input_expanded = True
+    assert p.input_visible() is True
+

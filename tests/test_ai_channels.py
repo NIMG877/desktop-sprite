@@ -172,3 +172,11 @@ def test_os_notification_channel_stream_end_dispatches_full_text():
     assert len(tray.notified) == 1
     title, msg = tray.notified[0]
     assert msg == "完整文本"
+
+
+def test_os_notification_channel_stream_end_skips_empty_text():
+    """end 事件若 full_text 为空（mid-stream error cleanup），不弹通知。"""
+    tray = _FakeTray()
+    ch = OsNotificationChannel(tray_provider=lambda: tray)
+    ch.dispatch_stream_end("s1", "", "fallback", "uc1")
+    assert tray.notified == []

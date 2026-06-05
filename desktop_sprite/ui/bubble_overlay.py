@@ -59,13 +59,13 @@ class BubbleOverlayWindow(QWidget):
         """流式增量：拼到 _label 末尾 + 重置 hide timer + adjustSize 触发布局。"""
         self._current_text += delta
         self._label.setText(self._current_text)
-        self._label.adjustSize()
+        self.adjustSize()
         self._reset_hide_timer()
 
     def _reset_hide_timer(self) -> None:
-        if hasattr(self, "_hide_timer") and self._hide_timer is not None:
-            self._hide_timer.stop()
-            self._hide_timer.start()
+        """Stop and restart the hide timer with the stored interval."""
+        self._hide_timer.stop()
+        self._hide_timer.start()
 
     def _on_hide_timeout(self) -> None:
         """Timer 触发：隐藏窗口并清空当前文本。"""

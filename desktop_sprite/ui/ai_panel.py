@@ -44,7 +44,6 @@ _PING_LATENCY_OK_MS = 800.0
 _PING_LATENCY_WARN_MS = 2000.0
 _PING_INTERVAL_MS = 10_000
 _PING_TIMEOUT_S = 5.0
-_INPUT_EXPANDED_HEIGHT = 72  # v3 保留：TextEdit 内层高度（v4 仍用于 _input_edit）
 _INPUT_DRAWER_HEIGHT = 120   # v4：整个输入抽屉展开时高度（TextEdit 72 + spacing 8 + 按钮行 32 + 8 余量）
 _INPUT_ANIM_MS = 200
 _SLIM_BAR_HEIGHT = 36        # v4：slim 栏固定高度
@@ -284,6 +283,8 @@ class AIPanelWidget(QWidget):
 
         # ---- 初始状态 ----
         self._input_expanded = False
+        # v4: 缓存当前动画实例，避免快速 toggle 时旧动画 finished 回调误触发
+        self._input_anim: QPropertyAnimation | None = None
         self._apply_input_expanded(self._load_input_expanded(), animate=False)
 
         # ---- Ping 调度 ----
@@ -316,8 +317,7 @@ class AIPanelWidget(QWidget):
         self._toggle_btn.setIcon(FIF.DOWN if expanded else FIF.UP)
         if animate:
             # v4: 动画对象是 _input_area.maximumHeight（整抽屉），不再只动 TextEdit
-            if expanded and not self._input_area.isVisibleTo(self):
-                self._input_area.setVisible(True)
+            # 可见性由 _animate_input_area 统一管理
             self._animate_input_area(_INPUT_DRAWER_HEIGHT if expanded else 0)
         else:
             self._input_area.setMaximumHeight(
@@ -330,7 +330,14 @@ class AIPanelWidget(QWidget):
         self._save_input_expanded()
 
     def _animate_input_area(self, target: int) -> None:
-        """v4: 动画 _input_area.maximumHeight；target=0 时收起完成后隐藏。"""
+        """v4: 动画 _input_area.maximumHeight；target=0 时收起完成后隐藏。
+
+        缓存动画实例到 self._input_anim，避免快速 toggle 时旧动画的
+        finished 回调在新动画进行中误触发 setVisible(False)。
+        """
+        # 停掉旧动画（如果有），避免其 finished 回调误触发
+        if self._input_anim is not None:
+            self._input_anim.stop()
         if target > 0 and not self._input_area.isVisibleTo(self):
             self._input_area.setVisible(True)
         ani = QPropertyAnimation(self._input_area, b"maximumHeight", self)
@@ -341,6 +348,7 @@ class AIPanelWidget(QWidget):
         if target == 0:
             ani.finished.connect(lambda: self._input_area.setVisible(False))
         ani.start()
+        self._input_anim = ani
 
     # ---- 公开 API（ChatPanelChannel 与测试用）----
 

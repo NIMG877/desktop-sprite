@@ -9,7 +9,7 @@ from qfluentwidgets import (
 
 from desktop_sprite.ai.channel import AIText
 from desktop_sprite.ui.ai_panel import (
-    AIPanelWidget, ChatBubble, _INPUT_DRAWER_HEIGHT, _INPUT_EXPANDED_HEIGHT, _StatusDot,
+    AIPanelWidget, ChatBubble, _INPUT_DRAWER_HEIGHT, _StatusDot,
 )
 
 from tests.ai_fakes import FakeProvider

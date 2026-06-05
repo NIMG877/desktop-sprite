@@ -45,5 +45,16 @@
     "profile_files": {
       "pet": "characters/pet.json"
     }
+  },
+  "ai": {
+    "enabled": false,
+    "base_url": "https://api.openai.com/v1",
+    "model": "gpt-4o-mini",
+    "api_key": "",
+    "request_timeout_s": 30.0,
+    "max_inflight": 1,
+    "throttle_overrides": {},
+    "history_max_lines": 200,
+    "bubble_visible_seconds": 3.0
   }
 }

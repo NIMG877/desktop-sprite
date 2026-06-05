@@ -23,6 +23,7 @@ from qfluentwidgets import (
 from desktop_sprite.models.inventory import InventorySnapshot
 from desktop_sprite.models.pet_attribute import PetAttributeSheet
 from desktop_sprite.models.spirit_mark import SpiritMarkInventory
+from desktop_sprite.ui.ai_panel import AIPanelWidget
 from desktop_sprite.ui.config_editor import ConfigEditorWidget, UI_STATE_FILENAME, USER_CONFIG_DIRNAME
 from desktop_sprite.ui.debug_widget import DebugWidget
 from desktop_sprite.ui.growth_widget import PetGrowthWidget
@@ -57,6 +58,7 @@ class MainWindow(FluentWindow):
         pet_attribute_sheet: PetAttributeSheet | None = None,
         on_spirit_marks_changed: Callable[[SpiritMarkInventory], None] | None = None,
         on_debug_request_spirit_mark: Callable[[], str] | None = None,
+        ai_orchestrator=None,
         parent: QWidget | None = None,
     ) -> None:
         # Placeholder until `ui_state_path` is set below; `_load_saved_theme`
@@ -107,6 +109,21 @@ class MainWindow(FluentWindow):
         self.settings_page = self._create_settings_page()
 
         self._add_interfaces()
+        # AI 互动子页（v1：仅在 ai_orchestrator 注入时注册）
+        self._ai_panel_widget: AIPanelWidget | None = None
+        if ai_orchestrator is not None:
+            history_max_lines = 200  # default
+            try:
+                # 优先从 config 读
+                if hasattr(self, "config") and self.config is not None and hasattr(self.config, "ai"):
+                    history_max_lines = self.config.ai.history_max_lines
+            except Exception:
+                pass
+            self._ai_panel_widget = AIPanelWidget(
+                orchestrator=ai_orchestrator,
+                history_max_lines=history_max_lines,
+            )
+            self.addSubInterface(self._ai_panel_widget, None, "AI 互动")
         self._ensure_config_editor()
         self._apply_initial_window_size()
         self._saved_geometry = self._load_saved_geometry()

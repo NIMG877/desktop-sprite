@@ -388,6 +388,7 @@ class AppRuntime:
                 pet_attribute_sheet=PetAttributeSheet.from_config(self.config),
                 on_spirit_marks_changed=self.save_updated_spirit_marks,
                 on_debug_request_spirit_mark=self.request_debug_spirit_mark,
+                ai_orchestrator=self.ai_orchestrator,
             )
         self.main_window.open_home()
 

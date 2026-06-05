@@ -209,3 +209,10 @@ def test_abstract_provider_must_implement_generate_stream():
     """未实现 generate_stream 不能实例化。"""
     with pytest.raises(TypeError):
         AIProvider()  # 触发 ABC 检查
+
+
+def test_disabled_provider_stream_raises_provider_disabled():
+    p = DisabledProvider()
+    with pytest.raises(ProviderDisabled):
+        # generator 第一次 next() 时抛
+        next(p.generate_stream("s", "u"))

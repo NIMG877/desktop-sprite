@@ -1,7 +1,7 @@
 """v3 FluentUI 扁平 UI 测试（聊天气泡 + 切换按钮 + 输入区折叠）。"""
 import pytest
 from PySide6.QtCore import QObject
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QFrame
 from qfluentwidgets import (
     AvatarWidget, DotInfoBadge, InfoLevel, SmoothScrollArea, TitleLabel, ToolButton,
     ToggleButton,
@@ -308,26 +308,6 @@ def test_input_visible_returns_expanded_state(panel):
     assert p.input_visible() is True
 
 
-def test_buttons_visible_even_when_input_collapsed(panel, qtbot):
-    """收起状态下，按钮行（清空/展开/发送）依然可见。
-
-    v3 修复：input_area 本身始终可见，只有 TextEdit 折叠。
-    防止回归：以前 _input_area.setMaximumHeight(0) 把整个输入区藏了。
-    """
-    p, _, _ = panel
-    # 初始收起（input_expanded=False），但按钮应可见
-    assert p.input_visible() is False
-    assert not p._toggle_btn.isHidden()
-    assert not p._clear_btn.isHidden()
-    assert not p._send_btn.isHidden()
-    # 展开后按钮仍然可见
-    p._toggle_btn.click()
-    qtbot.waitUntil(lambda: p._input_expanded, timeout=500)
-    assert not p._toggle_btn.isHidden()
-    assert not p._clear_btn.isHidden()
-    assert not p._send_btn.isHidden()
-
-
 # ---- v4: slim 栏 + ToolButton toggle ----
 
 def test_slim_bar_exists_and_always_visible(panel, qtbot):
@@ -397,4 +377,47 @@ def test_input_area_hidden_after_collapse_animation(panel, qtbot):
         lambda: p._input_area.maximumHeight() == 0 and not p._input_area.isVisibleTo(p),
         timeout=2000,
     )
+
+
+# ---- v4: 收起时只有 toggle 可见 ----
+
+def test_only_toggle_visible_when_input_collapsed(panel):
+    """v4: 收起时整个抽屉消失，只有 slim 栏里的 toggle 可见。"""
+    p, _, _ = panel
+    assert p.input_visible() is False
+    # toggle 永远可见
+    assert p._toggle_btn.isVisibleTo(p) is True
+    # 抽屉内控件全部隐藏
+    assert p._input_edit.isVisibleTo(p) is False
+    assert p._clear_btn.isVisibleTo(p) is False
+    assert p._send_btn.isVisibleTo(p) is False
+    # 整个抽屉 widget 也隐藏
+    assert p._input_area.isVisibleTo(p) is False
+
+
+def test_all_drawer_widgets_visible_when_input_expanded(panel, qtbot):
+    """v4: 展开时抽屉内所有控件可见。"""
+    p, _, _ = panel
+    p._toggle_btn.click()
+    qtbot.waitUntil(
+        lambda: p._input_area.isVisibleTo(p) and p._input_area.maximumHeight() == _INPUT_DRAWER_HEIGHT,
+        timeout=2000,
+    )
+    assert p._input_edit.isVisibleTo(p) is True
+    assert p._clear_btn.isVisibleTo(p) is True
+    assert p._send_btn.isVisibleTo(p) is True
+    # toggle 仍然可见（slim 栏不受抽屉状态影响）
+    assert p._toggle_btn.isVisibleTo(p) is True
+
+
+def test_slim_bar_has_top_divider(panel):
+    """v4: slim 栏内部有 1px QFrame 顶边线。"""
+    p, _, _ = panel
+    frames = p._slim_bar.findChildren(QFrame)
+    # 至少有一个 HLine 1px 高的 frame
+    hlines = [
+        f for f in frames
+        if f.frameShape() == QFrame.HLine and f.height() == 1
+    ]
+    assert len(hlines) >= 1
 

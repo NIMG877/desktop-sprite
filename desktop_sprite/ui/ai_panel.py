@@ -21,7 +21,7 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import QColor, QResizeEvent
 from PySide6.QtWidgets import (
-    QHBoxLayout, QSizePolicy, QVBoxLayout, QWidget,
+    QHBoxLayout, QVBoxLayout, QWidget,
 )
 from qfluentwidgets import (
     AvatarWidget, BodyLabel, CardWidget, DotInfoBadge, FluentIcon as FIF,
@@ -41,7 +41,7 @@ _PING_LATENCY_OK_MS = 800.0
 _PING_LATENCY_WARN_MS = 2000.0
 _PING_INTERVAL_MS = 10_000
 _PING_TIMEOUT_S = 5.0
-_INPUT_EXPANDED_HEIGHT = 160
+_INPUT_EXPANDED_HEIGHT = 72
 _INPUT_ANIM_MS = 200
 
 
@@ -192,19 +192,23 @@ class AIPanelWidget(QWidget):
         self._scroll.setObjectName("aiHistoryScroll")
         self._scroll.setWidgetResizable(True)
         self._scroll.enableTransparentBackground()
+        # 防止 viewport 默认填充白色背景
+        self._scroll.viewport().setAutoFillBackground(False)
         self._scroll_inner = QWidget(self._scroll)
         self._scroll_inner.setObjectName("chatBubblesInner")
+        # 内层 widget 透明背景
+        self._scroll_inner.setAttribute(Qt.WA_StyledBackground, False)
+        self._scroll_inner.setStyleSheet("background: transparent;")
         self._scroll_layout = QVBoxLayout(self._scroll_inner)
         self._scroll_layout.setContentsMargins(4, 4, 4, 4)
         self._scroll_layout.setSpacing(8)
         self._scroll_layout.addStretch(1)
         self._scroll.setWidget(self._scroll_inner)
 
-        # ---- 输入区（QWidget，去 CardWidget；可折叠）----
+        # ---- 输入区（始终可见；只 TextEdit 折叠，buttons 始终在）----
         self._input_area = QWidget(self)
         self._input_area.setObjectName("aiInputArea")
-        self._input_area.setMaximumHeight(0)
-        self._input_area.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        # 不再 setMaximumHeight(0)；input area 本身始终存在
         input_layout = QVBoxLayout(self._input_area)
         input_layout.setContentsMargins(0, 0, 0, 0)
         input_layout.setSpacing(8)
@@ -212,8 +216,10 @@ class AIPanelWidget(QWidget):
         self._input_edit = TextEdit(self._input_area)
         self._input_edit.setObjectName("aiInputEdit")
         self._input_edit.setPlaceholderText("说点什么…")
-        self._input_edit.setFixedHeight(72)
-        self._input_edit.setVisible(False)  # 收起时不显示
+        # 用 maxHeight 控制折叠；min 不锁，便于动画 0→72
+        self._input_edit.setMaximumHeight(72)
+        self._input_edit.setMinimumHeight(72)
+        # 初始可见性由 _apply_input_expanded 设置
         input_layout.addWidget(self._input_edit)
 
         button_row = QHBoxLayout()
@@ -273,25 +279,34 @@ class AIPanelWidget(QWidget):
         self._toggle_btn.setChecked(expanded)
         self._toggle_btn.setText("收起" if expanded else "展开")
         self._toggle_btn.setIcon(FIF.DOWN if expanded else FIF.UP)
-        self._input_edit.setVisible(expanded)
         if animate:
-            target = _INPUT_EXPANDED_HEIGHT if expanded else 0
-            self._animate_input(target)
+            # 动画只动 input_edit 的 maximumHeight；input_area 始终存在
+            if expanded:
+                self._input_edit.setVisible(True)
+                self._animate_input_edit(_INPUT_EXPANDED_HEIGHT)
+            else:
+                self._animate_input_edit(0)
         else:
-            self._input_area.setMaximumHeight(
+            self._input_edit.setMaximumHeight(
                 _INPUT_EXPANDED_HEIGHT if expanded else 0
             )
+            self._input_edit.setVisible(expanded)
 
     def _on_toggle_changed(self, checked: bool) -> None:
         self._apply_input_expanded(checked, animate=True)
         self._save_input_expanded()
 
-    def _animate_input(self, target: int) -> None:
-        ani = QPropertyAnimation(self._input_area, b"maximumHeight", self)
+    def _animate_input_edit(self, target: int) -> None:
+        """动画 input_edit 的 maximumHeight；target=0 时收起完成后隐藏。"""
+        if target > 0 and not self._input_edit.isVisible():
+            self._input_edit.setVisible(True)
+        ani = QPropertyAnimation(self._input_edit, b"maximumHeight", self)
         ani.setDuration(_INPUT_ANIM_MS)
-        ani.setStartValue(self._input_area.maximumHeight())
+        ani.setStartValue(self._input_edit.maximumHeight())
         ani.setEndValue(target)
         ani.setEasingCurve(QEasingCurve.OutCubic)
+        if target == 0:
+            ani.finished.connect(lambda: self._input_edit.setVisible(False))
         ani.start()
 
     # ---- 公开 API（ChatPanelChannel 与测试用）----

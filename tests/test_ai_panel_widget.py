@@ -70,7 +70,10 @@ def test_panel_uses_smoothscrollarea(panel):
 def test_input_starts_collapsed(panel):
     p, _, _ = panel
     assert p.input_visible() is False
-    assert p._input_area.maximumHeight() == 0
+    # v3 fix: input_area 始终存在（按钮可见）；只 TextEdit 折叠
+    # isHidden 比 isVisible 更适合无显示环境（offscreen）下的检查
+    assert p._input_edit.isHidden() is True
+    assert p._input_edit.maximumHeight() == 0
     assert p._toggle_btn.isChecked() is False
     assert p._toggle_btn.text() == "展开"
 
@@ -117,8 +120,12 @@ def test_toggle_btn_click_expands_input(panel, qtbot):
     p, _, _ = panel
     assert p.input_visible() is False
     p._toggle_btn.click()
-    # 等动画结束：maximumHeight 升到目标值
-    qtbot.waitUntil(lambda: p._input_area.maximumHeight() == _INPUT_EXPANDED_HEIGHT, timeout=2000)
+    # 等动画结束：input_edit 的 maximumHeight 升到目标值
+    qtbot.waitUntil(
+        lambda: p._input_edit.maximumHeight() == _INPUT_EXPANDED_HEIGHT
+        and not p._input_edit.isHidden(),
+        timeout=2000,
+    )
     assert p.input_visible() is True
     assert p._toggle_btn.isChecked() is True
     assert p._toggle_btn.text() == "收起"
@@ -127,9 +134,17 @@ def test_toggle_btn_click_expands_input(panel, qtbot):
 def test_toggle_btn_click_again_collapses_input(panel, qtbot):
     p, _, _ = panel
     p._toggle_btn.click()
-    qtbot.waitUntil(lambda: p._input_area.maximumHeight() == _INPUT_EXPANDED_HEIGHT, timeout=2000)
+    qtbot.waitUntil(
+        lambda: p._input_edit.maximumHeight() == _INPUT_EXPANDED_HEIGHT
+        and not p._input_edit.isHidden(),
+        timeout=2000,
+    )
     p._toggle_btn.click()
-    qtbot.waitUntil(lambda: p._input_area.maximumHeight() == 0, timeout=2000)
+    qtbot.waitUntil(
+        lambda: p._input_edit.maximumHeight() == 0
+        and p._input_edit.isHidden(),
+        timeout=2000,
+    )
     assert p.input_visible() is False
 
 

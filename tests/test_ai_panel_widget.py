@@ -3,7 +3,8 @@ import pytest
 from PySide6.QtCore import QObject
 from PySide6.QtWidgets import QApplication
 from qfluentwidgets import (
-    AvatarWidget, DotInfoBadge, InfoLevel, SmoothScrollArea, TitleLabel,
+    AvatarWidget, DotInfoBadge, InfoLevel, SmoothScrollArea, TitleLabel, ToolButton,
+    ToggleButton,
 )
 
 from desktop_sprite.ai.channel import AIText
@@ -331,4 +332,37 @@ def test_buttons_visible_even_when_input_collapsed(panel, qtbot):
     assert not p._toggle_btn.isHidden()
     assert not p._clear_btn.isHidden()
     assert not p._send_btn.isHidden()
+
+
+# ---- v4: slim 栏 + ToolButton toggle ----
+
+def test_slim_bar_exists_and_always_visible(panel, qtbot):
+    """v4: 整页底部新增 _slim_bar，收起/展开两种状态下都可见。"""
+    p, _, _ = panel
+    assert hasattr(p, "_slim_bar"), "AIPanelWidget 应有 _slim_bar 字段"
+    # 在 offscreen 测试环境下父 widget 未 show()，用 isVisibleTo(p) 验证子 widget 自身可见性
+    assert p._slim_bar.isVisibleTo(p) is True
+    # 展开后 slim_bar 仍然可见
+    p._toggle_btn.click()
+    qtbot.waitUntil(lambda: p._input_expanded, timeout=2000)
+    assert p._slim_bar.isVisibleTo(p) is True
+
+
+def test_toggle_button_is_tool_button(panel):
+    """v4: toggle 改为 ToolButton，不再是 ToggleButton。"""
+    p, _, _ = panel
+    assert isinstance(p._toggle_btn, ToolButton)
+    assert not isinstance(p._toggle_btn, ToggleButton)
+
+
+def test_toggle_button_has_no_text(panel):
+    """v4: toggle 仅图标，文字为空。"""
+    p, _, _ = panel
+    assert p._toggle_btn.text() == ""
+
+
+def test_toggle_button_has_tooltip(panel):
+    """v4: 鼠标悬停 tooltip 补回可发现性。"""
+    p, _, _ = panel
+    assert p._toggle_btn.toolTip() != ""
 

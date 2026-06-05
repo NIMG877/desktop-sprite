@@ -21,12 +21,13 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import QColor, QResizeEvent
 from PySide6.QtWidgets import (
-    QHBoxLayout, QVBoxLayout, QWidget,
+    QFrame, QHBoxLayout, QVBoxLayout, QWidget,
 )
 from qfluentwidgets import (
     AvatarWidget, BodyLabel, CardWidget, DotInfoBadge, FluentIcon as FIF,
     InfoLevel, PrimaryPushButton, PushButton, SmoothScrollArea,
-    StrongBodyLabel, TextEdit, TitleLabel, ToggleButton, isDarkTheme, themeColor,
+    StrongBodyLabel, TextEdit, TitleLabel, ToggleButton, ToolButton, isDarkTheme,
+    themeColor,
 )
 
 from desktop_sprite.ai.channel import AIText
@@ -41,8 +42,10 @@ _PING_LATENCY_OK_MS = 800.0
 _PING_LATENCY_WARN_MS = 2000.0
 _PING_INTERVAL_MS = 10_000
 _PING_TIMEOUT_S = 5.0
-_INPUT_EXPANDED_HEIGHT = 72
+_INPUT_EXPANDED_HEIGHT = 72  # v3 保留：TextEdit 内层高度（v4 仍用于 _input_edit）
+_INPUT_DRAWER_HEIGHT = 120   # v4：整个输入抽屉展开时高度（TextEdit 72 + spacing 8 + 按钮行 32 + 8 余量）
 _INPUT_ANIM_MS = 200
+_SLIM_BAR_HEIGHT = 36        # v4：slim 栏固定高度
 
 
 # ---- 状态点（保留）----
@@ -228,14 +231,10 @@ class AIPanelWidget(QWidget):
         self._clear_btn = PushButton("清空历史", self._input_area)
         self._clear_btn.setIcon(FIF.DELETE)
         self._clear_btn.clicked.connect(self.clear_history)
-        self._toggle_btn = ToggleButton("展开", self._input_area)
-        self._toggle_btn.setIcon(FIF.UP)
-        self._toggle_btn.toggled.connect(self._on_toggle_changed)
         self._send_btn = PrimaryPushButton("发送", self._input_area)
         self._send_btn.setIcon(FIF.SEND)
         self._send_btn.clicked.connect(self._on_send_clicked)
         button_row.addWidget(self._clear_btn)
-        button_row.addWidget(self._toggle_btn)
         button_row.addWidget(self._send_btn)
         input_layout.addLayout(button_row)
 
@@ -246,6 +245,40 @@ class AIPanelWidget(QWidget):
         page.addLayout(title_row)
         page.addWidget(self._scroll, 1)
         page.addWidget(self._input_area)
+
+        # ---- slim 栏（v4：整页底部，1px 顶边线 + 右对齐 ToolButton）----
+        self._slim_bar = QWidget(self)
+        self._slim_bar.setObjectName("aiSlimBar")
+        self._slim_bar.setFixedHeight(_SLIM_BAR_HEIGHT)
+
+        # 1px 顶部分隔线
+        slim_layout = QVBoxLayout(self._slim_bar)
+        slim_layout.setContentsMargins(0, 0, 0, 0)
+        slim_layout.setSpacing(0)
+        divider = QFrame(self._slim_bar)
+        divider.setFrameShape(QFrame.HLine)
+        divider.setFrameShadow(QFrame.Plain)
+        # 半透明主题色（深色用白 40，浅色用黑 80）
+        divider.setStyleSheet(
+            "color: rgba(255, 255, 255, 40);" if isDarkTheme()
+            else "color: rgba(0, 0, 0, 80);"
+        )
+        divider.setFixedHeight(1)
+        slim_layout.addWidget(divider)
+
+        slim_row = QHBoxLayout()
+        slim_row.setContentsMargins(0, 4, 16, 4)  # 右边 16px 留白
+        slim_row.setSpacing(0)
+        slim_row.addStretch(1)
+        self._toggle_btn = ToolButton(self._slim_bar)
+        self._toggle_btn.setCheckable(True)
+        self._toggle_btn.setIcon(FIF.UP)
+        self._toggle_btn.setToolTip("展开输入")
+        self._toggle_btn.toggled.connect(self._on_toggle_changed)
+        slim_row.addWidget(self._toggle_btn)
+        slim_layout.addLayout(slim_row)
+
+        page.addWidget(self._slim_bar)  # v4：slim 栏永远在底部
 
         # ---- 初始状态 ----
         self._input_expanded = False
@@ -277,10 +310,9 @@ class AIPanelWidget(QWidget):
     def _apply_input_expanded(self, expanded: bool, *, animate: bool) -> None:
         self._input_expanded = expanded
         self._toggle_btn.setChecked(expanded)
-        self._toggle_btn.setText("收起" if expanded else "展开")
+        # v4: 不再 setText（无文字）；setIcon 跟状态反转
         self._toggle_btn.setIcon(FIF.DOWN if expanded else FIF.UP)
         if animate:
-            # 动画只动 input_edit 的 maximumHeight；input_area 始终存在
             if expanded:
                 self._input_edit.setVisible(True)
                 self._animate_input_edit(_INPUT_EXPANDED_HEIGHT)

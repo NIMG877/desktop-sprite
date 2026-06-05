@@ -1,8 +1,7 @@
 """AIOrchestrator——中央调度器。
 
-事件订阅 → 查注册表 → 节流 → QThreadPool worker → 调 provider →
-跨线程 invokeMethod 回主线程 → fan-out 到 channel。带重试 / 熔断 /
-fallback / 异常隔离。
+事件订阅 → 查注册表 → 节流 → QThreadPool worker → 调 provider.generate_stream() →
+Signal queued 跨线程回主线程 → fan-out 到 channel。带熔断 / fallback / 异常隔离。
 """
 from __future__ import annotations
 
@@ -68,8 +67,14 @@ class _StreamWorker(QRunnable):
                     self._stream_id, self._use_case_id, "delta", delta,
                 )
         except Exception as exc:  # noqa: BLE001
+            partial = "".join(accumulated)
             orch._stream_event.emit(
                 self._stream_id, self._use_case_id, "error", exc,
+            )
+            # 仍然发 end 事件，让 channel 清理 in-progress 状态
+            source = "ai" if accumulated else "fallback"
+            orch._stream_event.emit(
+                self._stream_id, self._use_case_id, "end", (partial, source),
             )
             return
         full_text = "".join(accumulated)
@@ -141,6 +146,9 @@ class AIOrchestrator(QObject):
         # 熔断状态：错误计数 + 开启截止时间
         self._error_streak = 0
         self._circuit_open_until = 0.0
+        # 流错误标记：记录本轮已 error 的 stream_id，避免 end-after-error 把
+        # 熔断计数清零（end 不再代表"成功完成"）。
+        self._stream_errored: set[str] = set()
         # 反订阅句柄
         self._unsubscribers: list[Callable[[], None]] = []
 
@@ -243,21 +251,34 @@ class AIOrchestrator(QObject):
         - error  → 熔断计数（如适用） + 走 fallback
         """
         if kind == "start":
+            self._stream_errored.discard(stream_id)
             for ch in self._channels:
-                ch.dispatch_stream_start(stream_id, use_case_id)
+                try:
+                    ch.dispatch_stream_start(stream_id, use_case_id)
+                except Exception:
+                    logger.warning("channel %s.dispatch_stream_start raised; isolating", ch.name, exc_info=True)
             return
 
         if kind == "delta":
             for ch in self._channels:
-                ch.dispatch_stream_delta(stream_id, payload, use_case_id)
+                try:
+                    ch.dispatch_stream_delta(stream_id, payload, use_case_id)
+                except Exception:
+                    logger.warning("channel %s.dispatch_stream_delta raised; isolating", ch.name, exc_info=True)
             return
 
         if kind == "end":
             full_text, source = payload
-            # 成功 → 重置熔断
-            self._error_streak = 0
+            # 成功 → 重置熔断（仅当本流未 error 过；end-after-error 是清理，
+            # 不应清掉熔断计数）。
+            if stream_id not in self._stream_errored:
+                self._error_streak = 0
+            self._stream_errored.discard(stream_id)
             for ch in self._channels:
-                ch.dispatch_stream_end(stream_id, full_text, source, use_case_id)
+                try:
+                    ch.dispatch_stream_end(stream_id, full_text, source, use_case_id)
+                except Exception:
+                    logger.warning("channel %s.dispatch_stream_end raised; isolating", ch.name, exc_info=True)
             return
 
         if kind == "error":
@@ -265,6 +286,8 @@ class AIOrchestrator(QObject):
             uc = self._use_cases.get(use_case_id)
             if uc is None:
                 return
+            # 标记本流已 error，避免随后的 end 把熔断计数清零
+            self._stream_errored.add(stream_id)
             # 熔断计数先做（错误就是错误）
             if isinstance(exc, _CIRCUIT_ERRORS):
                 self._error_streak += 1

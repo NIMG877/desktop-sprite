@@ -54,10 +54,15 @@ def test_provider_error_with_fallback_dispatches_fallback(qtbot):
     )
     orch.start()
     orch.trigger_test()
-    qtbot.waitUntil(lambda: len(channels["pet_bubble"].dispatched) == 1, timeout=2000)
+    # I-3: error 后会发 end 清理事件（空 AIText）→ channel.dispatched 会有 2 条
+    qtbot.waitUntil(
+        lambda: any(c.dispatched and c.dispatched[0].text == "(fallback)" for c in channels.values()),
+        timeout=2000,
+    )
     for ch in channels.values():
-        assert ch.dispatched[0].text == "(fallback)"
-        assert ch.dispatched[0].source == "fallback"
+        fallback_msgs = [m for m in ch.dispatched if m.text == "(fallback)"]
+        assert len(fallback_msgs) == 1
+        assert fallback_msgs[0].source == "fallback"
 
 
 def test_provider_error_no_fallback_no_dispatch(qtbot):
@@ -74,7 +79,10 @@ def test_provider_error_no_fallback_no_dispatch(qtbot):
     orch.start()
     orch.trigger_test()
     qtbot.wait(500)
-    assert channels["pet_bubble"].dispatched == []
+    # I-3: 无 fallback_text → 不应派发任何 fallback AIText；error 后的清理 end
+    # 会合成 1 个空 AIText，验证没有非空文本被派发即可
+    non_empty = [m for m in channels["pet_bubble"].dispatched if m.text]
+    assert non_empty == []
 
 
 # ---- 节流 ----
@@ -130,10 +138,15 @@ def test_rate_limit_triggers_fallback_no_retry_in_streaming(qtbot):
     )
     orch.start()
     orch.trigger_test()
-    qtbot.waitUntil(lambda: len(channels["pet_bubble"].dispatched) == 1, timeout=2000)
+    # I-3: error 后会发 end 清理事件，channel.dispatched 有 2 条
+    qtbot.waitUntil(
+        lambda: any(c.dispatched and c.dispatched[0].text == "(fallback)" for c in channels.values()),
+        timeout=2000,
+    )
     for ch in channels.values():
-        assert ch.dispatched[0].source == "fallback"
-        assert ch.dispatched[0].text == "(fallback)"
+        fallback_msgs = [m for m in ch.dispatched if m.text == "(fallback)"]
+        assert len(fallback_msgs) == 1
+        assert fallback_msgs[0].source == "fallback"
     assert len(provider.calls) == 1  # 只调 1 次，不重试
 
 
@@ -143,7 +156,8 @@ def test_auth_error_does_not_retry(qtbot):
     )
     orch.start()
     orch.trigger_test()
-    qtbot.waitUntil(lambda: len(channels["pet_bubble"].dispatched) == 1, timeout=2000)
+    # I-3: error 后会发 end 清理事件，channel.dispatched 会有 2 条
+    qtbot.waitUntil(lambda: len(channels["pet_bubble"].dispatched) >= 1, timeout=2000)
     assert len(provider.calls) == 1  # 不重试
 
 
@@ -298,16 +312,18 @@ def test_streaming_midstream_error_falls_back(qtbot):
 
     provider = _BoomProvider([])
     orch, ch = _make_streaming_orch(provider)
-    # TEST_PROBE.fallback_text = "(fallback)"
     orch.start()
     orch.trigger_test(user_hint="hi")
-    # 不应 throw；dispatch(AIText) 走 fallback
-    qtbot.waitUntil(lambda: len(ch.deltas) == 0, timeout=500)
-    # 验证 panel/channel 收到 fallback
-    # （上面 ch.deltas 应为空；fallback 走 dispatch 路径不进 ch.deltas）
-    # 进一步断言：ch 没收到任何 stream 事件
-    assert ch.starts == []
-    assert ch.ends == []
+    # 等 start 事件到达（说明 worker 已运行）
+    qtbot.waitUntil(lambda: len(ch.starts) == 1, timeout=2000)
+    # 再给 error 信号一点时间传播
+    qtbot.wait(100)
+    # 流路径：start 已发，error 后发 end（含已累积的 partial 或 fallback）
+    assert ch.deltas == []  # 没有 delta 因为第一段就 raise
+    # end 事件 1 个（source=fallback 因为 accumulated 空）
+    assert len(ch.ends) == 1
+    assert ch.ends[0][1] == ""  # full_text
+    assert ch.ends[0][2] == "fallback"  # source
 
 
 def test_streaming_dispatch_emits_end_event(qtbot):

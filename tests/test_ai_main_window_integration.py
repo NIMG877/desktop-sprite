@@ -1,6 +1,5 @@
 """AI 互动子页接入到 MainWindow 的集成测试。"""
-from PySide6.QtWidgets import QApplication
-from qfluentwidgets import CardWidget
+from PySide6.QtWidgets import QApplication, QWidget
 
 from desktop_sprite.ui.main_window import MainWindow
 from desktop_sprite.ui.ai_panel import AIPanelWidget
@@ -60,8 +59,8 @@ def test_main_window_constructor_with_ai_orchestrator_registers_panel(qtbot, tmp
     assert len(found) >= 1
 
 
-def test_ai_panel_uses_fluentui_card_widgets(qtbot, tmp_path):
-    """AI 互动面板要和其它子页一致走 FluentUI：CardWidget 包段落。"""
+def test_ai_panel_structure(qtbot, tmp_path):
+    """AI 互动面板 v3 走 FluentUI 扁平结构：去掉 CardWidget 容器，直接用 QWidget。"""
     _write_default_config(tmp_path)
     win = MainWindow(
         config_path=tmp_path / "default.json",
@@ -81,10 +80,11 @@ def test_ai_panel_uses_fluentui_card_widgets(qtbot, tmp_path):
     )
     qtbot.addWidget(win)
     panel = win._ai_panel_widget
-    # v2 至少要有 aiHistoryCard（包 SmoothScrollArea）和 aiInputCard（输入区）
-    card_object_names = {c.objectName() for c in panel.findChildren(CardWidget)}
-    assert "aiHistoryCard" in card_object_names, f"missing history card, got {card_object_names}"
-    assert "aiInputCard" in card_object_names, f"missing input card, got {card_object_names}"
+    # v3 扁平：aiHistoryScroll（SmoothScrollArea）+ aiInputArea（输入区 QWidget）
+    history_scroll = panel.findChild(QWidget, "aiHistoryScroll")
+    input_area = panel.findChild(QWidget, "aiInputArea")
+    assert history_scroll is not None, "missing aiHistoryScroll widget"
+    assert input_area is not None, "missing aiInputArea widget"
 
 
 def test_ai_panel_sits_in_quan_zidong_slot(qtbot, tmp_path):

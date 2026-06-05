@@ -315,32 +315,31 @@ class AIPanelWidget(QWidget):
         # v4: 不再 setText（无文字）；setIcon 跟状态反转
         self._toggle_btn.setIcon(FIF.DOWN if expanded else FIF.UP)
         if animate:
-            if expanded:
-                self._input_edit.setVisible(True)
-                self._animate_input_edit(_INPUT_EXPANDED_HEIGHT)
-            else:
-                self._animate_input_edit(0)
+            # v4: 动画对象是 _input_area.maximumHeight（整抽屉），不再只动 TextEdit
+            if expanded and not self._input_area.isVisibleTo(self):
+                self._input_area.setVisible(True)
+            self._animate_input_area(_INPUT_DRAWER_HEIGHT if expanded else 0)
         else:
-            self._input_edit.setMaximumHeight(
-                _INPUT_EXPANDED_HEIGHT if expanded else 0
+            self._input_area.setMaximumHeight(
+                _INPUT_DRAWER_HEIGHT if expanded else 0
             )
-            self._input_edit.setVisible(expanded)
+            self._input_area.setVisible(expanded)
 
     def _on_toggle_changed(self, checked: bool) -> None:
         self._apply_input_expanded(checked, animate=True)
         self._save_input_expanded()
 
-    def _animate_input_edit(self, target: int) -> None:
-        """动画 input_edit 的 maximumHeight；target=0 时收起完成后隐藏。"""
-        if target > 0 and not self._input_edit.isVisible():
-            self._input_edit.setVisible(True)
-        ani = QPropertyAnimation(self._input_edit, b"maximumHeight", self)
+    def _animate_input_area(self, target: int) -> None:
+        """v4: 动画 _input_area.maximumHeight；target=0 时收起完成后隐藏。"""
+        if target > 0 and not self._input_area.isVisibleTo(self):
+            self._input_area.setVisible(True)
+        ani = QPropertyAnimation(self._input_area, b"maximumHeight", self)
         ani.setDuration(_INPUT_ANIM_MS)
-        ani.setStartValue(self._input_edit.maximumHeight())
+        ani.setStartValue(self._input_area.maximumHeight())
         ani.setEndValue(target)
         ani.setEasingCurve(QEasingCurve.OutCubic)
         if target == 0:
-            ani.finished.connect(lambda: self._input_edit.setVisible(False))
+            ani.finished.connect(lambda: self._input_area.setVisible(False))
         ani.start()
 
     # ---- 公开 API（ChatPanelChannel 与测试用）----

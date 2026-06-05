@@ -9,7 +9,7 @@ from qfluentwidgets import (
 
 from desktop_sprite.ai.channel import AIText
 from desktop_sprite.ui.ai_panel import (
-    AIPanelWidget, ChatBubble, _INPUT_EXPANDED_HEIGHT, _StatusDot,
+    AIPanelWidget, ChatBubble, _INPUT_DRAWER_HEIGHT, _INPUT_EXPANDED_HEIGHT, _StatusDot,
 )
 
 from tests.ai_fakes import FakeProvider
@@ -71,12 +71,10 @@ def test_panel_uses_smoothscrollarea(panel):
 def test_input_starts_collapsed(panel):
     p, _, _ = panel
     assert p.input_visible() is False
-    # v3 fix: input_area 始终存在（按钮可见）；只 TextEdit 折叠
-    # isHidden 比 isVisible 更适合无显示环境（offscreen）下的检查
-    assert p._input_edit.isHidden() is True
-    assert p._input_edit.maximumHeight() == 0
+    # v4: 整个 _input_area 收起
+    assert p._input_area.maximumHeight() == 0
     assert p._toggle_btn.isChecked() is False
-    assert p._toggle_btn.text() == "展开"
+    assert p._toggle_btn.text() == ""  # v4: 无文字
 
 
 # ---- 聊天气泡 ----
@@ -121,29 +119,25 @@ def test_toggle_btn_click_expands_input(panel, qtbot):
     p, _, _ = panel
     assert p.input_visible() is False
     p._toggle_btn.click()
-    # 等动画结束：input_edit 的 maximumHeight 升到目标值
+    # v4: 等动画结束：_input_area.maximumHeight 升到 _INPUT_DRAWER_HEIGHT
     qtbot.waitUntil(
-        lambda: p._input_edit.maximumHeight() == _INPUT_EXPANDED_HEIGHT
-        and not p._input_edit.isHidden(),
+        lambda: p._input_area.isVisibleTo(p) and p._input_area.maximumHeight() == _INPUT_DRAWER_HEIGHT,
         timeout=2000,
     )
     assert p.input_visible() is True
     assert p._toggle_btn.isChecked() is True
-    assert p._toggle_btn.text() == "收起"
 
 
 def test_toggle_btn_click_again_collapses_input(panel, qtbot):
     p, _, _ = panel
     p._toggle_btn.click()
     qtbot.waitUntil(
-        lambda: p._input_edit.maximumHeight() == _INPUT_EXPANDED_HEIGHT
-        and not p._input_edit.isHidden(),
+        lambda: p._input_area.isVisibleTo(p) and p._input_area.maximumHeight() == _INPUT_DRAWER_HEIGHT,
         timeout=2000,
     )
     p._toggle_btn.click()
     qtbot.waitUntil(
-        lambda: p._input_edit.maximumHeight() == 0
-        and p._input_edit.isHidden(),
+        lambda: p._input_area.maximumHeight() == 0 and not p._input_area.isVisibleTo(p),
         timeout=2000,
     )
     assert p.input_visible() is False
@@ -365,4 +359,42 @@ def test_toggle_button_has_tooltip(panel):
     """v4: 鼠标悬停 tooltip 补回可发现性。"""
     p, _, _ = panel
     assert p._toggle_btn.toolTip() != ""
+
+
+# ---- v4: 整抽屉动画 ----
+
+def test_input_area_starts_hidden_with_zero_maximum_height(panel):
+    """v4: 初始收起时 _input_area 高度=0 且隐藏。"""
+    p, _, _ = panel
+    # 注意：fixture 构造时已 _apply_input_expanded(False, animate=False)
+    # 但 Task 3 之前 _input_area 仍 isVisible()=True（QWidget 默认）
+    # Task 2 关心的是 maximumHeight 起始状态
+    assert p._input_area.maximumHeight() == 0
+
+
+def test_input_area_visible_with_full_height_when_expanded(panel, qtbot):
+    """v4: 展开后 _input_area 高度=_INPUT_DRAWER_HEIGHT 且可见。"""
+    p, _, _ = panel
+    p._toggle_btn.click()
+    qtbot.waitUntil(
+        lambda: p._input_area.isVisibleTo(p) and p._input_area.maximumHeight() == _INPUT_DRAWER_HEIGHT,
+        timeout=2000,
+    )
+
+
+def test_input_area_hidden_after_collapse_animation(panel, qtbot):
+    """v4: 收起动画结束后 _input_area.setVisible(False)。"""
+    p, _, _ = panel
+    # 先展开
+    p._toggle_btn.click()
+    qtbot.waitUntil(
+        lambda: p._input_area.isVisibleTo(p) and p._input_area.maximumHeight() == _INPUT_DRAWER_HEIGHT,
+        timeout=2000,
+    )
+    # 再收起
+    p._toggle_btn.click()
+    qtbot.waitUntil(
+        lambda: p._input_area.maximumHeight() == 0 and not p._input_area.isVisibleTo(p),
+        timeout=2000,
+    )
 

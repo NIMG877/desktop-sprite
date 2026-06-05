@@ -21,3 +21,25 @@ class ChatPanelChannel(Channel):
         if panel is None:
             return
         panel.append_history(message)
+
+    def dispatch_stream_start(self, stream_id: str, use_case_id: str) -> None:
+        panel = self._panel_provider()
+        if panel is None:
+            return
+        panel.append_stream_start(stream_id, use_case_id)
+
+    def dispatch_stream_delta(
+        self, stream_id: str, delta: str, use_case_id: str,
+    ) -> None:
+        panel = self._panel_provider()
+        if panel is None:
+            return
+        panel.append_stream_delta(stream_id, delta, use_case_id)
+
+    def dispatch_stream_end(
+        self, stream_id: str, full_text: str, source: str, use_case_id: str,
+    ) -> None:
+        panel = self._panel_provider()
+        if panel is None:
+            return
+        panel.append_stream_end(stream_id, full_text, source, use_case_id)

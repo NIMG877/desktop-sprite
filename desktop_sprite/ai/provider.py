@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+import httpx
 from abc import ABC, abstractmethod
 
 
@@ -54,3 +55,58 @@ class DisabledProvider(AIProvider):
 
     def generate(self, system_prompt: str, user_prompt: str, *, timeout: float = 30.0) -> str:
         raise ProviderDisabled("AI is disabled in config")
+
+
+class OpenAIProvider(AIProvider):
+    """OpenAI 兼容 HTTP 接口的同步实现。
+
+    请求体格式：`{model, messages, ...}`；响应解析 `choices[0].message.content`。
+    错误按 HTTP 状态码分类：401/403→AuthError；429→RateLimitError；
+    400→BadRequestError；5xx / 解析失败→NetworkError；超时→TimeoutError。
+    """
+
+    def __init__(self, base_url: str, api_key: str, model: str) -> None:
+        self.base_url = base_url.rstrip("/")
+        self.api_key = api_key
+        self.model = model
+
+    def generate(self, system_prompt: str, user_prompt: str, *, timeout: float = 30.0) -> str:
+        url = f"{self.base_url}/chat/completions"
+        body = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        }
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        try:
+            response = httpx.post(url, json=body, headers=headers, timeout=timeout)
+        except httpx.TimeoutException as exc:
+            raise TimeoutError(str(exc)) from exc
+        except Exception as exc:
+            raise NetworkError(str(exc)) from exc
+
+        if response.status_code in (401, 403):
+            raise AuthError(f"auth failed: {response.status_code}")
+        if response.status_code == 429:
+            raise RateLimitError("rate limited")
+        if response.status_code == 400:
+            raise BadRequestError(f"bad request: {response.text[:200]}")
+        if response.status_code >= 500:
+            raise NetworkError(f"server error: {response.status_code}")
+        if response.status_code >= 400:
+            raise NetworkError(f"http error: {response.status_code}")
+
+        try:
+            data = response.json()
+        except Exception as exc:
+            raise NetworkError(f"invalid json: {exc}") from exc
+
+        try:
+            return data["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError) as exc:
+            raise NetworkError(f"unexpected response shape: {exc}") from exc

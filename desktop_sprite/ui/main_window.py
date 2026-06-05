@@ -381,6 +381,7 @@ class MainWindow(FluentWindow):
         self._ai_panel_widget = AIPanelWidget(
             orchestrator=self._ai_orchestrator,
             history_max_lines=self._ai_history_max_lines,
+            ui_state_path=self.ui_state_path,
         )
         return self._ai_panel_widget
 

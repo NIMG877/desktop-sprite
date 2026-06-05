@@ -493,11 +493,9 @@ class AIPanelWidget(QWidget):
         self._ping_busy = False
         if error is not None:
             self._status.set_state(available=False, latency_ms=None)
-            # v4: toggle 保持可用（让用户能展开看到禁用态）；只禁抽屉
-            self._toggle_btn.setEnabled(True)
+            # v4: 只禁抽屉（toggle 永远可用，让用户能展开看到禁用态）
             self._input_area.setEnabled(False)
             return
         self._status.set_state(available=True, latency_ms=latency_ms)
         if self._orchestrator is not None:
-            self._toggle_btn.setEnabled(True)
             self._input_area.setEnabled(True)

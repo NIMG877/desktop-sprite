@@ -204,19 +204,7 @@ def test_status_dot_yellow_for_warn_latency(panel):
     assert p._status.level() == InfoLevel.WARNING
 
 
-# ---- API 不可用时禁用切换按钮 ----
-
-def test_toggle_btn_disabled_when_ping_fails():
-    from desktop_sprite.ai.provider import AuthError
-    app = QApplication.instance() or QApplication([])
-    orch = _StubOrchestrator(ping_error=AuthError("bad"))
-    p = AIPanelWidget(orchestrator=orch)
-    try:
-        p.trigger_ping_for_test()
-        assert p._toggle_btn.isEnabled() is False
-    finally:
-        p.deleteLater()
-
+# ---- API 可用时启用切换按钮 ----
 
 def test_toggle_btn_enabled_when_ping_succeeds(panel):
     p, _, _ = panel
@@ -420,4 +408,36 @@ def test_slim_bar_has_top_divider(panel):
         if f.frameShape() == QFrame.HLine and f.height() == 1
     ]
     assert len(hlines) >= 1
+
+
+# ---- v4: ping 失败时 toggle 仍可用，抽屉禁用 ----
+
+def test_toggle_still_enabled_when_ping_fails():
+    """v4: ping 失败时 _toggle_btn 保持可用，让用户能展开看到禁用状态。"""
+    from desktop_sprite.ai.provider import AuthError
+    app = QApplication.instance() or QApplication([])
+    orch = _StubOrchestrator(ping_error=AuthError("bad"))
+    p = AIPanelWidget(orchestrator=orch)
+    try:
+        p.trigger_ping_for_test()
+        assert p._toggle_btn.isEnabled() is True
+    finally:
+        p.deleteLater()
+
+
+def test_input_area_disabled_when_ping_fails():
+    """v4: ping 失败时 _input_area 禁用（TextEdit / clear / send 一起禁用）。"""
+    from desktop_sprite.ai.provider import AuthError
+    app = QApplication.instance() or QApplication([])
+    orch = _StubOrchestrator(ping_error=AuthError("bad"))
+    p = AIPanelWidget(orchestrator=orch)
+    try:
+        p.trigger_ping_for_test()
+        assert p._input_area.isEnabled() is False
+        # 抽屉内子控件跟着禁用
+        assert p._input_edit.isEnabled() is False
+        assert p._clear_btn.isEnabled() is False
+        assert p._send_btn.isEnabled() is False
+    finally:
+        p.deleteLater()
 

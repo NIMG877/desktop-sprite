@@ -265,7 +265,7 @@ class AppRuntime:
                 return getattr(tray, "tray", None)
 
             channels = [
-                PetBubbleChannel(overlay=self.ai_bubble),
+                PetBubbleChannel(bubble_provider=lambda: self.ai_bubble),
                 ChatPanelChannel(panel_provider=_panel_provider),
                 OsNotificationChannel(tray_provider=_tray_provider),
             ]

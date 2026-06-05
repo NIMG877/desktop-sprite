@@ -1,5 +1,6 @@
 """v2 聊天气泡 UI 测试。"""
 import pytest
+from PySide6.QtCore import QObject
 from PySide6.QtWidgets import QApplication
 from qfluentwidgets import (
     CardWidget, DotInfoBadge, InfoLevel,
@@ -221,3 +222,12 @@ def test_fab_enabled_when_ping_succeeds(panel):
     p, _ = panel
     p.trigger_ping_for_test()
     assert p._fab.isEnabled() is True
+
+
+# ---- v3：去掉 CardWidget 容器 ----
+
+def test_no_card_widget_for_history_or_input(panel):
+    p, _ = panel
+    # v3 不再用 CardWidget 当历史 / 输入容器
+    assert p.findChild(QObject, "aiHistoryCard") is None
+    assert p.findChild(QObject, "aiInputCard") is None

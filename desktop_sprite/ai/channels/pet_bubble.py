@@ -12,4 +12,10 @@ class PetBubbleChannel(Channel):
         self._overlay = overlay
 
     def dispatch(self, message: AIText) -> None:
-        self._overlay.show_message(message)
+        try:
+            self._overlay.show_message(message)
+        except Exception:
+            import logging
+            logging.getLogger(__name__).warning(
+                "PetBubbleChannel.show_message failed", exc_info=True
+            )

@@ -16,6 +16,10 @@ class _ScriptedProvider(AIProvider):
     def generate(self, system, user, *, timeout=30.0):
         self.calls.append({"system": system, "user": user})
         return "小翼对你点头"
+    def generate_stream(self, system, user, *, timeout=30.0):
+        self.calls.append({"system": system, "user": user})
+        # 整段一次性 yield（end-to-end 测试不关心流式粒度）
+        yield "小翼对你点头"
     def ping(self, *, timeout=5.0) -> float:
         return 12.0
 

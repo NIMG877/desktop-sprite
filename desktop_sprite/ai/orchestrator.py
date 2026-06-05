@@ -12,7 +12,7 @@ import uuid
 import weakref
 from typing import Any, Callable, Iterable
 
-from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, QTimer, Signal, Slot
+from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, Signal, Slot
 
 from desktop_sprite.ai.channel import AIText, Channel
 from desktop_sprite.ai.event_bus import EventBus
@@ -25,12 +25,6 @@ from desktop_sprite.ai.use_case import UseCase, UseCaseRegistry
 
 logger = logging.getLogger(__name__)
 
-# 默认重试 backoff（秒）——可在构造时通过 `retry_backoff_overrides` 覆盖。
-_RETRY_BACKOFF_S: dict[type, float] = {
-    RateLimitError: 2.0,
-    TimeoutError: 4.0,
-}
-
 # 计入熔断计数的错误类型（不重试但累计错误）。
 _CIRCUIT_ERRORS: tuple[type, ...] = (RateLimitError, TimeoutError, NetworkError)
 _CIRCUIT_THRESHOLD = 3
@@ -40,42 +34,48 @@ _CIRCUIT_OPEN_SECONDS = 30.0
 _TEST_TOPIC = "ai.test.request"
 
 
-class _GenerationWorker(QRunnable):
-    """QRunnable 替身——直接继承 QRunnable。"""
+class _StreamWorker(QRunnable):
+    """流式 worker——在 QThreadPool 子线程调 `provider.generate_stream()`，
+    每段 delta 通过 Signal 投回主线程。
 
-    def __init__(
-        self,
-        orch_ref,
-        use_case_id: str,
-        system: str,
-        user: str,
-        attempt: int,
-        payload_for_retry=None,
-    ) -> None:
+    错误处理：
+    - 流开始前异常（鉴权 / 超时 / provider 抛）→ emit(kind="error", exc)
+    - 流中异常 → emit(kind="error", exc)；已 yield 的 delta 不重发
+    - 流正常结束 → emit(kind="end", (full_text, "ai"))
+    """
+
+    def __init__(self, orch_ref, use_case_id: str, system: str, user: str) -> None:
         super().__init__()
         self._orch_ref = orch_ref
         self._use_case_id = use_case_id
         self._system = system
         self._user = user
-        self._attempt = attempt
-        self._payload_for_retry = payload_for_retry  # for retry: original payload
-
-    def submit_to(self, pool: QThreadPool) -> None:
-        """便捷提交——外部也可以直接 `pool.start(worker)`。"""
-        pool.start(self)
+        self._stream_id = str(uuid.uuid4())
 
     def run(self) -> None:
         orch = self._orch_ref()
         if orch is None:
             return
+        # 先 emit start——channel 可以初始化"打字中"占位
+        orch._stream_event.emit(self._stream_id, self._use_case_id, "start", None)
+        accumulated: list[str] = []
         try:
-            text = orch._provider.generate(
-                self._system, self._user, timeout=orch._request_timeout_s
+            for delta in orch._provider.generate_stream(
+                self._system, self._user, timeout=orch._request_timeout_s,
+            ):
+                accumulated.append(delta)
+                orch._stream_event.emit(
+                    self._stream_id, self._use_case_id, "delta", delta,
+                )
+        except Exception as exc:  # noqa: BLE001
+            orch._stream_event.emit(
+                self._stream_id, self._use_case_id, "error", exc,
             )
-            payload = (self._use_case_id, text, None, self._attempt, self._payload_for_retry)
-        except Exception as e:  # noqa: BLE001 — 任意异常都通过 invokeMethod 投回主线程
-            payload = (self._use_case_id, None, e, self._attempt, self._payload_for_retry)
-        orch._worker_result.emit(payload)
+            return
+        full_text = "".join(accumulated)
+        orch._stream_event.emit(
+            self._stream_id, self._use_case_id, "end", (full_text, "ai"),
+        )
 
 
 class _PingWorker(QRunnable):
@@ -104,8 +104,12 @@ class AIOrchestrator(QObject):
     线程做错误处理、重试、fallback、fan-out。
     """
 
-    # worker 完成后通过此信号把 (use_case_id, text, err, attempt, payload) 投回主线程
-    _worker_result = Signal(object)
+    # 流式事件信号——(stream_id, use_case_id, kind, payload) 投回主线程
+    #   kind="start"  → payload = None
+    #   kind="delta"  → payload = str（一段 delta 文本）
+    #   kind="end"    → payload = (full_text, source)
+    #   kind="error"  → payload = Exception
+    _stream_event = Signal(str, str, str, object)
 
     def __init__(
         self,
@@ -117,7 +121,6 @@ class AIOrchestrator(QObject):
         max_inflight: int = 1,
         request_timeout_s: float = 30.0,
         throttle_overrides: dict[str, int] | None = None,
-        retry_backoff_overrides: dict[type, float] | None = None,
         event_bus: EventBus | None = None,
         parent: QObject | None = None,
     ) -> None:
@@ -133,11 +136,6 @@ class AIOrchestrator(QObject):
         self._pool = QThreadPool()
         self._pool.setMaxThreadCount(max_inflight)
 
-        # 重试 backoff：复制默认 + 应用覆盖
-        self._retry_backoff_s: dict[type, float] = dict(_RETRY_BACKOFF_S)
-        if retry_backoff_overrides:
-            self._retry_backoff_s.update(retry_backoff_overrides)
-
         # 节流状态：use_case_id -> 上次提交时间戳
         self._last_fire_ts: dict[str, float] = {}
         # 熔断状态：错误计数 + 开启截止时间
@@ -146,8 +144,8 @@ class AIOrchestrator(QObject):
         # 反订阅句柄
         self._unsubscribers: list[Callable[[], None]] = []
 
-        # worker 结果信号 → 主线程 slot
-        self._worker_result.connect(self._on_provider_done, Qt.QueuedConnection)
+        # 流式事件信号 → 主线程 slot
+        self._stream_event.connect(self._on_stream_event, Qt.QueuedConnection)
 
     # ---- 生命周期 ----
 
@@ -220,9 +218,9 @@ class AIOrchestrator(QObject):
             user = uc.prompt_template
         system = self._persona.system_prompt
 
-        worker = _GenerationWorker(
-            weakref.ref(self), uc.use_case_id, system, user, attempt=1,
-            payload_for_retry=payload,
+        # v3: 默认走流式路径（DisabledProvider 在 stream 第一段就 raise → 走 fallback）
+        worker = _StreamWorker(
+            weakref.ref(self), uc.use_case_id, system, user,
         )
         self._pool.start(worker)
 
@@ -235,60 +233,47 @@ class AIOrchestrator(QObject):
             self._fan_out(uc.target_channels, msg)
         logger.info("orchestrator: use_case %s skipped (%s)", uc.use_case_id, reason)
 
-    @Slot(object)
-    def _on_provider_done(self, payload) -> None:
-        """Worker 在子线程通过 Signal 把结果投回主线程。"""
-        use_case_id, text, err, attempt, orig_payload = payload
-        uc = self._use_cases.get(use_case_id)
-        if uc is None:
+    @Slot(str, str, str, object)
+    def _on_stream_event(self, stream_id: str, use_case_id: str, kind: str, payload) -> None:
+        """流式事件统一在主线程处理。
+
+        - start  → 通知所有 channel "流开始"
+        - delta  → 通知所有 channel 增量文本
+        - end    → 通知所有 channel 流结束 + reset 熔断
+        - error  → 熔断计数（如适用） + 走 fallback
+        """
+        if kind == "start":
+            for ch in self._channels:
+                ch.dispatch_stream_start(stream_id, use_case_id)
             return
 
-        # 熔断计数先做（错误就是错误，重试不掩盖它）。
-        if err is not None and isinstance(err, _CIRCUIT_ERRORS):
-            self._error_streak += 1
-            if self._error_streak >= _CIRCUIT_THRESHOLD:
-                self._circuit_open_until = time.monotonic() + _CIRCUIT_OPEN_SECONDS
-                self._error_streak = 0
-                logger.warning("circuit opened for %ss", _CIRCUIT_OPEN_SECONDS)
-
-        # 重试：RateLimit / Timeout 各重试 1 次
-        if err is not None and attempt == 1 and type(err) in self._retry_backoff_s:
-            backoff = self._retry_backoff_s[type(err)]
-            system = self._persona.system_prompt
-            if orig_payload and isinstance(orig_payload, dict):
-                try:
-                    user = uc.prompt_template.format(
-                        persona_name=self._persona.name, **orig_payload
-                    )
-                except KeyError:
-                    user = uc.prompt_template
-            else:
-                user = uc.prompt_template
-            # 用 QTimer 异步 backoff（不阻塞主线程）
-            QTimer.singleShot(
-                int(backoff * 1000),
-                lambda s=system, u=user, ucid=use_case_id: self._resubmit_after_backoff(ucid, s, u),
-            )
+        if kind == "delta":
+            for ch in self._channels:
+                ch.dispatch_stream_delta(stream_id, payload, use_case_id)
             return
 
-        # 错误处理（AuthError / BadRequestError / ProviderDisabled 不计熔断但仍 fallback）
-        if err is not None:
-            self._fallback_or_skip(uc, f"err={type(err).__name__}: {err}")
+        if kind == "end":
+            full_text, source = payload
+            # 成功 → 重置熔断
+            self._error_streak = 0
+            for ch in self._channels:
+                ch.dispatch_stream_end(stream_id, full_text, source, use_case_id)
             return
 
-        # 成功 → 重置熔断 + fan-out
-        self._error_streak = 0
-        msg = AIText(
-            text=text, source="ai",
-            use_case_id=use_case_id, timestamp=time.time(),
-        )
-        self._fan_out(uc.target_channels, msg)
-
-    def _resubmit_after_backoff(self, use_case_id: str, system: str, user: str) -> None:
-        worker = _GenerationWorker(
-            weakref.ref(self), use_case_id, system, user, attempt=2,
-        )
-        self._pool.start(worker)
+        if kind == "error":
+            exc = payload
+            uc = self._use_cases.get(use_case_id)
+            if uc is None:
+                return
+            # 熔断计数先做（错误就是错误）
+            if isinstance(exc, _CIRCUIT_ERRORS):
+                self._error_streak += 1
+                if self._error_streak >= _CIRCUIT_THRESHOLD:
+                    self._circuit_open_until = time.monotonic() + _CIRCUIT_OPEN_SECONDS
+                    self._error_streak = 0
+                    logger.warning("circuit opened for %ss", _CIRCUIT_OPEN_SECONDS)
+            self._fallback_or_skip(uc, f"stream err={type(exc).__name__}: {exc}")
+            return
 
     def _fan_out(self, channel_names: tuple[str, ...], msg: AIText) -> None:
         name_to_ch = {ch.name: ch for ch in self._channels}

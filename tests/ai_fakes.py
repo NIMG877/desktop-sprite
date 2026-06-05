@@ -39,6 +39,21 @@ class FakeProvider(AIProvider):
             raise item
         return item
 
+    def generate_stream(self, system_prompt: str, user_prompt: str, *, timeout: float = 30.0):
+        """默认：把队首 response 切成单字符 chunks yield。
+
+        行为对齐原 `generate()`：缺响应抛 RuntimeError；响应本身是
+        Exception 实例时抛（保持测试可注入 NetworkError 等）。
+        """
+        self.calls.append({"system": system_prompt, "user": user_prompt, "timeout": timeout})
+        if not self._responses:
+            raise RuntimeError("FakeProvider: no more responses for stream")
+        text = self._responses.pop(0)
+        if isinstance(text, Exception):
+            raise text
+        for ch in text:
+            yield ch
+
     def ping(self, *, timeout: float = 5.0) -> float:
         self.ping_calls += 1
         if self._ping_error is not None:
@@ -47,12 +62,32 @@ class FakeProvider(AIProvider):
 
 
 class RecordingChannel(Channel):
+    """记录所有 dispatch* 调用。"""
+
     def __init__(self, name: str) -> None:
         super().__init__(name=name)
+        # v1: AIText 一次性派发
         self.dispatched: list[AIText] = []
+        # v3: 流式事件
+        self.stream_starts: list[tuple[str, str]] = []
+        self.stream_deltas: list[tuple[str, str, str]] = []
+        self.stream_ends: list[tuple[str, str, str, str]] = []
 
     def dispatch(self, message: AIText) -> None:
         self.dispatched.append(message)
+
+    def dispatch_stream_start(self, stream_id, use_case_id):
+        self.stream_starts.append((stream_id, use_case_id))
+
+    def dispatch_stream_delta(self, stream_id, delta, use_case_id):
+        self.stream_deltas.append((stream_id, delta, use_case_id))
+
+    def dispatch_stream_end(self, stream_id, full_text, source, use_case_id):
+        self.stream_ends.append((stream_id, full_text, source, use_case_id))
+        # 兼容旧测试：把 end 事件合成一条 AIText 写入 dispatched
+        self.dispatched.append(AIText(
+            text=full_text, source=source, use_case_id=use_case_id, timestamp=0.0,
+        ))
 
 
 TEST_PROBE = UseCase(
@@ -74,7 +109,6 @@ def make_orchestrator(
     max_inflight: int = 1,
     request_timeout_s: float = 5.0,
     throttle_overrides: dict[str, int] | None = None,
-    retry_backoff_overrides: dict[type, float] | None = None,
 ):
     """构造一个 AIOrchestrator + EventBus + 默认 fakes。
 
@@ -103,7 +137,6 @@ def make_orchestrator(
         max_inflight=max_inflight,
         request_timeout_s=request_timeout_s,
         throttle_overrides=throttle_overrides or {},
-        retry_backoff_overrides=retry_backoff_overrides or {},
         event_bus=bus,
     )
     return orch, bus, channels, registry, provider

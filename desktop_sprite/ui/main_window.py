@@ -123,7 +123,10 @@ class MainWindow(FluentWindow):
                 orchestrator=ai_orchestrator,
                 history_max_lines=history_max_lines,
             )
-            self.addSubInterface(self._ai_panel_widget, None, "AI 互动")
+            # qfluentwidgets 的 addSubInterface 要求 interface 有非空
+            # objectName，否则抛 ValueError。固定一个稳定 id 给 AI 互动页。
+            self._ai_panel_widget.setObjectName("aiPanelPage")
+            self.addSubInterface(self._ai_panel_widget, "aiPanelPage", "AI 互动")
         self._ensure_config_editor()
         self._apply_initial_window_size()
         self._saved_geometry = self._load_saved_geometry()

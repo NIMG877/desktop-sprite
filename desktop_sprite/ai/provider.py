@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+import time
 import httpx
 from abc import ABC, abstractmethod
 
@@ -49,11 +50,24 @@ class AIProvider(ABC):
     def generate(self, system_prompt: str, user_prompt: str, *, timeout: float = 30.0) -> str:
         ...
 
+    @abstractmethod
+    def ping(self, *, timeout: float = 5.0) -> float:
+        """无 token 消耗的连通性探针。
+
+        命中 `GET {base_url}/models`（OpenAI 兼容标准）：不调 LLM，只列
+        元数据，**不消耗 token**。同时验证 base_url 可达、api_key 有效。
+
+        返回：响应往返延迟（ms，浮点）。失败时抛 ProviderError 子类。
+        """
+
 
 class DisabledProvider(AIProvider):
-    """`ai.enabled=false` 时的占位 provider；generate 抛 ProviderDisabled。"""
+    """`ai.enabled=false` 时的占位 provider；generate/ping 都抛 ProviderDisabled。"""
 
     def generate(self, system_prompt: str, user_prompt: str, *, timeout: float = 30.0) -> str:
+        raise ProviderDisabled("AI is disabled in config")
+
+    def ping(self, *, timeout: float = 5.0) -> float:
         raise ProviderDisabled("AI is disabled in config")
 
 
@@ -69,6 +83,29 @@ class OpenAIProvider(AIProvider):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.model = model
+
+    def ping(self, *, timeout: float = 5.0) -> float:
+        """GET /models：验证连通性与鉴权，不消耗 token。"""
+        url = f"{self.base_url}/models"
+        headers = {"Authorization": f"Bearer {self.api_key}"}
+        t0 = time.perf_counter()
+        try:
+            response = httpx.get(url, headers=headers, timeout=timeout)
+        except httpx.TimeoutException as exc:
+            raise TimeoutError(str(exc)) from exc
+        except Exception as exc:
+            raise NetworkError(str(exc)) from exc
+        latency_ms = (time.perf_counter() - t0) * 1000.0
+
+        if response.status_code in (401, 403):
+            raise AuthError(f"auth failed: {response.status_code}")
+        if response.status_code == 429:
+            raise RateLimitError("rate limited")
+        if response.status_code >= 500:
+            raise NetworkError(f"server error: {response.status_code}")
+        if response.status_code >= 400:
+            raise NetworkError(f"http error: {response.status_code}")
+        return latency_ms
 
     def generate(self, system_prompt: str, user_prompt: str, *, timeout: float = 30.0) -> str:
         url = f"{self.base_url}/chat/completions"

@@ -187,3 +187,28 @@ def test_max_inflight_two_concurrent(qtbot):
     # 第三次也提交，等池有空时跑
     orch.trigger_test()
     qtbot.waitUntil(lambda: len(channels["pet_bubble"].dispatched) == 3, timeout=3000)
+
+
+# ---- ping_async ----
+
+def test_ping_async_success_invokes_callback_with_latency(qtbot):
+    provider = FakeProvider(ping_latency_ms=23.5)
+    orch, _, _, _, _ = make_orchestrator(provider=provider)
+    captured = []
+    orch.ping_async(lambda ms, err: captured.append((ms, err)))
+    qtbot.waitUntil(lambda: bool(captured), timeout=2000)
+    ms, err = captured[0]
+    assert err is None
+    assert ms == 23.5
+    assert provider.ping_calls == 1
+
+
+def test_ping_async_failure_invokes_callback_with_error(qtbot):
+    provider = FakeProvider(ping_error=AuthError("bad key"))
+    orch, _, _, _, _ = make_orchestrator(provider=provider)
+    captured = []
+    orch.ping_async(lambda ms, err: captured.append((ms, err)))
+    qtbot.waitUntil(lambda: bool(captured), timeout=2000)
+    ms, err = captured[0]
+    assert ms is None
+    assert isinstance(err, AuthError)

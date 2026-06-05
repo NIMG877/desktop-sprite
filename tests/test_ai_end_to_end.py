@@ -16,6 +16,8 @@ class _ScriptedProvider(AIProvider):
     def generate(self, system, user, *, timeout=30.0):
         self.calls.append({"system": system, "user": user})
         return "小翼对你点头"
+    def ping(self, *, timeout=5.0) -> float:
+        return 12.0
 
 
 def _make_paths(tmp_path: Path):

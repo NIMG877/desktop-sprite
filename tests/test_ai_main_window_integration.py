@@ -81,10 +81,10 @@ def test_ai_panel_uses_fluentui_card_widgets(qtbot, tmp_path):
     )
     qtbot.addWidget(win)
     panel = win._ai_panel_widget
-    # 至少要有"对话历史"和"运行状态"两张 CardWidget
+    # v2 至少要有 aiHistoryCard（包 SmoothScrollArea）和 aiInputCard（输入区）
     card_object_names = {c.objectName() for c in panel.findChildren(CardWidget)}
     assert "aiHistoryCard" in card_object_names, f"missing history card, got {card_object_names}"
-    assert "aiStatusCard" in card_object_names, f"missing status card, got {card_object_names}"
+    assert "aiInputCard" in card_object_names, f"missing input card, got {card_object_names}"
 
 
 def test_ai_panel_sits_in_quan_zidong_slot(qtbot, tmp_path):
@@ -122,7 +122,11 @@ def test_ai_panel_sits_in_quan_zidong_slot(qtbot, tmp_path):
 
 
 def test_ai_panel_history_max_lines_from_constructor(qtbot, tmp_path):
-    """MainWindow 接受 `ai_history_max_lines` 参数并传给 AIPanelWidget。"""
+    """MainWindow 接受 `ai_history_max_lines` 参数并存在 panel 上。
+
+    v2 UI 用聊天气泡列表代替 v1 的 QTextEdit；history_max_lines 在 v1
+    只作为参数存住，cap 行为留给未来版本。
+    """
     _write_default_config(tmp_path, history_max_lines=999)
     win = MainWindow(
         config_path=tmp_path / "default.json",
@@ -143,4 +147,5 @@ def test_ai_panel_history_max_lines_from_constructor(qtbot, tmp_path):
     )
     qtbot.addWidget(win)
     panel = win._ai_panel_widget
-    assert panel._history.document().maximumBlockCount() == 999
+    # 构造没抛错，参数被记录到 panel 上
+    assert panel._history_max_lines == 999

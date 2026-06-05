@@ -78,6 +78,23 @@ class _GenerationWorker(QRunnable):
         orch._worker_result.emit(payload)
 
 
+class _PingWorker(QRunnable):
+    """无 token 消耗的连通性探针。调 `provider.ping()`，结果通过 callback
+    抛回调用线程（通常是主线程的 panel）。"""
+
+    def __init__(self, provider: AIProvider, callback: Callable[[float | None, Exception | None], None]) -> None:
+        super().__init__()
+        self._provider = provider
+        self._callback = callback
+
+    def run(self) -> None:
+        try:
+            latency_ms = self._provider.ping(timeout=5.0)
+            self._callback(latency_ms, None)
+        except Exception as e:  # noqa: BLE001 — 任何 ProviderError 都通过 callback 回传
+            self._callback(None, e)
+
+
 class AIOrchestrator(QObject):
     """AI 中央调度器。
 
@@ -164,6 +181,18 @@ class AIOrchestrator(QObject):
         """v1 简化入口：发一个 `ai.test.request` 事件。"""
         payload = {"probe_id": str(uuid.uuid4()), "user_hint": user_hint}
         self._bus.publish(_TEST_TOPIC, payload)
+
+    def ping_async(self, callback: Callable[[float | None, Exception | None], None]) -> None:
+        """不消耗 token 的连通性探针。
+
+        把 `provider.ping()` 丢到线程池执行，结果通过 callback 传回。
+        callback 签名：`(latency_ms: float | None, error: Exception | None)`。
+        成功时 error=None；失败时 latency_ms=None。
+        """
+        if self._provider is None:
+            return
+        worker = _PingWorker(self._provider, callback)
+        self._pool.start(worker)
 
     # ---- 事件派发 ----
 

@@ -18,9 +18,17 @@ from desktop_sprite.ai.use_case import UseCase, UseCaseRegistry
 
 
 class FakeProvider(AIProvider):
-    def __init__(self, responses: Iterable[Any] | None = None) -> None:
+    def __init__(
+        self,
+        responses: Iterable[Any] | None = None,
+        ping_latency_ms: float = 12.0,
+        ping_error: Exception | None = None,
+    ) -> None:
         self._responses = list(responses or ["ok"])
+        self._ping_latency = ping_latency_ms
+        self._ping_error = ping_error
         self.calls: list[dict] = []
+        self.ping_calls: int = 0
 
     def generate(self, system_prompt: str, user_prompt: str, *, timeout: float = 30.0) -> str:
         self.calls.append({"system": system_prompt, "user": user_prompt, "timeout": timeout})
@@ -30,6 +38,12 @@ class FakeProvider(AIProvider):
         if isinstance(item, Exception):
             raise item
         return item
+
+    def ping(self, *, timeout: float = 5.0) -> float:
+        self.ping_calls += 1
+        if self._ping_error is not None:
+            raise self._ping_error
+        return self._ping_latency
 
 
 class RecordingChannel(Channel):

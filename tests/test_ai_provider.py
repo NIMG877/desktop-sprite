@@ -132,3 +132,69 @@ def test_openai_provider_invalid_json_raises_network_error(patch_httpx):
     p = OpenAIProvider(base_url="https://x/v1", api_key="k", model="m")
     with pytest.raises(NetworkError):
         p.generate("sys", "user")
+
+
+# ----------------------------------------------------------------------------
+# ping() — GET /models, no token cost
+# ----------------------------------------------------------------------------
+
+
+class _FakeHttpxGet(_FakeHttpx):
+    """_FakeHttpx 的 GET 版：post 不可用，get 走同一套响应队列。"""
+
+    def get(self, url, headers=None, timeout=None):
+        self.calls.append({"url": url, "headers": headers, "timeout": timeout})
+        if not self._responses:
+            raise RuntimeError("no more fake responses")
+        return self._responses.pop(0)
+
+
+@pytest.fixture
+def patch_httpx_get(monkeypatch):
+    def _patch(responses):
+        fake = _FakeHttpxGet(responses)
+        import desktop_sprite.ai.provider as provider_mod
+        monkeypatch.setattr(provider_mod, "httpx", fake)
+        return fake
+    return _patch
+
+
+def test_openai_provider_ping_success_returns_latency(patch_httpx_get):
+    fake = patch_httpx_get([_FakeResponse(200, {"data": [{"id": "m"}]})])
+    p = OpenAIProvider(base_url="https://x/v1", api_key="k", model="m")
+    ms = p.ping(timeout=2.0)
+    assert ms >= 0
+    assert fake.calls[0]["url"] == "https://x/v1/models"
+    assert fake.calls[0]["headers"]["Authorization"] == "Bearer k"
+
+
+def test_openai_provider_ping_401_raises_auth_error(patch_httpx_get):
+    patch_httpx_get([_FakeResponse(401, {"error": "bad key"})])
+    p = OpenAIProvider(base_url="https://x/v1", api_key="bad", model="m")
+    with pytest.raises(AuthError):
+        p.ping()
+
+
+def test_openai_provider_ping_429_raises_rate_limit_error(patch_httpx_get):
+    patch_httpx_get([_FakeResponse(429, {"error": "rate"})])
+    p = OpenAIProvider(base_url="https://x/v1", api_key="k", model="m")
+    with pytest.raises(RateLimitError):
+        p.ping()
+
+
+def test_openai_provider_ping_timeout_raises_timeout_error(monkeypatch):
+    import httpx as real_httpx
+    import desktop_sprite.ai.provider as provider_mod
+    class _BoomHttpx:
+        TimeoutException = real_httpx.TimeoutException
+        def get(self, *a, **kw): raise self.TimeoutException("slow")
+    monkeypatch.setattr(provider_mod, "httpx", _BoomHttpx())
+    p = OpenAIProvider(base_url="https://x/v1", api_key="k", model="m")
+    with pytest.raises(TimeoutError):
+        p.ping()
+
+
+def test_disabled_provider_ping_raises_provider_disabled():
+    p = DisabledProvider()
+    with pytest.raises(ProviderDisabled):
+        p.ping()

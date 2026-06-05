@@ -36,7 +36,13 @@ class OsNotificationChannel(Channel):
     def dispatch_stream_end(
         self, stream_id: str, full_text: str, source: str, use_case_id: str,
     ) -> None:
-        """流结束时把完整文本走 dispatch → tray.showMessage。"""
+        """流结束时把完整文本走 dispatch → tray.showMessage。
+
+        空文本（mid-stream error cleanup）不弹通知；error 路径会再走
+        _fallback_or_skip 触发真正的 fallback 通知。
+        """
+        if not full_text:
+            return
         import time as _time
         self.dispatch(AIText(
             text=full_text, source=source,

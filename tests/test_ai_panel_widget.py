@@ -236,7 +236,7 @@ def test_chat_bubble_has_avatar_for_ai_role(panel):
 
 
 def test_input_expanded_persists_to_ui_state(panel, qtbot):
-    p, _, ui_state = panel
+    p, orch, ui_state = panel
     # 初始 False
     assert p._load_input_expanded() is False
     # 点击展开
@@ -246,9 +246,11 @@ def test_input_expanded_persists_to_ui_state(panel, qtbot):
     import json
     state = json.loads(ui_state.read_text())
     assert state["ai_panel"]["input_expanded"] is True
-    # 重建 panel 验证恢复
-    p2, _, _ = panel
+    # 构造第二个 panel 用相同 ui_state_path 验证恢复
+    p2 = AIPanelWidget(orchestrator=orch, history_max_lines=50, ui_state_path=ui_state)
+    qtbot.addWidget(p2)
     assert p2._load_input_expanded() is True
+    assert p2._input_expanded is True
 
 
 def test_history_max_lines_trims_head(panel):

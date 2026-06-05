@@ -10,23 +10,21 @@ from PySide6.QtWidgets import QSystemTrayIcon
 class _FakeOverlay:
     def __init__(self):
         self.shown = []
-    def show_message(self, msg):
-        self.shown.append(msg)
+    def show_message(self, text):
+        self.shown.append(text)
 
 
 def test_pet_bubble_channel_dispatches_to_overlay():
     overlay = _FakeOverlay()
-    ch = PetBubbleChannel(overlay=overlay)
+    ch = PetBubbleChannel(bubble_provider=lambda: overlay)
     msg = AIText(text="hi", source="ai", use_case_id="x", timestamp=0.0)
     ch.dispatch(msg)
-    assert overlay.shown == [msg]
+    assert overlay.shown == ["hi"]
 
 
 def test_pet_bubble_channel_handles_overlay_error():
-    class BadOverlay:
-        def show_message(self, msg):
-            raise RuntimeError("boom")
-    ch = PetBubbleChannel(overlay=BadOverlay())
+    """provider 返回 None 时不出错；真实 overlay 抛错由 orchestrator 兜底。"""
+    ch = PetBubbleChannel(bubble_provider=lambda: None)
     ch.dispatch(AIText(text="x", source="ai", use_case_id="y", timestamp=0.0))  # 不应抛
 
 
@@ -111,3 +109,37 @@ def test_chat_panel_channel_stream_noop_when_panel_none():
     ch.dispatch_stream_delta("s", "x", "u")
     ch.dispatch_stream_end("s", "x", "ai", "u")
     # 不抛错即过
+
+
+# --- PetBubbleChannel 流式转发 ---
+
+
+class _FakeBubble:
+    def __init__(self):
+        self.messages: list[str] = []
+        self.appends: list[str] = []
+    def show_message(self, text: str) -> None:
+        self.messages.append(text)
+    def append_text(self, delta: str) -> None:
+        self.appends.append(delta)
+
+
+def test_pet_bubble_channel_dispatches_stream_to_bubble():
+    """用 monkeypatch 把 BubbleOverlayWindow 替成 _FakeBubble 工厂。"""
+    import desktop_sprite.ai.channels.pet_bubble as mod
+    mod.BubbleOverlayWindow = _FakeBubble  # 类替身
+    bubble = _FakeBubble()
+    ch = PetBubbleChannel(bubble_provider=lambda: bubble)
+    ch.dispatch_stream_start("s1", "uc1")
+    ch.dispatch_stream_delta("s1", "你", "uc1")
+    ch.dispatch_stream_delta("s1", "好", "uc1")
+    ch.dispatch_stream_end("s1", "你好", "ai", "uc1")
+    assert bubble.messages == [""]  # start → show_message("")
+    assert bubble.appends == ["你", "好"]
+
+
+def test_pet_bubble_channel_stream_noop_when_bubble_none():
+    ch = PetBubbleChannel(bubble_provider=lambda: None)
+    ch.dispatch_stream_start("s", "u")
+    ch.dispatch_stream_delta("s", "x", "u")
+    ch.dispatch_stream_end("s", "x", "ai", "u")

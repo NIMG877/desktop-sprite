@@ -32,13 +32,6 @@ def test_pet_bubble_channel_handles_overlay_error():
 
 # --- ChatPanelChannel ---
 
-class _FakePanel:
-    def __init__(self):
-        self.appended = []
-    def append_history(self, msg):
-        self.appended.append(msg)
-
-
 def test_chat_panel_channel_dispatches_to_panel_when_provided():
     panel = _FakePanel()
     ch = ChatPanelChannel(panel_provider=lambda: panel)

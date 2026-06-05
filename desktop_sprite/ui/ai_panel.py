@@ -1,13 +1,15 @@
-"""AI 互动面板（v3 FluentUI 扁平 + 流式输出）。
+"""AI 互动面板（v4 FluentUI 扁平 + 流式输出 + slim 栏）。
 
 布局（自顶向下）：
-    TitleLabel("AI 互动")                  _StatusDot (右上)
-    SmoothScrollArea(聊天气泡历史)           气泡逐字增量
-    输入行（默认收起，点切换按钮滑出）
-        TextEdit (72px, 展开时显示)
-        按钮行: [清空历史] [展开/收起] [发送]   ← 发送最右
+    标题行       TitleLabel("AI 互动")  +  _StatusDot (右上)
+    历史区       SmoothScrollArea(聊天气泡历史，气泡逐字增量)
+    输入抽屉     整段可折叠（默认收起），展开时从下方滑出
+                  TextEdit (72px)
+                  按钮行: [清空历史] ... [发送]
+    slim 栏     fixed 36px，1px 顶边线 + 右对齐图标按钮（永远可见）
+                  ToolButton FIF.UP/DOWN + tooltip
 
-切换按钮文案根据当前状态显示 "展开" / "收起"。
+收起时整个输入抽屉消失，只有 slim 栏的图标按钮可见（"观察为主"页面）。
 展开/收起状态写入 config/user/ui_state.json 跨重启保留。
 """
 from __future__ import annotations

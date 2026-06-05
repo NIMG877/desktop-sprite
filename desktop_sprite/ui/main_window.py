@@ -59,6 +59,7 @@ class MainWindow(FluentWindow):
         on_spirit_marks_changed: Callable[[SpiritMarkInventory], None] | None = None,
         on_debug_request_spirit_mark: Callable[[], str] | None = None,
         ai_orchestrator=None,
+        ai_history_max_lines: int = 200,
         parent: QWidget | None = None,
     ) -> None:
         # Placeholder until `ui_state_path` is set below; `_load_saved_theme`
@@ -85,6 +86,10 @@ class MainWindow(FluentWindow):
         self.on_restart = on_restart or QApplication.quit
         self.on_apply_config = on_apply_config or self.on_restart
         self.on_quit = on_quit or QApplication.quit
+        # AI 子页：`_ai_panel_page` 懒构造并缓存
+        self._ai_orchestrator = ai_orchestrator
+        self._ai_history_max_lines = ai_history_max_lines
+        self._ai_panel_widget: QWidget | None = None
         self.config_editor: ConfigEditorWidget | None = None
         self.restore_defaults_button: PushButton | None = None
         self.save_apply_button: PrimaryPushButton | None = None
@@ -109,24 +114,6 @@ class MainWindow(FluentWindow):
         self.settings_page = self._create_settings_page()
 
         self._add_interfaces()
-        # AI 互动子页（v1：仅在 ai_orchestrator 注入时注册）
-        self._ai_panel_widget: AIPanelWidget | None = None
-        if ai_orchestrator is not None:
-            history_max_lines = 200  # default
-            try:
-                # 优先从 config 读
-                if hasattr(self, "config") and self.config is not None and hasattr(self.config, "ai"):
-                    history_max_lines = self.config.ai.history_max_lines
-            except Exception:
-                pass
-            self._ai_panel_widget = AIPanelWidget(
-                orchestrator=ai_orchestrator,
-                history_max_lines=history_max_lines,
-            )
-            # qfluentwidgets 的 addSubInterface 要求 interface 有非空
-            # objectName，否则抛 ValueError。固定一个稳定 id 给 AI 互动页。
-            self._ai_panel_widget.setObjectName("aiPanelPage")
-            self.addSubInterface(self._ai_panel_widget, "aiPanelPage", "AI 互动")
         self._ensure_config_editor()
         self._apply_initial_window_size()
         self._saved_geometry = self._load_saved_geometry()
@@ -195,7 +182,7 @@ class MainWindow(FluentWindow):
             (self.realtime_page, FIF.SYNC, "实时触发", NavigationItemPosition.TOP),
             (self.growth_page, FIF.CHECKBOX, "养成", NavigationItemPosition.TOP),
             (self.inventory_page, FIF.SHOPPING_CART, "背包", NavigationItemPosition.TOP),
-            (self._create_placeholder_page("全自动", "这里可以管理自动运行策略。"), FIF.ROBOT, "全自动", NavigationItemPosition.TOP),
+            (self._ai_panel_page(), FIF.ROBOT, "全自动", NavigationItemPosition.TOP),
             (self._create_placeholder_page("辅助操控", "这里可以放桌宠移动、展示和目标选择控制。"), FIF.GAME, "辅助操控", NavigationItemPosition.TOP),
             (self.debug_page, FIF.SPEED_HIGH, "调试", NavigationItemPosition.TOP),
             (self._create_placeholder_page("通知", "这里可以管理提醒和消息。"), FIF.RINGER, "通知", NavigationItemPosition.TOP),
@@ -376,6 +363,26 @@ class MainWindow(FluentWindow):
         layout.addWidget(body)
         layout.addStretch(1)
         return page
+
+    def _ai_panel_page(self) -> QWidget:
+        """AI 互动子页：orchestrator 注入时返回真实面板，否则返回占位页。
+
+        真实面板用 FluentUI 风格（CardWidget + SubtitleLabel + PrimaryPushButton）。
+        缓存到 `self._ai_panel_widget`，避免重复构造。
+        """
+        if self._ai_panel_widget is not None:
+            return self._ai_panel_widget
+        if self._ai_orchestrator is None:
+            self._ai_panel_widget = self._create_placeholder_page(
+                "AI 互动",
+                "AI orchestrator 未启动。检查 `ai.enabled` / `ai.api_key` 配置后重启应用。",
+            )
+            return self._ai_panel_widget
+        self._ai_panel_widget = AIPanelWidget(
+            orchestrator=self._ai_orchestrator,
+            history_max_lines=self._ai_history_max_lines,
+        )
+        return self._ai_panel_widget
 
     def _page(self, object_name: str) -> QWidget:
         page = QWidget()

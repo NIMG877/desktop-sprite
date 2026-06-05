@@ -210,6 +210,14 @@ class AppRuntime:
 
         Idempotent: 重复调用是 no-op（避免 `from_default_args` 与
         `__init__` 双重触发时出现两个并发的 orchestrator）。
+
+        三个 channel 都要接入：
+        - `pet_bubble`      桌宠头顶气泡（最直接的视觉反馈）
+        - `chat_panel`      主窗 AI 互动历史 QTextEdit
+        - `os_notification` 系统托盘通知
+        后两个依赖 MainWindow / TrayController，而它们在 `_init_ai` 之后才
+        构造，所以传 `Callable[[], Widget | None]` 让 channel 在 dispatch
+        时再解析；目标不存在时是 no-op。
         """
         if self.ai_orchestrator is not None:
             return
@@ -224,6 +232,8 @@ class AppRuntime:
 
             from desktop_sprite.ai.orchestrator import AIOrchestrator
             from desktop_sprite.ai.channels.pet_bubble import PetBubbleChannel
+            from desktop_sprite.ai.channels.chat_panel import ChatPanelChannel
+            from desktop_sprite.ai.channels.os_notification import OsNotificationChannel
 
             if self.config.ai.enabled:
                 provider = OpenAIProvider(
@@ -241,7 +251,24 @@ class AppRuntime:
             self.ai_bubble = BubbleOverlayWindow(
                 visible_seconds=self.config.ai.bubble_visible_seconds
             )
-            channels = [PetBubbleChannel(overlay=self.ai_bubble)]
+
+            def _panel_provider():
+                win = self.main_window
+                if win is None:
+                    return None
+                return getattr(win, "_ai_panel_widget", None)
+
+            def _tray_provider():
+                tray = getattr(self, "tray", None)
+                if tray is None:
+                    return None
+                return getattr(tray, "tray", None)
+
+            channels = [
+                PetBubbleChannel(overlay=self.ai_bubble),
+                ChatPanelChannel(panel_provider=_panel_provider),
+                OsNotificationChannel(tray_provider=_tray_provider),
+            ]
 
             orch = AIOrchestrator(
                 provider=provider,
@@ -374,6 +401,9 @@ class AppRuntime:
                 self.paths.user_inventory_path,
                 self.paths.user_spirit_mark_path,
             )
+            ai_cfg = getattr(self.config, "ai", None)
+            ai_history_max_lines = getattr(ai_cfg, "history_max_lines", 200) if ai_cfg is not None else 200
+
             self.main_window = MainWindow(
                 self.paths.config_path,
                 on_set_target=lambda: self.target_selector.start(),
@@ -389,6 +419,7 @@ class AppRuntime:
                 on_spirit_marks_changed=self.save_updated_spirit_marks,
                 on_debug_request_spirit_mark=self.request_debug_spirit_mark,
                 ai_orchestrator=self.ai_orchestrator,
+                ai_history_max_lines=ai_history_max_lines,
             )
         self.main_window.open_home()
 

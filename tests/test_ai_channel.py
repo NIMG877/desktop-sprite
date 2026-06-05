@@ -39,3 +39,34 @@ def test_recording_channel_dispatch_appends():
 def test_channel_name_stored():
     ch = RecordingChannel(name="pet_bubble")
     assert ch.name == "pet_bubble"
+
+
+def test_channel_default_dispatch_stream_methods_are_noop():
+    """基类三个钩子默认 no-op；不抛错、不写任何状态。"""
+    class _Empty(Channel):
+        def dispatch(self, message: AIText) -> None:
+            pass
+
+    ch = _Empty(name="x")
+    ch.dispatch_stream_start("s1", "uc1")
+    ch.dispatch_stream_delta("s1", "hi", "uc1")
+    ch.dispatch_stream_end("s1", "hi", "ai", "uc1")
+    # 不抛错即过
+
+
+def test_channel_subclass_can_override_only_delta():
+    class _Partial(Channel):
+        def __init__(self):
+            super().__init__(name="p")
+            self.deltas: list[str] = []
+        def dispatch(self, message: AIText) -> None:
+            pass
+        def dispatch_stream_delta(self, stream_id, delta, use_case_id):
+            self.deltas.append(delta)
+
+    p = _Partial()
+    p.dispatch_stream_start("s", "u")
+    p.dispatch_stream_delta("s", "a", "u")
+    p.dispatch_stream_delta("s", "b", "u")
+    p.dispatch_stream_end("s", "ab", "ai", "u")
+    assert p.deltas == ["a", "b"]

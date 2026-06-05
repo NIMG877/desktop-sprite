@@ -223,32 +223,6 @@ def test_disabled_provider_stream_raises_provider_disabled():
 # ----------------------------------------------------------------------------
 
 
-class _FakeStreamChunk:
-    """httpx 的 stream chunk 替身；iter_lines() 期望的是字节/str。"""
-    def __init__(self, text: str):
-        self.text = text
-
-    def iter_lines(self):
-        for line in self.text.split("\n"):
-            yield line
-
-
-class _FakeStreamContext:
-    def __init__(self, chunks: list[str], status_code: int = 200):
-        self._chunks = chunks
-        self.status_code = status_code
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *a):
-        return False
-
-    def send(self, request):
-        # 模拟 httpx.stream 进入时发送请求，返回 response-like
-        return _FakeStreamResponse(self.status_code, self._chunks)
-
-
 class _FakeStreamResponse:
     def __init__(self, status_code, chunks):
         self.status_code = status_code

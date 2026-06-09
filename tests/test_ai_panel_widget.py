@@ -9,7 +9,7 @@ from qfluentwidgets import (
 
 from desktop_sprite.ai.channel import AIText
 from desktop_sprite.ui.ai_panel import (
-    AIPanelWidget, ChatBubble, _INPUT_DRAWER_HEIGHT, _StatusDot,
+    AIPanelWidget, ChatBubble, _INPUT_DRAWER_HEIGHT, _PING_INTERVAL_MS, _StatusDot,
 )
 
 from tests.ai_fakes import FakeProvider
@@ -167,11 +167,9 @@ def test_send_with_empty_text_is_noop(panel, qtbot):
 
 
 # ---- 状态点 ----
-
-def test_status_dot_initial_state_idle(panel):
-    p, _, _ = panel
-    assert p.status_text() == "—"
-
+# 注：v4 之前有 `test_status_dot_initial_state_idle` 断言构造后 status_text() == "—"
+# v4 改造：panel 首次构造立即 fire ping（见 test_ping_fires_immediately_after_construction），
+# 所以 "—" 这个瞬时状态变得不可观察。该 v3 测试删除，由新测试替代。
 
 def test_status_dot_green_after_successful_ping(panel):
     p, _, _ = panel
@@ -440,4 +438,27 @@ def test_input_area_disabled_when_ping_fails():
         assert p._send_btn.isEnabled() is False
     finally:
         p.deleteLater()
+
+
+# ---- panel 首次构造立即 fire ping ----
+
+def test_ping_fires_immediately_after_construction(panel, qtbot):
+    """v4+: panel 首次构造后，ping 立即 fire 一次（不等 _PING_INTERVAL_MS）。
+
+    _StubOrchestrator.ping_async → ping() 立即返回 12ms → 状态点变绿。
+    qtbot.addWidget 会 pump 事件循环让 singleShot(0) 在 fixture 返回前就 fire，
+    所以断言的就是 fire 后的状态（"12 ms"），而不是 "—"。
+    """
+    p, _, _ = panel
+    # 等到 status 反映第一次 ping 的结果（waitUntil 给事件循环 pump 的机会）
+    qtbot.waitUntil(lambda: "ms" in p.status_text(), timeout=2000)
+    assert p.status_available() is True
+    assert "ms" in p.status_text()
+
+
+def test_ping_timer_uses_interval(panel):
+    """v4+: _ping_timer 的 interval 是 _PING_INTERVAL_MS，且构造后已 active。"""
+    p, _, _ = panel
+    assert p._ping_timer.interval() == _PING_INTERVAL_MS
+    assert p._ping_timer.isActive() is True
 

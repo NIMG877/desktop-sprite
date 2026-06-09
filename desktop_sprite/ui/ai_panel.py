@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 # 状态点延迟阈值（毫秒）
 _PING_LATENCY_OK_MS = 800.0
 _PING_LATENCY_WARN_MS = 2000.0
-_PING_INTERVAL_MS = 10_000
+_PING_INTERVAL_MS = 5000
 _PING_TIMEOUT_S = 5.0
 _INPUT_DRAWER_HEIGHT = 120   # v4：整个输入抽屉展开时高度（TextEdit 72 + spacing 8 + 按钮行 32 + 8 余量）
 _INPUT_ANIM_MS = 200
@@ -57,7 +57,7 @@ class _StatusDot(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._dot = DotInfoBadge(self, level=InfoLevel.SUCCESS)
-        self._dot.setFixedSize(10, 10)
+        self._dot.setFixedSize(8, 8)
         self._label = BodyLabel("—", self)
         self._label.setObjectName("statusDotLabel")
         layout = QHBoxLayout(self)
@@ -295,7 +295,7 @@ class AIPanelWidget(QWidget):
         self._ping_timer.timeout.connect(self._run_ping)
         self._ping_busy = False
         if self._orchestrator is not None:
-            self._ping_timer.start()
+            self._start_ping_loop()
 
     # ---- UI 状态持久化 ----
 
@@ -469,6 +469,18 @@ class AIPanelWidget(QWidget):
         self._input_edit.clear()
         self._apply_input_expanded(False, animate=True)
         self._save_input_expanded()
+
+    def _start_ping_loop(self) -> None:
+        """启动 ping 周期。第一次 fire 立即触发（next event loop tick），
+        之后按 _PING_INTERVAL_MS 周期。
+
+        注：不能用 `self._ping_timer.start(0)`——PySide6 的 start(int) 会同时
+        把 interval() 改成该值（不是只设初始延迟），后续读取会拿到 0。
+        改用 `QTimer.singleShot(0, ...)` 单独处理"立即 fire"，保持 _ping_timer
+        的 interval 不变。
+        """
+        QTimer.singleShot(0, self._run_ping)
+        self._ping_timer.start()
 
     def _run_ping(self) -> None:
         if self._ping_busy or self._orchestrator is None:
